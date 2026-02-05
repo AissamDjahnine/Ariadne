@@ -51,6 +51,8 @@ export default function Reader() {
   const [dictionaryEntry, setDictionaryEntry] = useState(null);
   const [dictionaryError, setDictionaryError] = useState("");
   const dictionaryTokenRef = useRef(0);
+  const lastActiveRef = useRef(Date.now());
+  const isUpdatingStatsRef = useRef(false);
 
   useEffect(() => {
     if (showAIModal && rendition) {
@@ -76,6 +78,17 @@ export default function Reader() {
   useEffect(() => {
     bookRef.current = book;
   }, [book]);
+
+  useEffect(() => {
+    const markActive = () => {
+      lastActiveRef.current = Date.now();
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
+    events.forEach((event) => window.addEventListener(event, markActive, { passive: true }));
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, markActive));
+    };
+  }, []);
 
   const getStoryMemory = (currentBook) => {
     if (!currentBook) return '';
@@ -250,6 +263,7 @@ export default function Reader() {
 
   const handleLocationChange = (loc) => {
     if (!loc?.start || !bookId) return;
+    lastActiveRef.current = Date.now();
     updateBookProgress(bookId, loc.start.cfi, loc.percentage || 0);
 
     // Automatically summarise each new "screen" in the background.  If the
@@ -389,6 +403,31 @@ export default function Reader() {
   useEffect(() => {
     const loadBook = async () => { if (bookId) setBook(await getBook(bookId)); };
     loadBook();
+  }, [bookId]);
+
+  useEffect(() => {
+    if (!bookId) return;
+    const intervalMs = 15000;
+    const activeWindowMs = 60000;
+
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastActiveRef.current > activeWindowMs) return;
+      if (isUpdatingStatsRef.current) return;
+
+      try {
+        isUpdatingStatsRef.current = true;
+        const updated = await updateReadingStats(bookId, Math.floor(intervalMs / 1000));
+        if (updated) setBook(updated);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        isUpdatingStatsRef.current = false;
+      }
+    };
+
+    const id = setInterval(tick, intervalMs);
+    return () => clearInterval(id);
   }, [bookId]);
 
   const [settings, setSettings] = useState(() => {
