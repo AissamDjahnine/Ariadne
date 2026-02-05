@@ -43,6 +43,8 @@ export default function Reader() {
   const [pageSummary, setPageSummary] = useState("");
   // Holds the story-so-far recap returned from the AI.
   const [storyRecap, setStoryRecap] = useState("");
+  const [pageError, setPageError] = useState("");
+  const [storyError, setStoryError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
@@ -359,13 +361,15 @@ export default function Reader() {
     setIsChapterSummarizing(true);
     try {
       const memory = currentBook.globalSummary || '';
-      const finalChapterSummary = await summarizeChapter(rawText, memory, 'cumulative');
-      if (finalChapterSummary) {
-        const updatedGlobal = memory ? `${memory}\n\n${finalChapterSummary}` : finalChapterSummary;
-        const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, finalChapterSummary, updatedGlobal);
+      const result = await summarizeChapter(rawText, memory, 'cumulative');
+      if (result.text) {
+        const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
+        const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, result.text, updatedGlobal);
         if (updatedBook) {
           setBook(updatedBook);
         }
+      } else if (result.error) {
+        console.error('Chapter summary failed:', result.error);
       }
     } catch (err) {
       console.error(err);
@@ -384,14 +388,21 @@ export default function Reader() {
     setShowAIModal(true);
     setIsPageSummarizing(true);
     setPageSummary("");
+    setPageError("");
 
     try {
       const viewer = rendition.getContents()[0];
-      const pageText = viewer.document.body.innerText;
+      const pageText = viewer?.document?.body?.innerText || "";
+      if (!pageText) {
+        setPageError('Unable to read the current page.');
+        return;
+      }
       const memory = getStoryMemory(currentBook);
-      const pageSummary = await summarizeChapter(pageText, memory, "contextual");
-      if (pageSummary) {
-        setPageSummary(pageSummary);
+      const result = await summarizeChapter(pageText, memory, "contextual");
+      if (result.text) {
+        setPageSummary(result.text);
+      } else if (result.error) {
+        setPageError(result.error);
       } else {
         setPageSummary("");
       }
@@ -407,9 +418,9 @@ export default function Reader() {
     setModalMode('story');
     setShowAIModal(true);
     setStoryRecap("");
+    setStoryError("");
 
     const memory = getStoryMemory(currentBook);
-    if (!memory) return;
 
     setIsStoryRecapping(true);
     try {
@@ -422,15 +433,40 @@ export default function Reader() {
           console.error(err);
         }
       }
-      const recap = await summarizeChapter(pageText, memory, "recap");
-      if (recap) {
-        setStoryRecap(recap);
+      if (!memory && !pageText) {
+        setStoryError('Unable to read the current page.');
+        return;
+      }
+      let effectiveMemory = memory;
+      if (!effectiveMemory && pageText) {
+        const seed = await summarizeChapter(pageText, "", "cumulative");
+        if (seed.text) {
+          effectiveMemory = seed.text;
+          const updatedBook = await savePageSummary(currentBook.id, `seed-${Date.now()}`, seed.text, seed.text);
+          if (updatedBook) setBook(updatedBook);
+        } else if (seed.error) {
+          setStoryError(seed.error);
+        }
+      }
+
+      if (!effectiveMemory) {
+        setStoryError((prev) => prev || 'No story memory yet. Read a bit more, then try again.');
+        return;
+      }
+
+      const recapResult = await summarizeChapter(pageText, effectiveMemory, "recap");
+      if (recapResult.text) {
+        setStoryRecap(recapResult.text);
+      } else if (recapResult.error) {
+        setStoryError(recapResult.error);
+        setStoryRecap(effectiveMemory);
       } else {
-        setStoryRecap(memory);
+        setStoryRecap(effectiveMemory);
       }
     } catch (err) {
       console.error(err);
-      setStoryRecap(memory);
+      if (memory) setStoryRecap(memory);
+      setStoryError('Story recap failed. Please try again.');
     } finally {
       setIsStoryRecapping(false);
     }
@@ -446,15 +482,18 @@ export default function Reader() {
     try {
       isBackgroundSummarizingRef.current = true;
       const viewer = rendition.getContents()[0];
-      const pageText = viewer.document.body.innerText;
+      const pageText = viewer?.document?.body?.innerText || "";
+      if (!pageText) return;
       const memory = currentBook.globalSummary || "";
-      const snippet = await summarizeChapter(pageText, memory, 'cumulative');
-      if (snippet) {
-        const updatedGlobal = memory ? `${memory}\n\n${snippet}` : snippet;
-        const updatedBook = await savePageSummary(currentBook.id, cfi, snippet, updatedGlobal);
+      const result = await summarizeChapter(pageText, memory, 'cumulative');
+      if (result.text) {
+        const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
+        const updatedBook = await savePageSummary(currentBook.id, cfi, result.text, updatedGlobal);
         if (updatedBook) {
           setBook(updatedBook);
         }
+      } else if (result.error) {
+        console.error('Background summary failed:', result.error);
       }
     } catch (err) {
       console.error(err);
@@ -570,6 +609,17 @@ export default function Reader() {
                 {modalContext?.chapterLabel && (
                   <div className="text-[10px] uppercase tracking-[0.2em] text-gray-400">
                     {modalContext.chapterLabel}
+                  </div>
+                )}
+
+                {modalMode === 'page' && pageError && (
+                  <div className="text-xs text-red-500">
+                    AI error: {pageError}
+                  </div>
+                )}
+                {modalMode === 'story' && storyError && (
+                  <div className="text-xs text-red-500">
+                    AI error: {storyError}
                   </div>
                 )}
 

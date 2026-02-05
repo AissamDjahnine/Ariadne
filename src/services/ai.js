@@ -21,9 +21,8 @@ const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-
  *
  *   • "recap" – Produce a story-so-far recap using only the story memory.
  *
- * The returned string always contains the labels "Summary:" and
- * "Characters so far:".  If the AI fails to return a valid result the
- * function resolves to an empty string.
+ * The returned object always contains a "text" field (possibly empty) and
+ * an "error" field when the request fails.
  *
  * @param {string} text             The raw text to summarise.
  * @param {string} previousMemory   The running summary built so far (ignored in snapshot mode).
@@ -77,15 +76,19 @@ Characters so far:
     });
 
     const data = await response.json();
-    // The API returns an array of candidate responses.  We pick the first
-    // candidate and extract its text content.  If no candidate is available
-    // we fall back to the empty string.
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-      return data.candidates[0].content.parts[0].text.trim();
+    if (!response.ok) {
+      const message = data?.error?.message || `AI request failed (${response.status})`;
+      return { text: '', error: message, status: response.status };
     }
-    return '';
+
+    // The API returns an array of candidate responses.  We pick the first
+    // candidate and extract its text content.
+    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+      return { text: data.candidates[0].content.parts[0].text.trim(), error: '' };
+    }
+    return { text: '', error: 'AI returned no content' };
   } catch (error) {
     console.error('AI Failure:', error);
-    return '';
+    return { text: '', error: error?.message || 'AI request failed' };
   }
 }
