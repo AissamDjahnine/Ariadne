@@ -7,7 +7,8 @@ import { summarizeChapter } from '../services/ai';
 import { 
   Moon, Sun, BookOpen, Scroll, Type, 
   ChevronLeft, Menu, X,
-  Search as SearchIcon, ChevronUp, ChevronDown, Sparkles, Wand2, User
+  Search as SearchIcon, ChevronUp, ChevronDown, Sparkles, Wand2, User,
+  BookOpenText
 } from 'lucide-react';
 
 export default function Reader() {
@@ -24,6 +25,7 @@ export default function Reader() {
   const [isChapterSummarizing, setIsChapterSummarizing] = useState(false);
   const [isStoryRecapping, setIsStoryRecapping] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isDefining, setIsDefining] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('chapters');
   const [toc, setToc] = useState([]);
   const [jumpTarget, setJumpTarget] = useState(null);
@@ -44,6 +46,10 @@ export default function Reader() {
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const searchTokenRef = useRef(0);
+  const [showDictionary, setShowDictionary] = useState(false);
+  const [dictionaryQuery, setDictionaryQuery] = useState("");
+  const [dictionaryEntry, setDictionaryEntry] = useState(null);
+  const [dictionaryError, setDictionaryError] = useState("");
 
   useEffect(() => {
     if (showAIModal && rendition) {
@@ -155,6 +161,63 @@ export default function Reader() {
       console.error(err);
     } finally {
       if (searchTokenRef.current === token) setIsSearching(false);
+    }
+  };
+
+  const sanitizeDictionaryTerm = (text) => {
+    if (!text) return '';
+    const trimmed = text.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+    const firstToken = trimmed.split(' ')[0];
+    return firstToken.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+  };
+
+  const clearDictionary = () => {
+    setDictionaryQuery("");
+    setDictionaryEntry(null);
+    setDictionaryError("");
+  };
+
+  const lookupDictionary = async (term) => {
+    const clean = sanitizeDictionaryTerm(term);
+    if (!clean) {
+      clearDictionary();
+      return;
+    }
+    setDictionaryQuery(clean);
+    setDictionaryError("");
+    setDictionaryEntry(null);
+    setIsDefining(true);
+
+    try {
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean)}`);
+      if (!response.ok) {
+        throw new Error('No definition found');
+      }
+      const data = await response.json();
+      const first = Array.isArray(data) ? data[0] : null;
+      setDictionaryEntry(first);
+    } catch (err) {
+      console.error(err);
+      setDictionaryError('No definition found for that word.');
+    } finally {
+      setIsDefining(false);
+    }
+  };
+
+  const handleSelection = (text) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const wordCount = trimmed.split(/\s+/).length;
+    const clean = sanitizeDictionaryTerm(trimmed);
+    if (!clean) return;
+    setShowDictionary(true);
+    setDictionaryQuery(clean);
+    if (wordCount === 1) {
+      lookupDictionary(clean);
+    } else {
+      setDictionaryEntry(null);
+      setDictionaryError('Select a single word to look it up.');
     }
   };
 
@@ -305,6 +368,11 @@ export default function Reader() {
     const saved = localStorage.getItem('reader-settings');
     return saved ? JSON.parse(saved) : { fontSize: 100, theme: 'light', flow: 'paginated' };
   });
+
+  const phoneticText =
+    dictionaryEntry?.phonetic ||
+    dictionaryEntry?.phonetics?.find((p) => p.text)?.text ||
+    "";
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
@@ -514,6 +582,89 @@ export default function Reader() {
         </div>
       )}
 
+      {showDictionary && (
+        <div className="fixed inset-0 z-[55]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowDictionary(false)}
+          />
+          <div
+            className={`absolute left-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <BookOpenText size={18} className="text-gray-400" />
+              <input
+                type="text"
+                placeholder="Look up a word..."
+                value={dictionaryQuery}
+                onChange={(e) => setDictionaryQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') lookupDictionary(dictionaryQuery);
+                }}
+                className="flex-1 bg-transparent outline-none text-sm"
+              />
+              <button
+                onClick={() => setShowDictionary(false)}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => lookupDictionary(dictionaryQuery)}
+                className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+              >
+                Define
+              </button>
+              <button
+                onClick={clearDictionary}
+                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-4">
+              {isDefining && (
+                <div className="text-xs text-gray-500">Looking up definition...</div>
+              )}
+              {!isDefining && dictionaryError && (
+                <div className="text-xs text-red-500">{dictionaryError}</div>
+              )}
+              {!isDefining && dictionaryEntry && (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {dictionaryEntry.word}
+                    </div>
+                    {phoneticText && (
+                      <div className="text-xs text-gray-500">{phoneticText}</div>
+                    )}
+                  </div>
+
+                  {(dictionaryEntry.meanings || []).slice(0, 3).map((meaning, idx) => (
+                    <div key={`${meaning.partOfSpeech}-${idx}`} className="space-y-2">
+                      <div className="text-xs uppercase tracking-widest text-gray-400">
+                        {meaning.partOfSpeech}
+                      </div>
+                      {(meaning.definitions || []).slice(0, 2).map((def, dIdx) => (
+                        <div key={`${idx}-${dIdx}`} className="text-sm text-gray-700 dark:text-gray-200">
+                          - {def.definition}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP BAR */}
       <div className={`flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
         <div className="flex items-center gap-2">
@@ -541,6 +692,13 @@ export default function Reader() {
           >
             <SearchIcon size={18} />
           </button>
+          <button
+            onClick={() => setShowDictionary((s) => !s)}
+            className={`p-2 rounded-full transition ${showDictionary ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            title="Dictionary"
+          >
+            <BookOpenText size={18} />
+          </button>
           <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
           <button onClick={() => setSettings(s => ({...s, theme: s.theme === 'light' ? 'dark' : 'light'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}</button>
           <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
@@ -556,6 +714,7 @@ export default function Reader() {
           onRenditionReady={setRendition}
           onChapterEnd={handleChapterEnd}
           searchResults={searchResults}
+          onSelection={(text) => handleSelection(text)}
         />
       </div>
     </div>
