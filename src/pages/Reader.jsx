@@ -1,0 +1,381 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
+import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary } from '../services/db';
+import BookView from '../components/BookView';
+import { summarizeChapter } from '../services/ai'; 
+
+import { 
+  Moon, Sun, BookOpen, Scroll, Type, 
+  ChevronLeft, Menu, X, List, Trash2, Clock, 
+  Search as SearchIcon, ChevronUp, ChevronDown, Sparkles, Wand2, User
+} from 'lucide-react';
+
+export default function Reader() {
+  const [searchParams] = useSearchParams();
+  const bookId = searchParams.get('id');
+  const [book, setBook] = useState(null);
+  const bookRef = useRef(null);
+  
+  const [showFontMenu, setShowFontMenu] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [showSearchMenu, setShowSearchMenu] = useState(false);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [isPageSummarizing, setIsPageSummarizing] = useState(false);
+  const [isChapterSummarizing, setIsChapterSummarizing] = useState(false);
+  const [isStoryRecapping, setIsStoryRecapping] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState('chapters');
+  const [toc, setToc] = useState([]);
+  const [jumpTarget, setJumpTarget] = useState(null);
+  const [rendition, setRendition] = useState(null);
+  const [modalContext, setModalContext] = useState(null);
+
+  // Track the last CFI that was summarised to avoid redundant API calls.
+  const lastSummaryCfiRef = useRef(null);
+  // Flag to indicate a background summary is in progress.  Prevents overlapping requests.
+  const isBackgroundSummarizingRef = useRef(false);
+  // Determines which type of analysis is being displayed in the AI modal ("page" or "story").
+  const [modalMode, setModalMode] = useState(null);
+  // Holds the contextual page explanation returned from the AI.
+  const [pageSummary, setPageSummary] = useState("");
+  // Holds the story-so-far recap returned from the AI.
+  const [storyRecap, setStoryRecap] = useState("");
+
+  useEffect(() => {
+    if (showAIModal && rendition) {
+      try {
+        const loc = rendition.currentLocation();
+        if (loc && loc.start) {
+          const currentIndex = loc.start.index;
+          // Extract chapter label from TOC
+          const chapterLabel = toc.find(t => t.href.includes(loc.start.href))?.label || `Section ${currentIndex + 1}`;
+          const prevSpineItem = currentIndex > 0 ? rendition.book.spine.get(currentIndex - 1) : null;
+          
+          setModalContext({
+            chapterLabel,
+            index: currentIndex,
+            total: rendition.book.spine.length,
+            prevHref: prevSpineItem ? prevSpineItem.href : null
+          });
+        }
+      } catch (err) { console.error(err); }
+    }
+  }, [showAIModal, rendition, toc]);
+
+  useEffect(() => {
+    bookRef.current = book;
+  }, [book]);
+
+  const getStoryMemory = (currentBook) => {
+    if (!currentBook) return '';
+    if (typeof currentBook.globalSummary === 'string' && currentBook.globalSummary.trim()) {
+      return currentBook.globalSummary;
+    }
+    if (Array.isArray(currentBook.chapterSummaries) && currentBook.chapterSummaries.length) {
+      return currentBook.chapterSummaries.map(s => s.summary).filter(Boolean).join("\n\n");
+    }
+    if (Array.isArray(currentBook.aiSummaries) && currentBook.aiSummaries.length) {
+      return currentBook.aiSummaries.map(s => s.summary).filter(Boolean).join("\n\n");
+    }
+    return '';
+  };
+
+  const handleLocationChange = (loc) => {
+    if (!loc?.start || !bookId) return;
+    updateBookProgress(bookId, loc.start.cfi, loc.percentage || 0);
+
+    // Automatically summarise each new "screen" in the background.  If the
+    // current CFI differs from the last summarised one and no background
+    // summarisation is underway, trigger a new summary.  This builds up the
+    // cumulative story memory without interrupting the reader.
+    const currentCfi = loc.start.cfi;
+    if (currentCfi && lastSummaryCfiRef.current !== currentCfi && !isBackgroundSummarizingRef.current) {
+      lastSummaryCfiRef.current = currentCfi;
+      summariseBackground(currentCfi);
+    }
+  };
+
+  // NOTE: Intermediate summaries were previously generated after a fixed number
+  // of page turns.  The new continuous chronicler renders this obsolete, so
+  // the triggerIntermediateSummary function has been removed.
+
+  const handleChapterEnd = async (chapterHref, rawText) => {
+    // Generate a final summary when the reader reaches the end of a chapter.
+    // The summary is appended to the global story memory.  Unlike the old
+    // implementation we do not incorporate intermediate summaries, as the
+    // chronicler updates the global summary on every screen change.
+    const currentBook = bookRef.current;
+    if (!currentBook || isChapterSummarizing) return;
+    const alreadySummarized =
+      currentBook.chapterSummaries?.some((s) => s.chapterHref === chapterHref) ||
+      currentBook.aiSummaries?.some((s) => s.chapterHref === chapterHref);
+    if (alreadySummarized) return;
+
+    setIsChapterSummarizing(true);
+    try {
+      const memory = currentBook.globalSummary || '';
+      const finalChapterSummary = await summarizeChapter(rawText, memory, 'cumulative');
+      if (finalChapterSummary) {
+        const updatedGlobal = memory ? `${memory}\n\n${finalChapterSummary}` : finalChapterSummary;
+        const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, finalChapterSummary, updatedGlobal);
+        if (updatedBook) {
+          setBook(updatedBook);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsChapterSummarizing(false);
+    }
+  };
+
+  // Explain the currently visible page in context.  This function
+  // is invoked when the user clicks the "Explain Page" button.  It explains
+  // the current page in the context of the story so far without updating memory.
+  const handleManualPageSummary = async () => {
+    const currentBook = bookRef.current;
+    if (!rendition || !currentBook) return;
+    setModalMode('page');
+    setShowAIModal(true);
+    setIsPageSummarizing(true);
+    setPageSummary("");
+
+    try {
+      const viewer = rendition.getContents()[0];
+      const pageText = viewer.document.body.innerText;
+      const memory = getStoryMemory(currentBook);
+      const pageSummary = await summarizeChapter(pageText, memory, "contextual");
+      if (pageSummary) {
+        setPageSummary(pageSummary);
+      } else {
+        setPageSummary("");
+      }
+    } catch (err) { console.error(err); } finally {
+      setIsPageSummarizing(false);
+    }
+  };
+
+  // Provide a story-so-far recap using the accumulated story memory.
+  const handleStoryRecap = async () => {
+    const currentBook = bookRef.current;
+    if (!currentBook) return;
+    setModalMode('story');
+    setShowAIModal(true);
+    setStoryRecap("");
+
+    const memory = getStoryMemory(currentBook);
+    if (!memory) return;
+
+    setIsStoryRecapping(true);
+    try {
+      let pageText = "";
+      if (rendition) {
+        try {
+          const viewer = rendition.getContents()[0];
+          pageText = viewer?.document?.body?.innerText || "";
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      const recap = await summarizeChapter(pageText, memory, "recap");
+      if (recap) {
+        setStoryRecap(recap);
+      } else {
+        setStoryRecap(memory);
+      }
+    } catch (err) {
+      console.error(err);
+      setStoryRecap(memory);
+    } finally {
+      setIsStoryRecapping(false);
+    }
+  };
+
+  // Summarise the current "screen" in the background using the cumulative
+  // chronicler mode.  This builds up the running story memory without
+  // interrupting the reader.  The updated summary is persisted via
+  // savePageSummary.  Each call uses a unique key based on the CFI.
+  const summariseBackground = async (cfi) => {
+    const currentBook = bookRef.current;
+    if (!rendition || !currentBook) return;
+    try {
+      isBackgroundSummarizingRef.current = true;
+      const viewer = rendition.getContents()[0];
+      const pageText = viewer.document.body.innerText;
+      const memory = currentBook.globalSummary || "";
+      const snippet = await summarizeChapter(pageText, memory, 'cumulative');
+      if (snippet) {
+        const updatedGlobal = memory ? `${memory}\n\n${snippet}` : snippet;
+        const updatedBook = await savePageSummary(currentBook.id, cfi, snippet, updatedGlobal);
+        if (updatedBook) {
+          setBook(updatedBook);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      isBackgroundSummarizingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    const loadBook = async () => { if (bookId) setBook(await getBook(bookId)); };
+    loadBook();
+  }, [bookId]);
+
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('reader-settings');
+    return saved ? JSON.parse(saved) : { fontSize: 100, theme: 'light', flow: 'paginated' };
+  });
+
+  if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
+
+  return (
+    <div className={`h-screen flex flex-col overflow-hidden transition-colors duration-200 ${settings.theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'}`}>
+      
+      <style>{`
+        @keyframes orbit {
+          from { transform: rotate(0deg) translateX(70px) rotate(0deg); }
+          to { transform: rotate(360deg) translateX(70px) rotate(-360deg); }
+        }
+        .char-icon { position: absolute; animation: orbit 5s linear infinite; }
+      `}</style>
+
+      {showAIModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            onClick={() => setShowAIModal(false)}
+          />
+          <div
+            className={`relative w-full max-w-lg p-8 rounded-3xl shadow-2xl animate-in zoom-in duration-200 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            {/* Loading states for AI analysis */}
+            {modalMode === 'page' && isPageSummarizing ? (
+              <div className="flex flex-col items-center justify-center py-10 min-h-[300px] relative">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="char-icon" style={{ animationDelay: `-${i * 1}s` }}>
+                      <User className="text-blue-400/50" size={20} />
+                    </div>
+                  ))}
+                </div>
+                <Sparkles className="text-blue-500 animate-spin mb-6" size={40} />
+                <p className="text-sm font-bold tracking-widest uppercase animate-pulse">Consulting the Muses...</p>
+              </div>
+            ) : modalMode === 'story' && isStoryRecapping ? (
+              <div className="flex flex-col items-center justify-center py-10 min-h-[300px]">
+                <Sparkles className="text-blue-500 animate-spin mb-6" size={40} />
+                <p className="text-sm font-bold tracking-widest uppercase animate-pulse">Weaving the Story So Far...</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between border-b pb-4 dark:border-gray-700">
+                  <h3 className="text-lg font-black text-blue-500 uppercase tracking-tighter">
+                    {/* Dynamic heading based on the modal mode */}
+                    {modalMode === 'page'
+                      ? 'Page Explained'
+                      : 'Story So Far'}
+                  </h3>
+                  <button
+                    onClick={() => setShowAIModal(false)}
+                    className="text-gray-400 hover:text-red-500"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                {modalContext?.chapterLabel && (
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-gray-400">
+                    {modalContext.chapterLabel}
+                  </div>
+                )}
+
+                <div className="max-h-[55vh] overflow-y-auto pr-2 custom-scrollbar space-y-6">
+                  {(() => {
+                    const storyMemory = getStoryMemory(book);
+                    // Choose the appropriate content based on the mode: the contextual page
+                    // explanation or the story-so-far recap.
+                    const content =
+                      modalMode === 'page'
+                        ? pageSummary ||
+                          'Summary:\nYour story is unfolding. Read more to see the analysis.'
+                        : storyRecap || storyMemory ||
+                          'Summary:\nYour story is unfolding. Read more to build the recap.';
+
+                    // Separate the summary and character sections based on the label.
+                    const [summaryPart, charPart] = content.split(/Characters so far:/i);
+
+                    return (
+                      <>
+                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                          <h4 className="text-xs font-black text-gray-400 uppercase mb-2">Summary :</h4>
+                          <div className="italic leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                            {summaryPart.replace(/Summary:/i, '').trim()}
+                          </div>
+                        </div>
+
+                        {charPart && (
+                          <div className="pt-4 border-t dark:border-gray-700">
+                            <h4 className="text-xs font-black text-gray-400 uppercase mb-2">Characters so far :</h4>
+                            <div className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-medium">
+                              {charPart.trim()}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <button
+                  onClick={() => setShowAIModal(false)}
+                  className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
+                >
+                  CONTINUE READING
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TOP BAR */}
+      <div className={`flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><Menu size={20} /></button>
+          <Link to="/" className="hover:opacity-70 p-1"><ChevronLeft size={24} /></Link>
+          <h2 className="font-bold truncate text-sm max-w-[120px]">{book.title}</h2>
+        </div>
+        
+        <div className="flex items-center gap-1 sm:gap-2">
+          <button onClick={handleManualPageSummary} className="p-2 px-3 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center gap-2 transition hover:scale-105 active:scale-95">
+            <Wand2 size={18} />
+            <span className="text-[10px] font-black uppercase hidden lg:inline">Explain Page</span>
+          </button>
+          <button
+            onClick={handleStoryRecap}
+            className={`p-2 rounded-full transition flex items-center gap-2 px-3 ${isStoryRecapping ? 'animate-pulse text-yellow-500' : 'text-blue-500'}`}
+          >
+            <Sparkles size={20} />
+            <span className="hidden md:inline text-xs font-black uppercase">Story</span>
+          </button>
+          <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <button onClick={() => setSettings(s => ({...s, theme: s.theme === 'light' ? 'dark' : 'light'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}</button>
+          <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
+          <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-hidden relative">
+        <BookView 
+          bookData={book.data} settings={settings} initialLocation={book.lastLocation}
+          onLocationChange={handleLocationChange} 
+          onTocLoaded={setToc} tocJump={jumpTarget}
+          onRenditionReady={setRendition}
+          onChapterEnd={handleChapterEnd}
+        />
+      </div>
+    </div>
+  );
+}
