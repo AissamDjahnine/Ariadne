@@ -45,6 +45,7 @@ Everything runs in the browser. No backend required for core reading.
 - Continue Reading rail:
   - Shows recently started, unfinished books
   - Displays progress/time/last-read snapshot
+  - Displays latest session duration per book
   - Includes quick `View in-progress` action
 - Reading streak badge:
   - Compact `Flame` badge in library header
@@ -121,6 +122,9 @@ Everything runs in the browser. No backend required for core reading.
 
 - Persist reading progress per book.
 - Track total reading time.
+- Track reading sessions (merged when activity stays within a short break window).
+- Show `Last session: <duration>` on library cards.
+- Show day context only when applicable, e.g. `Last session: 40 min (3 days ago)`.
 - Track last-read timestamp.
 - Show daily streak on Home based on consecutive reading days.
 
@@ -187,6 +191,7 @@ E2E tests live in:
   - Library metadata badge rendering (language + estimated pages)
   - Library view toggle persistence
   - Continue Reading rail visibility behavior
+  - Reading session timeline visibility after active reading
   - Quick card action navigation (`Highlights` / `Bookmarks`)
   - Reading streak badge behavior
   - Trash icon flow (`move -> restore -> delete forever`)
@@ -210,6 +215,6 @@ If AI features are re-enabled for production, move model calls behind a secure s
 - `src/pages/Home.jsx` - library upload/search/sort/filter/trash/view-toggle/continue-reading/quick-actions
 - `src/pages/Reader.jsx` - reader UI, contextual tools, highlights/bookmarks panels, export, panel deep-link handling
 - `src/components/BookView.jsx` - epub.js rendering, navigation, location events
-- `src/services/db.js` - local data persistence (books, metadata backfill, trash retention/purge, highlights, notes, bookmarks, settings, started-state)
+- `src/services/db.js` - local data persistence (books, metadata backfill, trash retention/purge, reading sessions, highlights, notes, bookmarks, settings, started-state)
 - `src/services/ai.js` - AI summarization integration (currently not active for product flow)
 - `Improvements.md` - lightweight backlog of requested improvement ideas
