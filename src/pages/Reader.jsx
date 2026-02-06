@@ -78,6 +78,7 @@ export default function Reader() {
   const [selection, setSelection] = useState(null);
   const [selectionMode, setSelectionMode] = useState('actions');
   const tempSelectionRef = useRef(null);
+  const [progressPct, setProgressPct] = useState(0);
 
   const aiUnavailableMessage = "AI features are not available now.";
 
@@ -159,6 +160,32 @@ export default function Reader() {
   const translateProviderLabel = TRANSLATE_PROVIDER.includes('libre')
     ? 'LibreTranslate'
     : 'MyMemory (free)';
+
+  const formatDuration = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    const minutes = Math.max(1, Math.round(seconds / 60));
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (hours <= 0) return `${minutes}m`;
+    if (remainingMinutes === 0) return `${hours}h`;
+    return `${hours}h ${remainingMinutes}m`;
+  };
+
+  const estimateTimeLeft = () => {
+    const readingTime = book?.readingTime || 0;
+    if (!readingTime || progressPct <= 0 || progressPct >= 100) return null;
+    const avgPerPercent = readingTime / progressPct;
+    if (!Number.isFinite(avgPerPercent) || avgPerPercent <= 0) return null;
+    const remaining = Math.max(0, (100 - progressPct) * avgPerPercent);
+    return remaining || null;
+  };
+
+  const timeLeftSeconds = estimateTimeLeft();
+  const timeLeftLabel = progressPct >= 100
+    ? 'Done'
+    : timeLeftSeconds
+      ? `${formatDuration(timeLeftSeconds)} left`
+      : 'Estimating...';
 
   const cancelSearch = () => {
     searchTokenRef.current += 1;
@@ -507,7 +534,15 @@ export default function Reader() {
   const handleLocationChange = (loc) => {
     if (!loc?.start || !bookId) return;
     lastActiveRef.current = Date.now();
+    const nextProgress = Math.min(Math.max(Math.floor((loc.percentage || 0) * 100), 0), 100);
     updateBookProgress(bookId, loc.start.cfi, loc.percentage || 0);
+    setProgressPct(nextProgress);
+    setBook((prev) => prev ? {
+      ...prev,
+      progress: nextProgress,
+      lastLocation: loc.start.cfi,
+      lastRead: new Date().toISOString()
+    } : prev);
 
     // Automatically summarise each new "screen" in the background.  If the
     // current CFI differs from the last summarised one and no background
@@ -751,6 +786,12 @@ export default function Reader() {
       setHighlights(book.highlights);
     }
   }, [book]);
+
+  useEffect(() => {
+    if (typeof book?.progress === 'number') {
+      setProgressPct(book.progress);
+    }
+  }, [book?.progress]);
 
   useEffect(() => {
     if (!bookId) return;
@@ -1385,7 +1426,12 @@ export default function Reader() {
         <div className="flex items-center gap-2">
           <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><Menu size={20} /></button>
           <Link to="/" className="hover:opacity-70 p-1"><ChevronLeft size={24} /></Link>
-          <h2 className="font-bold truncate text-sm max-w-[120px]">{book.title}</h2>
+          <div className="flex flex-col">
+            <h2 className="font-bold truncate text-sm max-w-[120px]">{book.title}</h2>
+            <div className="hidden sm:block text-[10px] uppercase tracking-widest text-gray-400">
+              {progressPct}% · {timeLeftLabel}
+            </div>
+          </div>
         </div>
         
         <div className="flex items-center gap-1 sm:gap-2">
