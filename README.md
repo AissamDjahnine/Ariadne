@@ -22,7 +22,17 @@ Everything runs in the browser. No backend required for core reading.
 - Filter by:
   - All
   - Favorites
+  - In progress
   - Finished
+  - Has highlights
+  - Has notes
+- Sort by:
+  - Last read (newest/oldest)
+  - Added date (newest/oldest)
+  - Progress (high to low / low to high)
+  - Title (A-Z / Z-A)
+  - Author (A-Z / Z-A)
+- Active filter/sort chips shown in UI for quick context.
 - Favorite/unfavorite books.
 - Delete books.
 
@@ -131,8 +141,16 @@ npm run test:e2e   # run Playwright tests
 
 ## Testing
 
-E2E tests live in `tests/e2e/reader.spec.js` and cover key reader flows
-including search cancellation, dictionary race handling, and translation behavior.
+E2E tests live in:
+
+- `tests/e2e/reader.spec.js`
+  - Search cancellation behavior
+  - Dictionary stale-response race handling
+  - Translation behavior
+  - Reader iframe remount regression guard
+- `tests/e2e/home.spec.js`
+  - Library sort/filter behavior
+  - Favorites filter behavior
 
 To run browser tests locally:
 
@@ -148,7 +166,7 @@ If AI features are re-enabled for production, move model calls behind a secure s
 
 ## Key Files
 
-- `src/pages/Home.jsx` - library upload/search/filter/favorites view
+- `src/pages/Home.jsx` - library upload/search/sort/filter/favorites view
 - `src/pages/Reader.jsx` - reader UI, contextual tools, highlights, bookmarks, export
 - `src/components/BookView.jsx` - epub.js rendering, navigation, location events
 - `src/services/db.js` - local data persistence (books, highlights, notes, bookmarks, settings)
