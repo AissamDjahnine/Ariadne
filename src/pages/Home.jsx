@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { addBook, getAllBooks, deleteBook, toggleFavorite } from '../services/db'; 
-import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter } from 'lucide-react';
+import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter, ArrowUpDown } from 'lucide-react';
 
 export default function Home() {
   const [books, setBooks] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Search & Filter States
+  // Search, filter & sort states
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all"); // "all", "favorites", "finished"
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("last-read-desc");
 
   useEffect(() => { loadLibrary(); }, []);
 
@@ -44,19 +45,71 @@ export default function Home() {
     }
   };
 
-  // --- Search & Filter Logic ---
-  const filteredBooks = books.filter(book => {
-    const matchesSearch = 
-      book.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      book.author.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesFilter = 
-      activeFilter === "all" ? true :
-      activeFilter === "favorites" ? book.isFavorite :
-      activeFilter === "finished" ? book.progress >= 100 : true;
+  const filterOptions = [
+    { value: "all", label: "All books" },
+    { value: "favorites", label: "Favorites" },
+    { value: "in-progress", label: "In progress" },
+    { value: "finished", label: "Finished" },
+    { value: "has-highlights", label: "Has highlights" },
+    { value: "has-notes", label: "Has notes" }
+  ];
 
-    return matchesSearch && matchesFilter;
-  });
+  const sortOptions = [
+    { value: "last-read-desc", label: "Last read (newest)" },
+    { value: "last-read-asc", label: "Last read (oldest)" },
+    { value: "added-desc", label: "Added date (newest)" },
+    { value: "added-asc", label: "Added date (oldest)" },
+    { value: "progress-desc", label: "Progress (high to low)" },
+    { value: "progress-asc", label: "Progress (low to high)" },
+    { value: "title-asc", label: "Title (A-Z)" },
+    { value: "title-desc", label: "Title (Z-A)" },
+    { value: "author-asc", label: "Author (A-Z)" },
+    { value: "author-desc", label: "Author (Z-A)" }
+  ];
+
+  const normalizeString = (value) => (value || "").toString().toLowerCase();
+  const normalizeNumber = (value) => Number(value || 0);
+  const normalizeTime = (value) => {
+    const parsed = new Date(value || 0).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const sortedBooks = [...books]
+    .filter((book) => {
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch = !query
+        || normalizeString(book.title).includes(query)
+        || normalizeString(book.author).includes(query);
+
+      const highlightCount = Array.isArray(book.highlights) ? book.highlights.length : 0;
+      const noteCount = Array.isArray(book.highlights)
+        ? book.highlights.filter((h) => (h?.note || "").trim()).length
+        : 0;
+      const progress = normalizeNumber(book.progress);
+
+      const matchesFilter =
+        activeFilter === "all" ? true
+        : activeFilter === "favorites" ? !!book.isFavorite
+        : activeFilter === "in-progress" ? progress > 0 && progress < 100
+        : activeFilter === "finished" ? progress >= 100
+        : activeFilter === "has-highlights" ? highlightCount > 0
+        : activeFilter === "has-notes" ? noteCount > 0
+        : true;
+
+      return matchesSearch && matchesFilter;
+    })
+    .sort((left, right) => {
+      if (sortBy === "last-read-desc") return normalizeTime(right.lastRead) - normalizeTime(left.lastRead);
+      if (sortBy === "last-read-asc") return normalizeTime(left.lastRead) - normalizeTime(right.lastRead);
+      if (sortBy === "added-desc") return normalizeTime(right.addedAt) - normalizeTime(left.addedAt);
+      if (sortBy === "added-asc") return normalizeTime(left.addedAt) - normalizeTime(right.addedAt);
+      if (sortBy === "progress-desc") return normalizeNumber(right.progress) - normalizeNumber(left.progress);
+      if (sortBy === "progress-asc") return normalizeNumber(left.progress) - normalizeNumber(right.progress);
+      if (sortBy === "title-desc") return normalizeString(right.title).localeCompare(normalizeString(left.title));
+      if (sortBy === "author-asc") return normalizeString(left.author).localeCompare(normalizeString(right.author));
+      if (sortBy === "author-desc") return normalizeString(right.author).localeCompare(normalizeString(left.author));
+      return normalizeString(left.title).localeCompare(normalizeString(right.title));
+    });
 
   const formatTime = (totalSeconds) => {
     if (!totalSeconds || totalSeconds < 60) return "Just started";
@@ -84,9 +137,9 @@ export default function Home() {
           <div>
             <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">My Library</h1>
             <p className="text-gray-500 mt-1">
-              {filteredBooks.length === books.length 
+              {sortedBooks.length === books.length 
                 ? `You have ${books.length} books` 
-                : `Showing ${filteredBooks.length} of ${books.length} books`}
+                : `Showing ${sortedBooks.length} of ${books.length} books`}
             </p>
           </div>
 
@@ -97,43 +150,69 @@ export default function Home() {
           </label>
         </header>
 
-        {/* Search and Filter Bar */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
+        {/* Search, Filter and Sort Bar */}
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px_280px] gap-3 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input 
               type="text"
               placeholder="Search by title or author..."
+              data-testid="library-search"
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          
-          <div className="flex bg-white p-1 border border-gray-200 rounded-2xl shadow-sm">
-            {['all', 'favorites', 'finished'].map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setActiveFilter(filter)}
-                className={`px-6 py-2 rounded-xl text-sm font-bold capitalize transition-all ${
-                  activeFilter === filter 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-gray-500 hover:text-gray-900'
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
+
+          <div className="relative">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <select
+              data-testid="library-filter"
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm text-sm font-semibold text-gray-700"
+            >
+              {filterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative">
+            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <select
+              data-testid="library-sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm text-sm font-semibold text-gray-700"
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
+        <div className="mb-8 text-xs text-gray-500 flex items-center gap-2">
+          <span className="font-semibold text-gray-600">Active:</span>
+          <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+            {filterOptions.find((f) => f.value === activeFilter)?.label || "All books"}
+          </span>
+          <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+            {sortOptions.find((s) => s.value === sortBy)?.label || "Last read (newest)"}
+          </span>
+        </div>
 
-        {filteredBooks.length === 0 ? (
+        {sortedBooks.length === 0 ? (
           <div className="bg-white border-2 border-dashed border-gray-200 rounded-3xl p-20 text-center shadow-sm">
             <BookIcon size={48} className="mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500 text-lg">No books found matching your criteria.</p>
-            {searchQuery && (
+            {(searchQuery || activeFilter !== "all") && (
               <button 
-                onClick={() => {setSearchQuery(""); setActiveFilter("all");}}
+                onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}
                 className="mt-4 text-blue-600 font-bold hover:underline"
               >
                 Clear all filters
@@ -142,7 +221,7 @@ export default function Home() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500">
-            {filteredBooks.map((book) => (
+            {sortedBooks.map((book) => (
               <Link 
                 to={`/read?id=${book.id}`} 
                 key={book.id}
