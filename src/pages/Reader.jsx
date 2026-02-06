@@ -6,8 +6,9 @@ import { summarizeChapter } from '../services/ai';
 
 import { 
   Moon, Sun, BookOpen, Scroll, Type, 
-  ChevronLeft, Menu, X, List, Trash2, Clock, 
-  Search as SearchIcon, ChevronUp, ChevronDown, Sparkles, Wand2, User
+  ChevronLeft, Menu, X,
+  Search as SearchIcon, ChevronUp, ChevronDown, Sparkles, Wand2, User,
+  BookOpenText, Highlighter
 } from 'lucide-react';
 
 export default function Reader() {
@@ -20,9 +21,12 @@ export default function Reader() {
   const [showSidebar, setShowSidebar] = useState(false);
   const [showSearchMenu, setShowSearchMenu] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [isPageSummarizing, setIsPageSummarizing] = useState(false);
   const [isChapterSummarizing, setIsChapterSummarizing] = useState(false);
   const [isStoryRecapping, setIsStoryRecapping] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isDefining, setIsDefining] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('chapters');
   const [toc, setToc] = useState([]);
   const [jumpTarget, setJumpTarget] = useState(null);
@@ -39,6 +43,27 @@ export default function Reader() {
   const [pageSummary, setPageSummary] = useState("");
   // Holds the story-so-far recap returned from the AI.
   const [storyRecap, setStoryRecap] = useState("");
+  const [pageError, setPageError] = useState("");
+  const [storyError, setStoryError] = useState("");
+  const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const [rebuildProgress, setRebuildProgress] = useState({ current: 0, total: 0 });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+  const searchTokenRef = useRef(0);
+  const [showDictionary, setShowDictionary] = useState(false);
+  const [dictionaryQuery, setDictionaryQuery] = useState("");
+  const [dictionaryEntry, setDictionaryEntry] = useState(null);
+  const [dictionaryError, setDictionaryError] = useState("");
+  const dictionaryTokenRef = useRef(0);
+  const lastActiveRef = useRef(Date.now());
+  const isUpdatingStatsRef = useRef(false);
+  const [highlights, setHighlights] = useState([]);
+  const [selection, setSelection] = useState(null);
+  const [selectionMode, setSelectionMode] = useState('actions');
+  const tempSelectionRef = useRef(null);
+
+  const aiUnavailableMessage = "AI features are not available now.";
 
   useEffect(() => {
     if (showAIModal && rendition) {
@@ -65,6 +90,17 @@ export default function Reader() {
     bookRef.current = book;
   }, [book]);
 
+  useEffect(() => {
+    const markActive = () => {
+      lastActiveRef.current = Date.now();
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
+    events.forEach((event) => window.addEventListener(event, markActive, { passive: true }));
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, markActive));
+    };
+  }, []);
+
   const getStoryMemory = (currentBook) => {
     if (!currentBook) return '';
     if (typeof currentBook.globalSummary === 'string' && currentBook.globalSummary.trim()) {
@@ -79,8 +115,254 @@ export default function Reader() {
     return '';
   };
 
+  const highlightColors = [
+    { name: 'Amber', value: '#fcd34d' },
+    { name: 'Rose', value: '#f9a8d4' },
+    { name: 'Sky', value: '#7dd3fc' },
+    { name: 'Lime', value: '#bef264' },
+    { name: 'Violet', value: '#c4b5fd' },
+    { name: 'Teal', value: '#5eead4' },
+    { name: 'Orange', value: '#fdba74' }
+  ];
+
+  const cancelSearch = () => {
+    searchTokenRef.current += 1;
+    setIsSearching(false);
+  };
+
+  const clearSearch = () => {
+    cancelSearch();
+    setSearchQuery("");
+    setSearchResults([]);
+    setActiveSearchIndex(-1);
+  };
+
+  const closeSearchMenu = () => {
+    cancelSearch();
+    setShowSearchMenu(false);
+  };
+
+  const goToSearchIndex = (index) => {
+    if (!searchResults.length) return;
+    const clamped = Math.max(0, Math.min(index, searchResults.length - 1));
+    setActiveSearchIndex(clamped);
+    const target = searchResults[clamped];
+    if (target?.cfi) setJumpTarget(target.cfi);
+  };
+
+  const goToNextResult = () => {
+    if (!searchResults.length) return;
+    const next = activeSearchIndex + 1 >= searchResults.length ? 0 : activeSearchIndex + 1;
+    goToSearchIndex(next);
+  };
+
+  const goToPrevResult = () => {
+    if (!searchResults.length) return;
+    const prev = activeSearchIndex - 1 < 0 ? searchResults.length - 1 : activeSearchIndex - 1;
+    goToSearchIndex(prev);
+  };
+
+  const runSearch = async (query) => {
+    const term = query.trim();
+    if (!rendition || !term) {
+      clearSearch();
+      return;
+    }
+
+    const token = searchTokenRef.current + 1;
+    searchTokenRef.current = token;
+    setIsSearching(true);
+    setSearchResults([]);
+    setActiveSearchIndex(-1);
+
+    try {
+      const book = rendition.book;
+      if (book?.ready) await book.ready;
+
+      const results = [];
+      const spineItems = book?.spine?.spineItems || [];
+      for (const section of spineItems) {
+        if (searchTokenRef.current !== token) return;
+        if (!section) continue;
+        if (section.linear === "no" || section.linear === false) continue;
+        await section.load(book.load.bind(book));
+        const matches = section.search(term) || [];
+        matches.forEach((match) => {
+          results.push({
+            ...match,
+            href: section.href,
+            spineIndex: section.index
+          });
+        });
+        section.unload();
+      }
+
+      if (searchTokenRef.current !== token) return;
+      setSearchResults(results);
+      if (results.length) {
+        setActiveSearchIndex(0);
+        if (results[0]?.cfi) setJumpTarget(results[0].cfi);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (searchTokenRef.current === token) setIsSearching(false);
+    }
+  };
+
+  const sanitizeDictionaryTerm = (text) => {
+    if (!text) return '';
+    const trimmed = text.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+    const firstToken = trimmed.split(' ')[0];
+    return firstToken.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+  };
+
+  const cancelDictionaryLookup = () => {
+    dictionaryTokenRef.current += 1;
+    setIsDefining(false);
+  };
+
+  const clearDictionary = () => {
+    cancelDictionaryLookup();
+    setDictionaryQuery("");
+    setDictionaryEntry(null);
+    setDictionaryError("");
+  };
+
+  const closeDictionary = () => {
+    cancelDictionaryLookup();
+    setShowDictionary(false);
+  };
+
+  const lookupDictionary = async (term) => {
+    const clean = sanitizeDictionaryTerm(term);
+    if (!clean) {
+      clearDictionary();
+      return;
+    }
+    const token = dictionaryTokenRef.current + 1;
+    dictionaryTokenRef.current = token;
+    setDictionaryQuery(clean);
+    setDictionaryError("");
+    setDictionaryEntry(null);
+    setIsDefining(true);
+
+    try {
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean)}`);
+      if (!response.ok) {
+        throw new Error('No definition found');
+      }
+      const data = await response.json();
+      if (dictionaryTokenRef.current !== token) return;
+      const first = Array.isArray(data) ? data[0] : null;
+      setDictionaryEntry(first);
+    } catch (err) {
+      if (dictionaryTokenRef.current !== token) return;
+      console.error(err);
+      setDictionaryError('No definition found for that word.');
+    } finally {
+      if (dictionaryTokenRef.current === token) setIsDefining(false);
+    }
+  };
+
+  const openDictionaryForText = (text) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const wordCount = trimmed.split(/\s+/).length;
+    const clean = sanitizeDictionaryTerm(trimmed);
+    if (!clean) return;
+    setShowDictionary(true);
+    setDictionaryQuery(clean);
+    if (wordCount === 1) {
+      lookupDictionary(clean);
+    } else {
+      setDictionaryEntry(null);
+      setDictionaryError('Select a single word to look it up.');
+    }
+  };
+
+  const handleSelection = (text, cfiRange, pos, isExisting = false) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    if (!isExisting && rendition) {
+      try {
+        if (tempSelectionRef.current) {
+          rendition.annotations.remove('temp-selection');
+          tempSelectionRef.current = null;
+        }
+        rendition.annotations.add('highlight', cfiRange, {}, null, 'temp-selection', {
+          fill: '#fde68a', 'fill-opacity': '0.6', 'mix-blend-mode': 'multiply'
+        });
+        tempSelectionRef.current = cfiRange;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setSelection({
+      text: trimmed,
+      cfiRange,
+      pos,
+      isExisting
+    });
+    setSelectionMode(isExisting ? 'delete' : 'actions');
+  };
+
+  const clearSelection = () => {
+    setSelection(null);
+    setSelectionMode('actions');
+    if (rendition && tempSelectionRef.current) {
+      try {
+        rendition.annotations.remove('temp-selection');
+        tempSelectionRef.current = null;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const addHighlight = async (color) => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !selection?.cfiRange) return;
+    const newHighlight = {
+      cfiRange: selection.cfiRange,
+      text: selection.text,
+      color,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      const updated = await saveHighlight(currentBook.id, newHighlight);
+      if (updated) {
+        setHighlights(updated);
+        setBook({ ...currentBook, highlights: updated });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      clearSelection();
+    }
+  };
+
+  const removeHighlight = async (cfiRange) => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !cfiRange) return;
+    try {
+      const updated = await deleteHighlight(currentBook.id, cfiRange);
+      if (updated) {
+        setHighlights(updated);
+        setBook({ ...currentBook, highlights: updated });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      clearSelection();
+    }
+  };
+
   const handleLocationChange = (loc) => {
     if (!loc?.start || !bookId) return;
+    lastActiveRef.current = Date.now();
     updateBookProgress(bookId, loc.start.cfi, loc.percentage || 0);
 
     // Automatically summarise each new "screen" in the background.  If the
@@ -113,13 +395,15 @@ export default function Reader() {
     setIsChapterSummarizing(true);
     try {
       const memory = currentBook.globalSummary || '';
-      const finalChapterSummary = await summarizeChapter(rawText, memory, 'cumulative');
-      if (finalChapterSummary) {
-        const updatedGlobal = memory ? `${memory}\n\n${finalChapterSummary}` : finalChapterSummary;
-        const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, finalChapterSummary, updatedGlobal);
+      const result = await summarizeChapter(rawText, memory, 'cumulative');
+      if (result.text) {
+        const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
+        const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, result.text, updatedGlobal);
         if (updatedBook) {
           setBook(updatedBook);
         }
+      } else if (result.error) {
+        console.error('Chapter summary failed:', result.error);
       }
     } catch (err) {
       console.error(err);
@@ -138,14 +422,21 @@ export default function Reader() {
     setShowAIModal(true);
     setIsPageSummarizing(true);
     setPageSummary("");
+    setPageError("");
 
     try {
       const viewer = rendition.getContents()[0];
-      const pageText = viewer.document.body.innerText;
+      const pageText = viewer?.document?.body?.innerText || "";
+      if (!pageText) {
+        setPageError('Unable to read the current page.');
+        return;
+      }
       const memory = getStoryMemory(currentBook);
-      const pageSummary = await summarizeChapter(pageText, memory, "contextual");
-      if (pageSummary) {
-        setPageSummary(pageSummary);
+      const result = await summarizeChapter(pageText, memory, "contextual");
+      if (result.text) {
+        setPageSummary(result.text);
+      } else if (result.error) {
+        setPageError(aiUnavailableMessage);
       } else {
         setPageSummary("");
       }
@@ -161,9 +452,9 @@ export default function Reader() {
     setModalMode('story');
     setShowAIModal(true);
     setStoryRecap("");
+    setStoryError("");
 
     const memory = getStoryMemory(currentBook);
-    if (!memory) return;
 
     setIsStoryRecapping(true);
     try {
@@ -176,15 +467,40 @@ export default function Reader() {
           console.error(err);
         }
       }
-      const recap = await summarizeChapter(pageText, memory, "recap");
-      if (recap) {
-        setStoryRecap(recap);
+      if (!memory && !pageText) {
+        setStoryError('Unable to read the current page.');
+        return;
+      }
+      let effectiveMemory = memory;
+      if (!effectiveMemory && pageText) {
+        const seed = await summarizeChapter(pageText, "", "cumulative");
+        if (seed.text) {
+          effectiveMemory = seed.text;
+          const updatedBook = await savePageSummary(currentBook.id, `seed-${Date.now()}`, seed.text, seed.text);
+          if (updatedBook) setBook(updatedBook);
+        } else if (seed.error) {
+          setStoryError(aiUnavailableMessage);
+        }
+      }
+
+      if (!effectiveMemory) {
+        setStoryError((prev) => prev || 'No story memory yet. Read a bit more, then try again.');
+        return;
+      }
+
+      const recapResult = await summarizeChapter(pageText, effectiveMemory, "recap");
+      if (recapResult.text) {
+        setStoryRecap(recapResult.text);
+      } else if (recapResult.error) {
+        setStoryError(aiUnavailableMessage);
+        setStoryRecap(effectiveMemory);
       } else {
-        setStoryRecap(memory);
+        setStoryRecap(effectiveMemory);
       }
     } catch (err) {
       console.error(err);
-      setStoryRecap(memory);
+      if (memory) setStoryRecap(memory);
+      setStoryError(aiUnavailableMessage);
     } finally {
       setIsStoryRecapping(false);
     }
@@ -197,18 +513,22 @@ export default function Reader() {
   const summariseBackground = async (cfi) => {
     const currentBook = bookRef.current;
     if (!rendition || !currentBook) return;
+    if (isRebuildingMemory) return;
     try {
       isBackgroundSummarizingRef.current = true;
       const viewer = rendition.getContents()[0];
-      const pageText = viewer.document.body.innerText;
+      const pageText = viewer?.document?.body?.innerText || "";
+      if (!pageText) return;
       const memory = currentBook.globalSummary || "";
-      const snippet = await summarizeChapter(pageText, memory, 'cumulative');
-      if (snippet) {
-        const updatedGlobal = memory ? `${memory}\n\n${snippet}` : snippet;
-        const updatedBook = await savePageSummary(currentBook.id, cfi, snippet, updatedGlobal);
+      const result = await summarizeChapter(pageText, memory, 'cumulative');
+      if (result.text) {
+        const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
+        const updatedBook = await savePageSummary(currentBook.id, cfi, result.text, updatedGlobal);
         if (updatedBook) {
           setBook(updatedBook);
         }
+      } else if (result.error) {
+        console.error('Background summary failed:', result.error);
       }
     } catch (err) {
       console.error(err);
@@ -217,15 +537,111 @@ export default function Reader() {
     }
   };
 
+  const rebuildStoryMemory = async () => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !rendition) return;
+
+    setIsRebuildingMemory(true);
+    setRebuildProgress({ current: 0, total: 0 });
+    setStoryError("");
+
+    try {
+      const epubBook = rendition.book;
+      if (epubBook?.ready) await epubBook.ready;
+      const spineItems = epubBook?.spine?.spineItems || [];
+      const chapters = spineItems.filter(
+        (section) => section && section.linear !== "no" && section.linear !== false
+      );
+
+      if (!chapters.length) {
+        setStoryError('No readable chapters found.');
+        return;
+      }
+
+      let memory = "";
+      let updatedBook = null;
+      setRebuildProgress({ current: 0, total: chapters.length });
+
+      for (let i = 0; i < chapters.length; i += 1) {
+        const section = chapters[i];
+        await section.load(epubBook.load.bind(epubBook));
+        const rawText = section?.document?.body?.innerText || "";
+        section.unload();
+
+        if (!rawText.trim()) {
+          setRebuildProgress({ current: i + 1, total: chapters.length });
+          continue;
+        }
+
+        const result = await summarizeChapter(rawText, memory, 'cumulative');
+        if (!result.text && result.error) {
+          setStoryError(result.error);
+          break;
+        }
+        if (result.text) {
+          memory = memory ? `${memory}\n\n${result.text}` : result.text;
+          updatedBook = await saveChapterSummary(currentBook.id, section.href, result.text, memory);
+        }
+        setRebuildProgress({ current: i + 1, total: chapters.length });
+      }
+
+      if (updatedBook) {
+        setBook(updatedBook);
+        setStoryRecap(memory);
+      }
+    } catch (err) {
+      console.error(err);
+      setStoryError('Failed to rebuild memory. Please try again.');
+    } finally {
+      setIsRebuildingMemory(false);
+    }
+  };
+
   useEffect(() => {
     const loadBook = async () => { if (bookId) setBook(await getBook(bookId)); };
     loadBook();
+  }, [bookId]);
+
+  useEffect(() => {
+    if (book?.highlights) {
+      setHighlights(book.highlights);
+    }
+  }, [book]);
+
+  useEffect(() => {
+    if (!bookId) return;
+    const intervalMs = 15000;
+    const activeWindowMs = 60000;
+
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastActiveRef.current > activeWindowMs) return;
+      if (isUpdatingStatsRef.current) return;
+
+      try {
+        isUpdatingStatsRef.current = true;
+        const updated = await updateReadingStats(bookId, Math.floor(intervalMs / 1000));
+        if (updated) setBook(updated);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        isUpdatingStatsRef.current = false;
+      }
+    };
+
+    const id = setInterval(tick, intervalMs);
+    return () => clearInterval(id);
   }, [bookId]);
 
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('reader-settings');
     return saved ? JSON.parse(saved) : { fontSize: 100, theme: 'light', flow: 'paginated' };
   });
+
+  const phoneticText =
+    dictionaryEntry?.phonetic ||
+    dictionaryEntry?.phonetics?.find((p) => p.text)?.text ||
+    "";
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
@@ -291,6 +707,40 @@ export default function Reader() {
                   </div>
                 )}
 
+                {modalMode === 'page' && !isPageSummarizing && !getStoryMemory(book) && (
+                  <div className="text-xs text-yellow-500">
+                    No story memory yet. This explanation may lack context.
+                  </div>
+                )}
+                {modalMode === 'story' && !isStoryRecapping && !getStoryMemory(book) && (
+                  <div className="flex items-center justify-between gap-3 text-xs text-yellow-500">
+                    <span>No story memory yet. Rebuild it to get a full recap.</span>
+                    <button
+                      onClick={rebuildStoryMemory}
+                      disabled={isRebuildingMemory}
+                      className="px-3 py-1 rounded-full bg-blue-600 text-white text-[10px] font-bold disabled:opacity-60"
+                    >
+                      {isRebuildingMemory ? 'Rebuilding…' : 'Rebuild Memory'}
+                    </button>
+                  </div>
+                )}
+                {modalMode === 'story' && isRebuildingMemory && (
+                  <div className="text-[10px] text-gray-400">
+                    Rebuilding {rebuildProgress.current}/{rebuildProgress.total}
+                  </div>
+                )}
+
+                {modalMode === 'page' && pageError && (
+                  <div className="text-xs text-yellow-500">
+                    {pageError}
+                  </div>
+                )}
+                {modalMode === 'story' && storyError && (
+                  <div className="text-xs text-yellow-500">
+                    {storyError}
+                  </div>
+                )}
+
                 <div className="max-h-[55vh] overflow-y-auto pr-2 custom-scrollbar space-y-6">
                   {(() => {
                     const storyMemory = getStoryMemory(book);
@@ -298,10 +748,14 @@ export default function Reader() {
                     // explanation or the story-so-far recap.
                     const content =
                       modalMode === 'page'
-                        ? pageSummary ||
-                          'Summary:\nYour story is unfolding. Read more to see the analysis.'
-                        : storyRecap || storyMemory ||
-                          'Summary:\nYour story is unfolding. Read more to build the recap.';
+                        ? pageError
+                          ? `Summary:\n${pageError}`
+                          : pageSummary ||
+                            'Summary:\nYour story is unfolding. Read more to see the analysis.'
+                        : storyError
+                          ? `Summary:\n${storyError}`
+                          : storyRecap || storyMemory ||
+                            'Summary:\nYour story is unfolding. Read more to build the recap.';
 
                     // Separate the summary and character sections based on the label.
                     const [summaryPart, charPart] = content.split(/Characters so far:/i);
@@ -340,6 +794,334 @@ export default function Reader() {
         </div>
       )}
 
+      {showSearchMenu && (
+        <div className="fixed inset-0 z-[55]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={closeSearchMenu}
+          />
+          <div
+            className={`absolute right-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <SearchIcon size={18} className="text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search inside this book..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') runSearch(searchQuery);
+                }}
+                className="flex-1 bg-transparent outline-none text-sm"
+              />
+              <button
+                onClick={closeSearchMenu}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+              <span>
+                {isSearching ? 'Searching...' : `${searchResults.length} result${searchResults.length === 1 ? '' : 's'}`}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={goToPrevResult}
+                  disabled={!searchResults.length}
+                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  onClick={goToNextResult}
+                  disabled={!searchResults.length}
+                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => runSearch(searchQuery)}
+                className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+              >
+                Search
+              </button>
+              <button
+                onClick={clearSearch}
+                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
+              {!isSearching && searchQuery && searchResults.length === 0 && (
+                <div className="text-xs text-gray-500">No matches found.</div>
+              )}
+              {searchResults.map((result, idx) => (
+                <button
+                  key={`${result.cfi}-${idx}`}
+                  onClick={() => goToSearchIndex(idx)}
+                  className={`w-full text-left p-3 rounded-2xl border transition ${
+                    activeSearchIndex === idx
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                      : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700'
+                  }`}
+                >
+                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">
+                    Result {idx + 1}
+                  </div>
+                  <div className="text-sm text-gray-700 dark:text-gray-200">
+                    {result.excerpt}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDictionary && (
+        <div className="fixed inset-0 z-[55]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={closeDictionary}
+          />
+          <div
+            className={`absolute left-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <BookOpenText size={18} className="text-gray-400" />
+              <input
+                type="text"
+                placeholder="Look up a word..."
+                value={dictionaryQuery}
+                onChange={(e) => setDictionaryQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') lookupDictionary(dictionaryQuery);
+                }}
+                className="flex-1 bg-transparent outline-none text-sm"
+              />
+              <button
+                onClick={closeDictionary}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => lookupDictionary(dictionaryQuery)}
+                className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+              >
+                Define
+              </button>
+              <button
+                onClick={clearDictionary}
+                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-4">
+              {isDefining && (
+                <div className="text-xs text-gray-500">Looking up definition...</div>
+              )}
+              {!isDefining && dictionaryError && (
+                <div className="text-xs text-red-500">{dictionaryError}</div>
+              )}
+              {!isDefining && dictionaryEntry && (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {dictionaryEntry.word}
+                    </div>
+                    {phoneticText && (
+                      <div className="text-xs text-gray-500">{phoneticText}</div>
+                    )}
+                  </div>
+
+                  {(dictionaryEntry.meanings || []).slice(0, 3).map((meaning, idx) => (
+                    <div key={`${meaning.partOfSpeech}-${idx}`} className="space-y-2">
+                      <div className="text-xs uppercase tracking-widest text-gray-400">
+                        {meaning.partOfSpeech}
+                      </div>
+                      {(meaning.definitions || []).slice(0, 2).map((def, dIdx) => (
+                        <div key={`${idx}-${dIdx}`} className="text-sm text-gray-700 dark:text-gray-200">
+                          - {def.definition}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHighlightsPanel && (
+        <div className="fixed inset-0 z-[55]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowHighlightsPanel(false)}
+          />
+          <div
+            className={`absolute right-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Highlighter size={18} className="text-gray-400" />
+                <div className="text-sm font-bold">Highlights</div>
+              </div>
+              <button
+                onClick={() => setShowHighlightsPanel(false)}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-3 text-[11px] text-gray-500">
+              {highlights.length} highlight{highlights.length === 1 ? '' : 's'}
+            </div>
+
+            <div className="mt-4 max-h-[55vh] overflow-y-auto pr-1 space-y-3">
+              {highlights.length === 0 && (
+                <div className="text-xs text-gray-500">No highlights yet.</div>
+              )}
+              {highlights.map((h, idx) => (
+                <div
+                  key={`${h.cfiRange}-${idx}`}
+                  className="p-3 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 transition"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => {
+                        setJumpTarget(h.cfiRange);
+                        setShowHighlightsPanel(false);
+                      }}
+                      className="text-left flex-1"
+                    >
+                      <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">
+                        Highlight {idx + 1}
+                      </div>
+                      <div className="text-sm text-gray-700 dark:text-gray-200 line-clamp-3">
+                        {h.text}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => removeHighlight(h.cfiRange)}
+                      className="text-xs text-red-500 hover:text-red-600"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  <div className="mt-2 h-1.5 rounded-full" style={{ background: h.color }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selection && selection.pos && (() => {
+        const padding = 12;
+        const rawX = selection.pos.x;
+        const rawY = selection.pos.y;
+        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : rawX;
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : rawY;
+        const panelWidth = 260;
+        const panelHeight = 48;
+        const clampedX = Math.min(Math.max(rawX, padding), Math.max(padding, viewportWidth - panelWidth - padding));
+        const clampedY = Math.min(Math.max(rawY, padding), Math.max(padding, viewportHeight - panelHeight - padding));
+        const transform = 'translate(8px, 8px)';
+
+        return (
+        <div
+          className="fixed z-[70] pointer-events-auto"
+          style={{ left: clampedX, top: clampedY, transform }}
+        >
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-2xl shadow-xl border ${
+            settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'
+          }`}>
+            {selection.isExisting ? (
+              <>
+                <button
+                  onClick={() => removeHighlight(selection.cfiRange)}
+                  className="text-xs font-bold text-red-500 hover:text-red-600"
+                >
+                  Delete highlight
+                </button>
+                <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+                <button
+                  onClick={() => openDictionaryForText(selection.text)}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
+                >
+                  Dictionary
+                </button>
+              </>
+            ) : selectionMode === 'colors' ? (
+              <>
+                {highlightColors.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => addHighlight(c.value)}
+                    className="w-5 h-5 rounded-full border border-white/40 shadow"
+                    title={`Highlight ${c.name}`}
+                    style={{ background: c.value }}
+                  />
+                ))}
+                <button
+                  onClick={() => setSelectionMode('actions')}
+                  className="ml-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  Back
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => openDictionaryForText(selection.text)}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
+                >
+                  Dictionary
+                </button>
+                <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+                <button
+                  onClick={() => setSelectionMode('colors')}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
+                >
+                  <Highlighter size={12} />
+                  Highlight
+                </button>
+              </>
+            )}
+            <button
+              onClick={clearSelection}
+              className="text-xs text-gray-400 hover:text-red-500"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+        );
+      })()}
+
       {/* TOP BAR */}
       <div className={`flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
         <div className="flex items-center gap-2">
@@ -360,11 +1142,36 @@ export default function Reader() {
             <Sparkles size={20} />
             <span className="hidden md:inline text-xs font-black uppercase">Story</span>
           </button>
+          <button
+            onClick={() => setShowSearchMenu((s) => !s)}
+            className={`p-2 rounded-full transition ${showSearchMenu ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            title="Search"
+          >
+            <SearchIcon size={18} />
+          </button>
+          <button
+            onClick={() => setShowDictionary((s) => !s)}
+            className={`p-2 rounded-full transition ${showDictionary ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            title="Dictionary"
+          >
+            <BookOpenText size={18} />
+          </button>
+          <button
+            onClick={() => setShowHighlightsPanel((s) => !s)}
+            className={`p-2 rounded-full transition ${showHighlightsPanel ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            title="Highlights"
+          >
+            <Highlighter size={18} />
+          </button>
           <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
           <button onClick={() => setSettings(s => ({...s, theme: s.theme === 'light' ? 'dark' : 'light'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}</button>
           <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
           <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
         </div>
+      </div>
+
+      <div className={`px-4 py-2 text-[11px] tracking-wide uppercase font-bold ${settings.theme === 'dark' ? 'bg-yellow-900/30 text-yellow-300' : 'bg-yellow-50 text-yellow-700'}`}>
+        AI FEATURES: NOT AVAILABLE NOW
       </div>
 
       <div className="flex-1 overflow-hidden relative">
@@ -374,6 +1181,9 @@ export default function Reader() {
           onTocLoaded={setToc} tocJump={jumpTarget}
           onRenditionReady={setRendition}
           onChapterEnd={handleChapterEnd}
+          searchResults={searchResults}
+          highlights={highlights}
+          onSelection={(text, cfiRange, pos, isExisting) => handleSelection(text, cfiRange, pos, isExisting)}
         />
       </div>
     </div>
