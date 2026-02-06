@@ -118,7 +118,11 @@ export default function Reader() {
   const highlightColors = [
     { name: 'Amber', value: '#fcd34d' },
     { name: 'Rose', value: '#f9a8d4' },
-    { name: 'Sky', value: '#7dd3fc' }
+    { name: 'Sky', value: '#7dd3fc' },
+    { name: 'Lime', value: '#bef264' },
+    { name: 'Violet', value: '#c4b5fd' },
+    { name: 'Teal', value: '#5eead4' },
+    { name: 'Orange', value: '#fdba74' }
   ];
 
   const cancelSearch = () => {
@@ -1100,7 +1104,7 @@ export default function Reader() {
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
                   onClick={() => setSelectionMode('colors')}
-                  className="text-xs font-bold text-gray-700 dark:text-gray-200 flex items-center gap-1"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
                 >
                   <Highlighter size={12} />
                   Highlight
