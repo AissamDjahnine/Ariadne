@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { addBook, getAllBooks, deleteBook, toggleFavorite } from '../services/db'; 
-import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter, ArrowUpDown } from 'lucide-react';
+import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter, ArrowUpDown, LayoutGrid, List } from 'lucide-react';
 
 export default function Home() {
   const [books, setBooks] = useState([]);
@@ -11,8 +11,16 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [sortBy, setSortBy] = useState("last-read-desc");
+  const [viewMode, setViewMode] = useState(() => {
+    if (typeof window === "undefined") return "grid";
+    return window.localStorage.getItem("library-view-mode") === "list" ? "list" : "grid";
+  });
 
   useEffect(() => { loadLibrary(); }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("library-view-mode", viewMode);
+  }, [viewMode]);
 
   const loadLibrary = async () => {
     const storedBooks = await getAllBooks();
@@ -151,7 +159,7 @@ export default function Home() {
         </header>
 
         {/* Search, Filter and Sort Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px_280px] gap-3 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px_280px_120px] gap-3 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input 
@@ -195,6 +203,36 @@ export default function Home() {
               ))}
             </select>
           </div>
+
+          <div
+            className="flex items-center bg-white p-1 border border-gray-200 rounded-2xl shadow-sm"
+            data-testid="library-view-toggle"
+          >
+            <button
+              type="button"
+              data-testid="library-view-grid"
+              aria-pressed={viewMode === "grid"}
+              onClick={() => setViewMode("grid")}
+              className={`flex-1 py-2 rounded-xl transition-colors flex items-center justify-center ${
+                viewMode === "grid" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+              }`}
+              title="Grid view"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              type="button"
+              data-testid="library-view-list"
+              aria-pressed={viewMode === "list"}
+              onClick={() => setViewMode("list")}
+              className={`flex-1 py-2 rounded-xl transition-colors flex items-center justify-center ${
+                viewMode === "list" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+              }`}
+              title="List view"
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
         <div className="mb-8 text-xs text-gray-500 flex items-center gap-2">
           <span className="font-semibold text-gray-600">Active:</span>
@@ -219,8 +257,8 @@ export default function Home() {
               </button>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500">
+        ) : viewMode === "grid" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500" data-testid="library-books-grid">
             {sortedBooks.map((book) => (
               <Link 
                 to={`/read?id=${book.id}`} 
@@ -293,6 +331,84 @@ export default function Home() {
                       className="bg-blue-600 h-full transition-all duration-1000" 
                       style={{ width: `${book.progress}%` }}
                     />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4 animate-in fade-in duration-500" data-testid="library-books-list">
+            {sortedBooks.map((book) => (
+              <Link
+                to={`/read?id=${book.id}`}
+                key={book.id}
+                className="group bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100 flex"
+              >
+                <div className="w-24 sm:w-28 md:w-32 bg-gray-200 overflow-hidden relative shrink-0">
+                  {book.cover ? (
+                    <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-3 text-center">
+                      <BookIcon size={24} className="mb-1 opacity-20" />
+                      <span className="text-[10px] font-medium uppercase tracking-widest line-clamp-2">{book.title}</span>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-1 rounded-lg">
+                    {book.progress}%
+                  </div>
+                </div>
+
+                <div className="flex-1 p-4 flex flex-col md:flex-row md:items-center gap-4 min-w-0">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-gray-900 text-base leading-tight line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      {book.title}
+                    </h3>
+
+                    <div className="mt-1 flex items-center gap-2 text-gray-500 text-sm">
+                      <User size={14} />
+                      <span className="truncate">{book.author}</span>
+                    </div>
+
+                    <div className="mt-2 text-xs text-blue-500 font-semibold flex items-center gap-2">
+                      <Clock size={12} />
+                      <span>{formatTime(book.readingTime)}</span>
+                    </div>
+
+                    <div className="mt-2 text-[11px] text-gray-400 flex items-center justify-between gap-3">
+                      <span>{formatLastRead(book.lastRead)}</span>
+                      {book.pubDate ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar size={10} />
+                          <span>{new Date(book.pubDate).getFullYear() || book.pubDate}</span>
+                        </span>
+                      ) : <span />}
+                    </div>
+
+                    <div className="w-full bg-gray-100 h-1.5 rounded-full mt-3 overflow-hidden">
+                      <div
+                        className="bg-blue-600 h-full transition-all duration-700"
+                        style={{ width: `${book.progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => handleToggleFavorite(e, book.id)}
+                      className={`p-2 rounded-xl shadow-sm transition-all active:scale-95 ${
+                        book.isFavorite ? 'bg-pink-500 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:text-pink-500'
+                      }`}
+                      title="Favorite"
+                    >
+                      <Heart size={16} fill={book.isFavorite ? "currentColor" : "none"} />
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteBook(e, book.id)}
+                      className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-sm transition-transform active:scale-95"
+                      title="Delete Book"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
               </Link>

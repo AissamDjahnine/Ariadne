@@ -35,3 +35,27 @@ test('library sort and filter controls work with favorites', async ({ page }) =>
   await filterSelect.selectOption('favorites');
   await expect(bookLink).toBeVisible();
 });
+
+test('library view toggle persists after reload', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await expect(page.getByTestId('library-books-grid')).toBeVisible();
+
+  const listToggle = page.getByTestId('library-view-list');
+  await listToggle.click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  await expect(listToggle).toHaveAttribute('aria-pressed', 'true');
+
+  await page.reload();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  await expect(page.getByTestId('library-view-list')).toHaveAttribute('aria-pressed', 'true');
+});
