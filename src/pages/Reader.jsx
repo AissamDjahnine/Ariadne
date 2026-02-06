@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote, updateBookReaderSettings } from '../services/db';
 import BookView from '../components/BookView';
@@ -94,7 +94,6 @@ export default function Reader() {
   const [bookmarks, setBookmarks] = useState([]);
   const [selection, setSelection] = useState(null);
   const [selectionMode, setSelectionMode] = useState('actions');
-  const tempSelectionRef = useRef(null);
   const [progressPct, setProgressPct] = useState(0);
   const [legacyReaderSettings] = useState(() => {
     const saved = localStorage.getItem('reader-settings');
@@ -136,6 +135,18 @@ export default function Reader() {
   useEffect(() => {
     bookRef.current = book;
   }, [book]);
+
+  const mergeBookUpdate = useCallback((nextBook) => {
+    if (!nextBook) return;
+    setBook((prev) => {
+      if (!prev) return nextBook;
+      if (prev.id !== nextBook.id) return nextBook;
+      if (prev.data && prev.data !== nextBook.data) {
+        return { ...nextBook, data: prev.data };
+      }
+      return nextBook;
+    });
+  }, []);
 
   useEffect(() => {
     const markActive = () => {
@@ -204,6 +215,44 @@ export default function Reader() {
     { value: "'Poppins', Arial, sans-serif", label: 'Poppins' },
     { value: "'Fira Sans', Arial, sans-serif", label: 'Fira Sans' }
   ];
+
+  const sameHighlights = (a = [], b = []) => {
+    if (a === b) return true;
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      const left = a[i] || {};
+      const right = b[i] || {};
+      if (
+        left.cfiRange !== right.cfiRange ||
+        left.color !== right.color ||
+        left.note !== right.note ||
+        left.text !== right.text
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const sameBookmarks = (a = [], b = []) => {
+    if (a === b) return true;
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      const left = a[i] || {};
+      const right = b[i] || {};
+      if (
+        left.cfi !== right.cfi ||
+        left.label !== right.label ||
+        left.text !== right.text ||
+        left.href !== right.href
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   const sentenceSplit = (text) => {
     if (!text) return [];
@@ -913,23 +962,9 @@ export default function Reader() {
     }
   };
 
-  const handleSelection = (text, cfiRange, pos, isExisting = false) => {
+  const handleSelection = useCallback((text, cfiRange, pos, isExisting = false) => {
     const trimmed = (text || '').trim();
     if (!trimmed) return;
-    if (!isExisting && rendition) {
-      try {
-        if (tempSelectionRef.current) {
-          rendition.annotations.remove('temp-selection');
-          tempSelectionRef.current = null;
-        }
-        rendition.annotations.add('highlight', cfiRange, {}, null, 'temp-selection', {
-          fill: '#fde68a', 'fill-opacity': '0.6', 'mix-blend-mode': 'multiply'
-        });
-        tempSelectionRef.current = cfiRange;
-      } catch (err) {
-        console.error(err);
-      }
-    }
     setSelection({
       text: trimmed,
       cfiRange,
@@ -937,7 +972,7 @@ export default function Reader() {
       isExisting
     });
     setSelectionMode(isExisting ? 'delete' : 'actions');
-  };
+  }, []);
 
   const jumpToCfi = (cfi) => {
     if (!cfi) return;
@@ -957,33 +992,17 @@ export default function Reader() {
   const clearSelection = () => {
     setSelection(null);
     setSelectionMode('actions');
-    if (rendition && tempSelectionRef.current) {
+    if (rendition) {
       try {
-        rendition.annotations.remove('temp-selection');
-        tempSelectionRef.current = null;
+        const contentsList = rendition.getContents?.() || [];
+        contentsList.forEach((content) => {
+          content?.window?.getSelection?.()?.removeAllRanges?.();
+        });
       } catch (err) {
         console.error(err);
       }
     }
   };
-
-  useEffect(() => {
-    if (!rendition || !selection || selection.isExisting || !selection.cfiRange) return;
-    const timer = setTimeout(() => {
-      try {
-        if (tempSelectionRef.current) {
-          rendition.annotations.remove('temp-selection');
-        }
-        rendition.annotations.add('highlight', selection.cfiRange, {}, null, 'temp-selection', {
-          fill: '#fde68a', 'fill-opacity': '0.6', 'mix-blend-mode': 'multiply'
-        });
-        tempSelectionRef.current = selection.cfiRange;
-      } catch (err) {
-        console.error(err);
-      }
-    }, 40);
-    return () => clearTimeout(timer);
-  }, [rendition, selection, settings.fontSize, settings.fontFamily, settings.flow]);
 
   const addHighlight = async (color) => {
     const currentBook = bookRef.current;
@@ -1092,7 +1111,7 @@ export default function Reader() {
         const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
         const updatedBook = await saveChapterSummary(currentBook.id, chapterHref, result.text, updatedGlobal);
         if (updatedBook) {
-          setBook(updatedBook);
+          mergeBookUpdate(updatedBook);
         }
       } else if (result.error) {
         console.error('Chapter summary failed:', result.error);
@@ -1169,7 +1188,7 @@ export default function Reader() {
         if (seed.text) {
           effectiveMemory = seed.text;
           const updatedBook = await savePageSummary(currentBook.id, `seed-${Date.now()}`, seed.text, seed.text);
-          if (updatedBook) setBook(updatedBook);
+          if (updatedBook) mergeBookUpdate(updatedBook);
         } else if (seed.error) {
           setStoryError(aiUnavailableMessage);
         }
@@ -1217,7 +1236,7 @@ export default function Reader() {
         const updatedGlobal = memory ? `${memory}\n\n${result.text}` : result.text;
         const updatedBook = await savePageSummary(currentBook.id, cfi, result.text, updatedGlobal);
         if (updatedBook) {
-          setBook(updatedBook);
+          mergeBookUpdate(updatedBook);
         }
       } else if (result.error) {
         console.error('Background summary failed:', result.error);
@@ -1278,7 +1297,7 @@ export default function Reader() {
       }
 
       if (updatedBook) {
-        setBook(updatedBook);
+        mergeBookUpdate(updatedBook);
         setStoryRecap(memory);
       }
     } catch (err) {
@@ -1290,9 +1309,13 @@ export default function Reader() {
   };
 
   useEffect(() => {
-    const loadBook = async () => { if (bookId) setBook(await getBook(bookId)); };
+    const loadBook = async () => {
+      if (!bookId) return;
+      const loaded = await getBook(bookId);
+      mergeBookUpdate(loaded);
+    };
     loadBook();
-  }, [bookId]);
+  }, [bookId, mergeBookUpdate]);
 
   useEffect(() => {
     if (!book?.id) return;
@@ -1310,10 +1333,9 @@ export default function Reader() {
   }, [book?.id, legacyReaderSettings]);
 
   useEffect(() => {
-    if (book?.highlights) {
-      setHighlights(book.highlights);
-    }
-  }, [book]);
+    const incoming = Array.isArray(book?.highlights) ? book.highlights : [];
+    setHighlights((prev) => (sameHighlights(prev, incoming) ? prev : incoming));
+  }, [book?.highlights]);
 
   useEffect(() => {
     if (!highlights.length) {
@@ -1331,10 +1353,9 @@ export default function Reader() {
   }, [highlights]);
 
   useEffect(() => {
-    if (book?.bookmarks) {
-      setBookmarks(book.bookmarks);
-    }
-  }, [book]);
+    const incoming = Array.isArray(book?.bookmarks) ? book.bookmarks : [];
+    setBookmarks((prev) => (sameBookmarks(prev, incoming) ? prev : incoming));
+  }, [book?.bookmarks]);
 
   useEffect(() => {
     if (typeof book?.progress === 'number') {
@@ -1355,7 +1376,7 @@ export default function Reader() {
       try {
         isUpdatingStatsRef.current = true;
         const updated = await updateReadingStats(bookId, Math.floor(intervalMs / 1000));
-        if (updated) setBook(updated);
+        if (updated) mergeBookUpdate(updated);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1365,7 +1386,7 @@ export default function Reader() {
 
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
-  }, [bookId]);
+  }, [bookId, mergeBookUpdate]);
 
   useEffect(() => {
     if (!bookId || !settingsHydratedRef.current) return;
@@ -2366,7 +2387,7 @@ export default function Reader() {
           onChapterEnd={handleChapterEnd}
           searchResults={searchResults}
           highlights={highlights}
-          onSelection={(text, cfiRange, pos, isExisting) => handleSelection(text, cfiRange, pos, isExisting)}
+          onSelection={handleSelection}
         />
       </div>
     </div>

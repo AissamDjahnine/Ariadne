@@ -2,6 +2,29 @@ import localforage from 'localforage';
 import ePub from 'epubjs';
 
 const bookStore = localforage.createInstance({ name: "SmartReaderLib" });
+const mutationQueues = new Map();
+
+const runBookMutation = async (id, mutator) => {
+  const previous = mutationQueues.get(id) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(async () => {
+      const book = await bookStore.getItem(id);
+      if (!book) return null;
+      const nextBook = (await mutator(book)) || book;
+      await bookStore.setItem(id, nextBook);
+      return nextBook;
+    });
+
+  mutationQueues.set(
+    id,
+    current.finally(() => {
+      if (mutationQueues.get(id) === current) mutationQueues.delete(id);
+    })
+  );
+
+  return current;
+};
 
 const toBase64 = (url) => fetch(url)
   .then(response => response.blob())
@@ -73,43 +96,37 @@ export const getAllBooks = async () => {
 export const getBook = async (id) => await bookStore.getItem(id);
 
 export const updateBookProgress = async (id, location, percentage) => {
-  const book = await bookStore.getItem(id);
-  if (book) {
+  await runBookMutation(id, (book) => {
     book.lastLocation = location;
     book.progress = Math.min(Math.max(Math.floor(percentage * 100), 0), 100); 
     book.lastRead = new Date().toISOString();
-    await bookStore.setItem(id, book);
-  }
+    return book;
+  });
 };
 
 export const updateBookReaderSettings = async (id, readerSettings) => {
-  const book = await bookStore.getItem(id);
-  if (book) {
+  const updatedBook = await runBookMutation(id, (book) => {
     const current = book.readerSettings || {};
     book.readerSettings = {
       ...current,
       ...readerSettings
     };
-    await bookStore.setItem(id, book);
-    return book.readerSettings;
-  }
-  return null;
+    return book;
+  });
+  return updatedBook ? updatedBook.readerSettings : null;
 };
 
 export const updateReadingStats = async (id, secondsToAdd) => {
-  const book = await bookStore.getItem(id);
-  if (book) {
+  return runBookMutation(id, (book) => {
     book.readingTime = (book.readingTime || 0) + secondsToAdd;
     book.lastRead = new Date().toISOString();
-    await bookStore.setItem(id, book);
     return book;
-  }
+  });
 };
 
 // NEW: Save a chapter summary and update the global story summary
 export const saveChapterSummary = async (bookId, chapterHref, chapterSummary, newGlobalSummary) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  return runBookMutation(bookId, (book) => {
     if (!book.chapterSummaries) book.chapterSummaries = [];
     
     // Check if we already have a summary for this chapter to avoid duplicates
@@ -121,14 +138,12 @@ export const saveChapterSummary = async (bookId, chapterHref, chapterSummary, ne
     }
 
     book.globalSummary = newGlobalSummary;
-    await bookStore.setItem(bookId, book);
     return book;
-  }
+  });
 };
 
 export const savePageSummary = async (bookId, pageKey, pageSummary, newGlobalSummary) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  return runBookMutation(bookId, (book) => {
     if (!book.pageSummaries) book.pageSummaries = [];
 
     const index = book.pageSummaries.findIndex(s => s.pageKey === pageKey);
@@ -139,79 +154,77 @@ export const savePageSummary = async (bookId, pageKey, pageSummary, newGlobalSum
     }
 
     book.globalSummary = newGlobalSummary;
-    await bookStore.setItem(bookId, book);
     return book;
-  }
+  });
 };
 
 export const deleteBook = async (id) => {
   await bookStore.removeItem(id);
+  mutationQueues.delete(id);
 };
 
 export const toggleFavorite = async (id) => {
-  const book = await bookStore.getItem(id);
-  if (book) {
+  return runBookMutation(id, (book) => {
     book.isFavorite = !book.isFavorite;
-    await bookStore.setItem(id, book);
     return book;
-  }
+  });
 };
 
 export const saveHighlight = async (bookId, highlight) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  const updatedBook = await runBookMutation(bookId, (book) => {
     if (!book.highlights) book.highlights = [];
-    book.highlights.push(highlight);
-    await bookStore.setItem(bookId, book);
-    return book.highlights;
-  }
-  return [];
+    const idx = book.highlights.findIndex((h) => h.cfiRange === highlight.cfiRange);
+    if (idx > -1) {
+      const previous = book.highlights[idx];
+      book.highlights[idx] = {
+        ...previous,
+        ...highlight,
+        note: previous.note || highlight.note || ''
+      };
+    } else {
+      book.highlights.push(highlight);
+    }
+    return book;
+  });
+  return updatedBook?.highlights || [];
 };
 
 export const updateHighlightNote = async (bookId, cfiRange, note) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  const updatedBook = await runBookMutation(bookId, (book) => {
     if (!book.highlights) book.highlights = [];
     const idx = book.highlights.findIndex(h => h.cfiRange === cfiRange);
     if (idx > -1) {
       book.highlights[idx].note = note;
-      await bookStore.setItem(bookId, book);
-      return book.highlights;
     }
-  }
-  return [];
+    return book;
+  });
+  return updatedBook?.highlights || [];
 };
 
 export const deleteHighlight = async (bookId, cfiRange) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  const updatedBook = await runBookMutation(bookId, (book) => {
     book.highlights = book.highlights.filter(h => h.cfiRange !== cfiRange);
-    await bookStore.setItem(bookId, book);
-    return book.highlights;
-  }
-  return [];
+    return book;
+  });
+  return updatedBook?.highlights || [];
 };
 
 export const saveBookmark = async (bookId, bookmark) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  const updatedBook = await runBookMutation(bookId, (book) => {
     if (!book.bookmarks) book.bookmarks = [];
     const exists = book.bookmarks.some((b) => b.cfi === bookmark.cfi);
     if (!exists) {
       book.bookmarks.push(bookmark);
-      await bookStore.setItem(bookId, book);
     }
-    return book.bookmarks;
-  }
-  return [];
+    return book;
+  });
+  return updatedBook?.bookmarks || [];
 };
 
 export const deleteBookmark = async (bookId, cfi) => {
-  const book = await bookStore.getItem(bookId);
-  if (book) {
+  const updatedBook = await runBookMutation(bookId, (book) => {
     book.bookmarks = (book.bookmarks || []).filter(b => b.cfi !== cfi);
-    await bookStore.setItem(bookId, book);
-    return book.bookmarks;
-  }
-  return [];
+    return book;
+  });
+  return updatedBook?.bookmarks || [];
 };
