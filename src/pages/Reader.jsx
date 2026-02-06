@@ -61,6 +61,8 @@ export default function Reader() {
   const [highlights, setHighlights] = useState([]);
   const [selection, setSelection] = useState(null);
 
+  const aiUnavailableMessage = "AI features are not available now.";
+
   useEffect(() => {
     if (showAIModal && rendition) {
       try {
@@ -404,7 +406,7 @@ export default function Reader() {
       if (result.text) {
         setPageSummary(result.text);
       } else if (result.error) {
-        setPageError(result.error);
+        setPageError(aiUnavailableMessage);
       } else {
         setPageSummary("");
       }
@@ -447,7 +449,7 @@ export default function Reader() {
           const updatedBook = await savePageSummary(currentBook.id, `seed-${Date.now()}`, seed.text, seed.text);
           if (updatedBook) setBook(updatedBook);
         } else if (seed.error) {
-          setStoryError(seed.error);
+          setStoryError(aiUnavailableMessage);
         }
       }
 
@@ -460,7 +462,7 @@ export default function Reader() {
       if (recapResult.text) {
         setStoryRecap(recapResult.text);
       } else if (recapResult.error) {
-        setStoryError(recapResult.error);
+        setStoryError(aiUnavailableMessage);
         setStoryRecap(effectiveMemory);
       } else {
         setStoryRecap(effectiveMemory);
@@ -468,7 +470,7 @@ export default function Reader() {
     } catch (err) {
       console.error(err);
       if (memory) setStoryRecap(memory);
-      setStoryError('Story recap failed. Please try again.');
+      setStoryError(aiUnavailableMessage);
     } finally {
       setIsStoryRecapping(false);
     }
@@ -699,13 +701,13 @@ export default function Reader() {
                 )}
 
                 {modalMode === 'page' && pageError && (
-                  <div className="text-xs text-red-500">
-                    AI error: {pageError}
+                  <div className="text-xs text-yellow-500">
+                    {pageError}
                   </div>
                 )}
                 {modalMode === 'story' && storyError && (
-                  <div className="text-xs text-red-500">
-                    AI error: {storyError}
+                  <div className="text-xs text-yellow-500">
+                    {storyError}
                   </div>
                 )}
 
@@ -716,10 +718,14 @@ export default function Reader() {
                     // explanation or the story-so-far recap.
                     const content =
                       modalMode === 'page'
-                        ? pageSummary ||
-                          'Summary:\nYour story is unfolding. Read more to see the analysis.'
-                        : storyRecap || storyMemory ||
-                          'Summary:\nYour story is unfolding. Read more to build the recap.';
+                        ? pageError
+                          ? `Summary:\n${pageError}`
+                          : pageSummary ||
+                            'Summary:\nYour story is unfolding. Read more to see the analysis.'
+                        : storyError
+                          ? `Summary:\n${storyError}`
+                          : storyRecap || storyMemory ||
+                            'Summary:\nYour story is unfolding. Read more to build the recap.';
 
                     // Separate the summary and character sections based on the label.
                     const [summaryPart, charPart] = content.split(/Characters so far:/i);
@@ -1094,6 +1100,10 @@ export default function Reader() {
           <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
           <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
         </div>
+      </div>
+
+      <div className={`px-4 py-2 text-[11px] tracking-wide uppercase font-bold ${settings.theme === 'dark' ? 'bg-yellow-900/30 text-yellow-300' : 'bg-yellow-50 text-yellow-700'}`}>
+        AI FEATURES: NOT AVAILABLE NOW
       </div>
 
       <div className="flex-1 overflow-hidden relative">
