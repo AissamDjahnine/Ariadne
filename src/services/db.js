@@ -4,6 +4,7 @@ import ePub from 'epubjs';
 const bookStore = localforage.createInstance({ name: "SmartReaderLib" });
 const mutationQueues = new Map();
 const BOOK_METADATA_VERSION = 1;
+const TRASH_RETENTION_DAYS = 30;
 
 const runBookMutation = async (id, mutator) => {
   const previous = mutationQueues.get(id) || Promise.resolve();
@@ -128,6 +129,8 @@ export const addBook = async (file) => {
       fontFamily: 'publisher'
     },
     isFavorite: false,
+    isDeleted: false,
+    deletedAt: null,
     readingTime: 0,
     lastRead: new Date().toISOString(),
     addedAt: new Date(),
@@ -151,6 +154,27 @@ export const getAllBooks = async () => {
     }
     return a.isFavorite ? -1 : 1;
   });
+};
+
+export const purgeExpiredTrashBooks = async (retentionDays = TRASH_RETENTION_DAYS) => {
+  const cutoffMs = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+  const idsToDelete = [];
+
+  await bookStore.iterate((value, key) => {
+    if (!value?.isDeleted) return;
+    const deletedAtMs = new Date(value.deletedAt || 0).getTime();
+    if (!Number.isFinite(deletedAtMs)) return;
+    if (deletedAtMs <= cutoffMs) {
+      idsToDelete.push(key);
+    }
+  });
+
+  for (const id of idsToDelete) {
+    await bookStore.removeItem(id);
+    mutationQueues.delete(id);
+  }
+
+  return idsToDelete.length;
 };
 
 export const backfillBookMetadata = async (id) => {
@@ -273,6 +297,22 @@ export const savePageSummary = async (bookId, pageKey, pageSummary, newGlobalSum
 export const deleteBook = async (id) => {
   await bookStore.removeItem(id);
   mutationQueues.delete(id);
+};
+
+export const moveBookToTrash = async (id) => {
+  return runBookMutation(id, (book) => {
+    book.isDeleted = true;
+    book.deletedAt = new Date().toISOString();
+    return book;
+  });
+};
+
+export const restoreBookFromTrash = async (id) => {
+  return runBookMutation(id, (book) => {
+    book.isDeleted = false;
+    book.deletedAt = null;
+    return book;
+  });
 };
 
 export const toggleFavorite = async (id) => {

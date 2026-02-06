@@ -149,3 +149,111 @@ test('reading streak badge updates after starting a book', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('library-streak-badge')).toContainText('1-day streak');
 });
+
+test('trash icon supports move to trash, restore, and permanent delete', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('library-view-list').click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('book-move-trash').first().click();
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+
+  await page.getByTestId('trash-toggle-button').click();
+  await expect(page.getByTestId('trash-retention-note')).toContainText('30 days');
+  await expect(page.getByTestId('trash-back-button')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await expect(page.getByTestId('book-restore').first()).toBeVisible();
+
+  await page.getByTestId('book-restore').first().click();
+  await page.getByTestId('trash-back-button').click();
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('book-move-trash').first().click();
+  await page.getByTestId('trash-toggle-button').click();
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('book-delete-forever').first().click();
+  await expect(page.getByText('Trash is empty.')).toBeVisible();
+});
+
+test('trash items older than 30 days are auto-purged on load', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('library-view-list').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('book-move-trash').first().click();
+
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open('SmartReaderLib');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const storeName = db.objectStoreNames.contains('keyvaluepairs')
+        ? 'keyvaluepairs'
+        : db.objectStoreNames[0];
+
+      if (!storeName) {
+        db.close();
+        resolve();
+        return;
+      }
+
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const cursorRequest = store.openCursor();
+      const oldIso = new Date(Date.now() - (31 * 24 * 60 * 60 * 1000)).toISOString();
+
+      cursorRequest.onerror = () => reject(cursorRequest.error);
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+
+        const row = cursor.value;
+        if (row && typeof row === 'object') {
+          if (row.value && typeof row.value === 'object' && row.value.title === 'Test Book') {
+            row.value.deletedAt = oldIso;
+            row.value.isDeleted = true;
+            cursor.update(row);
+          } else if (row.title === 'Test Book') {
+            row.deletedAt = oldIso;
+            row.isDeleted = true;
+            cursor.update(row);
+          }
+        }
+        cursor.continue();
+      };
+
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  }));
+
+  await page.reload();
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+
+  await page.getByTestId('trash-toggle-button').click();
+  await expect(page.getByText('Trash is empty.')).toBeVisible();
+});
