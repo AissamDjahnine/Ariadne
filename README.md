@@ -76,6 +76,7 @@ Everything runs in the browser. No backend required for core reading.
 - Use either reading flow:
   - Paginated
   - Infinite scroll
+- Infinite scroll uses a centered portrait-style reading column with left/right empty space for better focus.
 - Switch light/dark theme.
 - Change font size.
 - Change font family (multiple popular fonts available).
