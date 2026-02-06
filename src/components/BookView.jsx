@@ -154,6 +154,20 @@ export default function BookView({
     if (renditionRef.current) applyTheme(renditionRef.current, settings.theme);
   }, [settings.theme, settings.fontSize]);
 
+  useEffect(() => {
+    if (!renditionRef.current) return;
+    try {
+      if (settings.fontFamily && settings.fontFamily !== 'publisher') {
+        renditionRef.current.themes.override('font-family', settings.fontFamily);
+      } else {
+        renditionRef.current.themes.override('font-family', 'inherit');
+      }
+    } catch (err) {
+      console.error('Font override failed', err);
+    }
+  }, [settings.fontFamily]);
+
+
   const prevPage = () => renditionRef.current?.prev();
   const nextPage = () => renditionRef.current?.next();
 

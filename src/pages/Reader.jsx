@@ -79,6 +79,17 @@ export default function Reader() {
   const [selectionMode, setSelectionMode] = useState('actions');
   const tempSelectionRef = useRef(null);
   const [progressPct, setProgressPct] = useState(0);
+  const [settings, setSettings] = useState(() => {
+    const defaults = { fontSize: 100, theme: 'light', flow: 'paginated', fontFamily: 'publisher' };
+    const saved = localStorage.getItem('reader-settings');
+    if (!saved) return defaults;
+    try {
+      return { ...defaults, ...JSON.parse(saved) };
+    } catch (err) {
+      console.error(err);
+      return defaults;
+    }
+  });
 
   const aiUnavailableMessage = "AI features are not available now.";
 
@@ -818,10 +829,13 @@ export default function Reader() {
     return () => clearInterval(id);
   }, [bookId]);
 
-  const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('reader-settings');
-    return saved ? JSON.parse(saved) : { fontSize: 100, theme: 'light', flow: 'paginated' };
-  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('reader-settings', JSON.stringify(settings));
+    } catch (err) {
+      console.error(err);
+    }
+  }, [settings]);
 
   const phoneticText =
     dictionaryEntry?.phonetic ||
@@ -975,6 +989,81 @@ export default function Reader() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showFontMenu && (
+        <div className="fixed inset-0 z-[55]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowFontMenu(false)}
+          />
+          <div
+            className={`absolute right-4 top-20 w-[92vw] max-w-sm rounded-3xl shadow-2xl p-5 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Type size={18} className="text-gray-400" />
+                <div className="text-sm font-bold">Text Settings</div>
+              </div>
+              <button
+                onClick={() => setShowFontMenu(false)}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Text size
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSettings(s => ({ ...s, fontSize: Math.max(80, s.fontSize - 5) }))}
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min="80"
+                    max="160"
+                    step="5"
+                    value={settings.fontSize}
+                    onChange={(e) => setSettings(s => ({ ...s, fontSize: Number(e.target.value) }))}
+                    className="flex-1"
+                  />
+                  <button
+                    onClick={() => setSettings(s => ({ ...s, fontSize: Math.min(160, s.fontSize + 5) }))}
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    +
+                  </button>
+                  <div className="text-xs font-bold w-12 text-right">{settings.fontSize}%</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Font
+                </div>
+                <select
+                  value={settings.fontFamily}
+                  onChange={(e) => setSettings(s => ({ ...s, fontFamily: e.target.value }))}
+                  className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                >
+                  <option value="publisher">Publisher default</option>
+                  <option value="Georgia, Times New Roman, serif">Serif</option>
+                  <option value="Verdana, Trebuchet MS, sans-serif">Sans</option>
+                  <option value="Courier New, Courier, monospace">Mono</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
       )}
