@@ -29,3 +29,8 @@ test-results
 
 # Local notes
 BUGS.md
+
+# Env
+.env
+.env.local
+.env.*.local
