@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark } from '../services/db';
+import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote } from '../services/db';
 import BookView from '../components/BookView';
 import { summarizeChapter } from '../services/ai'; 
 import html2canvas from 'html2canvas';
@@ -81,6 +81,8 @@ export default function Reader() {
   const [highlights, setHighlights] = useState([]);
   const [selectedHighlights, setSelectedHighlights] = useState([]);
   const selectionTouchedRef = useRef(false);
+  const [editingHighlight, setEditingHighlight] = useState(null);
+  const [noteDraft, setNoteDraft] = useState('');
   const [bookmarks, setBookmarks] = useState([]);
   const [selection, setSelection] = useState(null);
   const [selectionMode, setSelectionMode] = useState('actions');
@@ -473,7 +475,20 @@ export default function Reader() {
           main.textContent = '';
         }
 
-        card.append(header, meta, main);
+        if (h.note) {
+          const note = document.createElement('div');
+          note.style.marginTop = '16px';
+          note.style.paddingTop = '12px';
+          note.style.borderTop = '1px solid rgba(148, 163, 184, 0.35)';
+          note.style.fontFamily = "'Fira Sans', Arial, sans-serif";
+          note.style.fontSize = '13px';
+          note.style.color = '#cbd5f5';
+          note.style.fontStyle = 'italic';
+          note.textContent = h.note;
+          card.append(header, meta, main, note);
+        } else {
+          card.append(header, meta, main);
+        }
         exportRoot.appendChild(card);
 
         await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -940,6 +955,32 @@ export default function Reader() {
       console.error(err);
     } finally {
       clearSelection();
+    }
+  };
+
+  const openNoteEditor = (highlight) => {
+    setEditingHighlight(highlight);
+    setNoteDraft(highlight?.note || '');
+  };
+
+  const closeNoteEditor = () => {
+    setEditingHighlight(null);
+    setNoteDraft('');
+  };
+
+  const saveHighlightNote = async () => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !editingHighlight?.cfiRange) return;
+    try {
+      const updated = await updateHighlightNote(currentBook.id, editingHighlight.cfiRange, noteDraft.trim());
+      if (updated) {
+        setHighlights(updated);
+        setBook({ ...currentBook, highlights: updated });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      closeNoteEditor();
     }
   };
 
@@ -1896,19 +1937,80 @@ export default function Reader() {
                       <div className="text-sm text-gray-700 dark:text-gray-200 line-clamp-3">
                         {h.text}
                       </div>
+                      {h.note && (
+                        <div className="mt-2 text-xs text-gray-500 italic line-clamp-2">
+                          {h.note}
+                        </div>
+                      )}
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="h-1.5 rounded-full flex-1" style={{ background: h.color }} />
-                    <button
-                      onClick={() => removeHighlight(h.cfiRange)}
-                      className="text-xs text-red-500 hover:text-red-600"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openNoteEditor(h)}
+                        className="text-xs text-blue-500 hover:text-blue-600"
+                      >
+                        {h.note ? 'Edit note' : 'Add note'}
+                      </button>
+                      <button
+                        onClick={() => removeHighlight(h.cfiRange)}
+                        className="text-xs text-red-500 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingHighlight && (
+        <div className="fixed inset-0 z-[70]">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={closeNoteEditor}
+          />
+          <div
+            className={`absolute left-1/2 top-24 -translate-x-1/2 w-[92vw] max-w-lg rounded-3xl shadow-2xl p-6 ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-bold">Highlight note</div>
+              <button
+                onClick={closeNoteEditor}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-3 text-xs text-gray-500 line-clamp-3">
+              {editingHighlight.text}
+            </div>
+            <textarea
+              rows={4}
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Write your note..."
+              className="mt-4 w-full rounded-2xl border border-gray-200 dark:border-gray-700 bg-transparent p-3 text-sm"
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                onClick={closeNoteEditor}
+                className="px-4 py-2 rounded-full text-xs font-bold border border-gray-200 dark:border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveHighlightNote}
+                className="px-4 py-2 rounded-full text-xs font-bold bg-blue-600 text-white"
+              >
+                Save note
+              </button>
             </div>
           </div>
         </div>

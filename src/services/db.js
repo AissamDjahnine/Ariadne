@@ -148,6 +148,20 @@ export const saveHighlight = async (bookId, highlight) => {
   return [];
 };
 
+export const updateHighlightNote = async (bookId, cfiRange, note) => {
+  const book = await bookStore.getItem(bookId);
+  if (book) {
+    if (!book.highlights) book.highlights = [];
+    const idx = book.highlights.findIndex(h => h.cfiRange === cfiRange);
+    if (idx > -1) {
+      book.highlights[idx].note = note;
+      await bookStore.setItem(bookId, book);
+      return book.highlights;
+    }
+  }
+  return [];
+};
+
 export const deleteHighlight = async (bookId, cfiRange) => {
   const book = await bookStore.getItem(bookId);
   if (book) {
