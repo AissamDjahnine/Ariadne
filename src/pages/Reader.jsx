@@ -1253,6 +1253,39 @@ export default function Reader() {
     }
   }, [settings]);
 
+  useEffect(() => {
+    const handleKey = (event) => {
+      if (!rendition) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+        return;
+      }
+
+      if (settings.flow === 'paginated') {
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          rendition.next();
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          rendition.prev();
+        }
+      } else {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          const content = rendition.getContents()[0];
+          const win = content?.window;
+          if (!win) return;
+          const delta = Math.round(win.innerHeight * 0.85);
+          win.scrollBy({ top: event.key === 'ArrowDown' ? delta : -delta, left: 0, behavior: 'smooth' });
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKey, { passive: false });
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [rendition, settings.flow]);
+
   const phoneticText =
     dictionaryEntry?.phonetic ||
     dictionaryEntry?.phonetics?.find((p) => p.text)?.text ||
