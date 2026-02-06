@@ -1,9 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { addBook, getAllBooks, deleteBook, toggleFavorite, markBookStarted } from '../services/db'; 
+import { addBook, getAllBooks, deleteBook, toggleFavorite, markBookStarted, backfillBookMetadata } from '../services/db'; 
 import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter, ArrowUpDown, LayoutGrid, List, Flame } from 'lucide-react';
 
 const STARTED_BOOK_IDS_KEY = 'library-started-book-ids';
+const LANGUAGE_DISPLAY_NAMES =
+  typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function"
+    ? new Intl.DisplayNames(["en"], { type: "language" })
+    : null;
+
+const toPositiveNumber = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed);
+};
+
+const formatLanguageLabel = (value) => {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const normalized = value.trim().replace("_", "-");
+  const primaryCode = normalized.split("-")[0].toLowerCase();
+  if (LANGUAGE_DISPLAY_NAMES) {
+    try {
+      const displayName = LANGUAGE_DISPLAY_NAMES.of(primaryCode);
+      if (displayName) return displayName;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  return primaryCode.toUpperCase();
+};
+
+const formatGenreLabel = (value) => {
+  if (typeof value !== "string" || !value.trim()) return "";
+  return value.trim();
+};
 
 export default function Home() {
   const navigate = useNavigate();
@@ -28,6 +58,23 @@ export default function Home() {
   const loadLibrary = async () => {
     const storedBooks = await getAllBooks();
     setBooks(storedBooks);
+
+    const legacyBookIds = storedBooks
+      .filter((book) => {
+        if (!book?.data) return false;
+        const missingLanguage = !String(book.language || "").trim();
+        const missingPages = !toPositiveNumber(book.estimatedPages);
+        const missingGenreField = typeof book.genre !== "string";
+        const isLegacyVersion = (book.metadataVersion || 0) < 1;
+        return missingLanguage || missingPages || missingGenreField || isLegacyVersion;
+      })
+      .map((book) => book.id);
+
+    if (!legacyBookIds.length) return;
+
+    await Promise.all(legacyBookIds.map((id) => backfillBookMetadata(id)));
+    const refreshedBooks = await getAllBooks();
+    setBooks(refreshedBooks);
   };
 
   const readStartedBookIds = () => {
@@ -238,6 +285,51 @@ export default function Home() {
     if (diffInDays === 1) return "Read yesterday";
     if (diffInDays < 7) return `Read ${diffInDays} days ago`;
     return `Read ${date.toLocaleDateString()}`;
+  };
+
+  const renderMetadataBadges = (book) => {
+    const language = formatLanguageLabel(book.language);
+    const estimatedPages = toPositiveNumber(book.estimatedPages);
+    const genre = formatGenreLabel(book.genre);
+    const badges = [];
+
+    if (language) {
+      badges.push({
+        key: "language",
+        testId: "book-meta-language",
+        label: `Language: ${language}`
+      });
+    }
+    if (estimatedPages) {
+      badges.push({
+        key: "pages",
+        testId: "book-meta-pages",
+        label: `Pages: ${estimatedPages}`
+      });
+    }
+    if (genre) {
+      badges.push({
+        key: "genre",
+        testId: "book-meta-genre",
+        label: `Genre: ${genre}`
+      });
+    }
+
+    if (!badges.length) return null;
+
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {badges.map((badge) => (
+          <span
+            key={`${book.id}-${badge.key}`}
+            data-testid={badge.testId}
+            className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600"
+          >
+            {badge.label}
+          </span>
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -482,6 +574,8 @@ export default function Home() {
                     <span className="truncate">{book.author}</span>
                   </div>
 
+                  {renderMetadataBadges(book)}
+
                   <div className="flex items-center gap-2 text-blue-500 text-xs mt-2 font-semibold">
                     <Clock size={12} />
                     <span>{formatTime(book.readingTime)}</span>
@@ -568,6 +662,8 @@ export default function Home() {
                       <User size={14} />
                       <span className="truncate">{book.author}</span>
                     </div>
+
+                    {renderMetadataBadges(book)}
 
                     <div className="mt-2 text-xs text-blue-500 font-semibold flex items-center gap-2">
                       <Clock size={12} />

@@ -36,6 +36,22 @@ test('library sort and filter controls work with favorites', async ({ page }) =>
   await expect(bookLink).toBeVisible();
 });
 
+test('library card shows language and estimated pages metadata', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await expect(page.getByTestId('book-meta-language').first()).toContainText(/Language: English/i);
+  await expect(page.getByTestId('book-meta-pages').first()).toContainText(/Pages:\s*\d+/i);
+});
+
 test('library view toggle persists after reload', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {

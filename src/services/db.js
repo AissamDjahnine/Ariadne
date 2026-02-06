@@ -3,6 +3,7 @@ import ePub from 'epubjs';
 
 const bookStore = localforage.createInstance({ name: "SmartReaderLib" });
 const mutationQueues = new Map();
+const BOOK_METADATA_VERSION = 1;
 
 const runBookMutation = async (id, mutator) => {
   const previous = mutationQueues.get(id) || Promise.resolve();
@@ -35,10 +36,64 @@ const toBase64 = (url) => fetch(url)
     reader.readAsDataURL(blob);
   }));
 
+const toPositiveInteger = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.max(1, Math.round(parsed));
+};
+
+const extractGenre = (metadata = {}) => {
+  const candidates = [metadata.genre, metadata.subject, metadata.subjects, metadata.type];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      const firstText = candidate.find((item) => typeof item === "string" && item.trim());
+      if (firstText) return firstText.trim();
+      continue;
+    }
+    if (typeof candidate === "string" && candidate.trim()) {
+      const [first] = candidate.split(/[,;|]/);
+      if (first?.trim()) return first.trim();
+    }
+  }
+  return "";
+};
+
+const estimatePageCount = async (book) => {
+  try {
+    // epub.js location chunks are a practical approximation for "pages".
+    await book.ready;
+    await book.locations.generate(1024);
+    const generatedTotal = toPositiveInteger(book.locations?.total);
+    if (generatedTotal) return generatedTotal;
+  } catch (err) {
+    console.error("Page estimation fallback engaged", err);
+  }
+
+  const spineCount = Array.isArray(book?.packaging?.spine) ? book.packaging.spine.length : 0;
+  if (spineCount > 0) {
+    return toPositiveInteger(spineCount * 8);
+  }
+
+  return null;
+};
+
+const needsMetadataBackfill = (book) => {
+  if (!book) return false;
+  if (!book.data) return false;
+  if ((book.metadataVersion || 0) < BOOK_METADATA_VERSION) return true;
+
+  const missingLanguage = !String(book.language || "").trim();
+  const missingPages = !toPositiveInteger(book.estimatedPages);
+  const missingGenreField = typeof book.genre !== "string";
+  return missingLanguage || missingPages || missingGenreField;
+};
+
 export const addBook = async (file) => {
   const id = Date.now().toString();
   const book = ePub(file);
   const metadata = await book.loaded.metadata;
+  const estimatedPages = await estimatePageCount(book);
+  const genre = extractGenre(metadata);
   const rawCoverUrl = await book.coverUrl();
   
   let finalCover = null;
@@ -54,6 +109,10 @@ export const addBook = async (file) => {
     id,
     title: metadata.title || file.name.replace('.epub', ''),
     author: metadata.creator || "Unknown Author",
+    language: metadata.language || "",
+    genre: genre || "",
+    estimatedPages: estimatedPages || null,
+    metadataVersion: BOOK_METADATA_VERSION,
     publisher: metadata.publisher || "Unknown Publisher",
     pubDate: metadata.pubdate || "",
     cover: finalCover,
@@ -91,6 +150,48 @@ export const getAllBooks = async () => {
       return new Date(b.addedAt) - new Date(a.addedAt);
     }
     return a.isFavorite ? -1 : 1;
+  });
+};
+
+export const backfillBookMetadata = async (id) => {
+  return runBookMutation(id, async (book) => {
+    if (!needsMetadataBackfill(book)) {
+      return book;
+    }
+
+    try {
+      const epub = ePub(book.data);
+      const metadata = await epub.loaded.metadata;
+      const estimatedPages = await estimatePageCount(epub);
+      const genre = extractGenre(metadata);
+
+      const language = String(book.language || "").trim() || metadata.language || "";
+      const nextPages = toPositiveInteger(book.estimatedPages) || estimatedPages || null;
+      const nextGenre = typeof book.genre === "string" && book.genre.trim()
+        ? book.genre.trim()
+        : (genre || "");
+
+      const isChanged =
+        language !== (book.language || "") ||
+        nextPages !== (book.estimatedPages || null) ||
+        nextGenre !== (book.genre || "") ||
+        (book.metadataVersion || 0) < BOOK_METADATA_VERSION;
+
+      if (!isChanged) {
+        return book;
+      }
+
+      return {
+        ...book,
+        language,
+        estimatedPages: nextPages,
+        genre: nextGenre,
+        metadataVersion: BOOK_METADATA_VERSION
+      };
+    } catch (err) {
+      console.error("Book metadata backfill failed", err);
+      return book;
+    }
   });
 };
 
