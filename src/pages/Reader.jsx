@@ -135,6 +135,13 @@ export default function Reader() {
   const settingsHydratedRef = useRef(false);
   const [settings, setSettings] = useState(DEFAULT_READER_SETTINGS);
   const initialPanelAppliedRef = useRef(false);
+  const progressPersistRef = useRef({
+    timer: null,
+    lastWriteTs: 0,
+    lastCfi: '',
+    lastPct: -1,
+    pending: null
+  });
 
   const aiUnavailableMessage = "AI features are not available now.";
 
@@ -175,6 +182,49 @@ export default function Reader() {
     });
   }, []);
 
+  const flushPersistedProgress = useCallback(() => {
+    const state = progressPersistRef.current;
+    if (!bookId || !state.pending) return;
+
+    const { cfi, percentage } = state.pending;
+    state.pending = null;
+    if (!cfi) return;
+
+    const normalized = Math.min(Math.max(Number(percentage) || 0, 0), 1);
+    if (state.lastCfi === cfi && state.lastPct === normalized) return;
+
+    state.lastCfi = cfi;
+    state.lastPct = normalized;
+    state.lastWriteTs = Date.now();
+
+    updateBookProgress(bookId, cfi, normalized).catch((err) => {
+      console.error(err);
+    });
+  }, [bookId]);
+
+  const queueProgressPersist = useCallback((cfi, percentage) => {
+    if (!bookId || !cfi) return;
+
+    const state = progressPersistRef.current;
+    state.pending = { cfi, percentage };
+
+    const throttleMs = 1200;
+    const elapsed = Date.now() - state.lastWriteTs;
+
+    if (elapsed >= throttleMs && !state.timer) {
+      flushPersistedProgress();
+      return;
+    }
+
+    if (!state.timer) {
+      const waitMs = Math.max(120, throttleMs - elapsed);
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        flushPersistedProgress();
+      }, waitMs);
+    }
+  }, [bookId, flushPersistedProgress]);
+
   useEffect(() => {
     const markActive = () => {
       lastActiveRef.current = Date.now();
@@ -185,6 +235,25 @@ export default function Reader() {
       events.forEach((event) => window.removeEventListener(event, markActive));
     };
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPersistedProgress();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      const state = progressPersistRef.current;
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      flushPersistedProgress();
+    };
+  }, [flushPersistedProgress]);
 
   const getStoryMemory = (currentBook) => {
     if (!currentBook) return '';
@@ -1100,7 +1169,7 @@ export default function Reader() {
     if (!loc?.start || !bookId) return;
     lastActiveRef.current = Date.now();
     const nextProgress = Math.min(Math.max(Math.floor((loc.percentage || 0) * 100), 0), 100);
-    updateBookProgress(bookId, loc.start.cfi, loc.percentage || 0);
+    queueProgressPersist(loc.start.cfi, loc.percentage || 0);
     setProgressPct(nextProgress);
 
     // Automatically summarise each new "screen" in the background.  If the
