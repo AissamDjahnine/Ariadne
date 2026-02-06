@@ -1414,6 +1414,7 @@ export default function Reader() {
     dictionaryEntry?.phonetic ||
     dictionaryEntry?.phonetics?.find((p) => p.text)?.text ||
     "";
+  const isReaderDark = settings.theme === 'dark';
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
@@ -1743,13 +1744,15 @@ export default function Reader() {
         <div className="fixed inset-0 z-[75]" onClick={closeDictionary}>
           <div
             className={`absolute rounded-3xl shadow-2xl p-5 flex flex-col ${
-              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+              isReaderDark
+                ? 'bg-gray-800 border border-gray-700 text-gray-100'
+                : 'bg-white border border-gray-200 text-gray-900'
             }`}
             style={panelStyle}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <BookOpenText size={18} className="text-gray-400" />
+              <BookOpenText size={18} className={isReaderDark ? 'text-gray-400' : 'text-gray-600'} />
               <input
                 type="text"
                 placeholder="Look up a word..."
@@ -1758,11 +1761,13 @@ export default function Reader() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') lookupDictionary(dictionaryQuery);
                 }}
-                className="flex-1 bg-transparent outline-none text-sm"
+                className={`flex-1 bg-transparent outline-none text-sm ${
+                  isReaderDark ? 'text-gray-100 placeholder:text-gray-400' : 'text-gray-900 placeholder:text-gray-500'
+                }`}
               />
               <button
                 onClick={closeDictionary}
-                className="p-1 text-gray-400 hover:text-red-500"
+                className={`p-1 hover:text-red-500 ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}
               >
                 <X size={18} />
               </button>
@@ -1777,7 +1782,9 @@ export default function Reader() {
               </button>
               <button
                 onClick={clearDictionary}
-                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold"
+                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
+                  isReaderDark ? 'border border-gray-700' : 'border border-gray-300 text-gray-900'
+                }`}
               >
                 Clear
               </button>
@@ -1785,7 +1792,7 @@ export default function Reader() {
 
             <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
               {isDefining && (
-                <div className="text-xs text-gray-500">Looking up definition...</div>
+                <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}>Looking up definition...</div>
               )}
               {!isDefining && dictionaryError && (
                 <div className="text-xs text-red-500">{dictionaryError}</div>
@@ -1793,21 +1800,21 @@ export default function Reader() {
               {!isDefining && dictionaryEntry && (
                 <div className="space-y-3">
                   <div>
-                    <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                    <div className={`text-lg font-bold ${isReaderDark ? 'text-gray-100' : 'text-gray-900'}`}>
                       {dictionaryEntry.word}
                     </div>
                     {phoneticText && (
-                      <div className="text-xs text-gray-500">{phoneticText}</div>
+                      <div className={`text-xs ${isReaderDark ? 'text-gray-300' : 'text-gray-700'}`}>{phoneticText}</div>
                     )}
                   </div>
 
                   {(dictionaryEntry.meanings || []).slice(0, 3).map((meaning, idx) => (
                     <div key={`${meaning.partOfSpeech}-${idx}`} className="space-y-2">
-                      <div className="text-xs uppercase tracking-widest text-gray-400">
+                      <div className={`text-xs uppercase tracking-widest ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}>
                         {meaning.partOfSpeech}
                       </div>
                       {(meaning.definitions || []).slice(0, 2).map((def, dIdx) => (
-                        <div key={`${idx}-${dIdx}`} className="text-sm text-gray-700 dark:text-gray-200">
+                        <div key={`${idx}-${dIdx}`} className={`text-sm ${isReaderDark ? 'text-gray-200' : 'text-gray-800'}`}>
                           - {def.definition}
                         </div>
                       ))}
@@ -1827,23 +1834,27 @@ export default function Reader() {
         <div className="fixed inset-0 z-[75]" data-testid="translation-panel" onClick={closeTranslation}>
           <div
             className={`absolute rounded-3xl shadow-2xl p-5 flex flex-col ${
-              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+              isReaderDark
+                ? 'bg-gray-800 border border-gray-700 text-gray-100'
+                : 'bg-white border border-gray-200 text-gray-900'
             }`}
             style={panelStyle}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <Languages size={18} className="text-gray-400" />
+              <Languages size={18} className={isReaderDark ? 'text-gray-400' : 'text-gray-600'} />
               <textarea
                 rows={2}
                 placeholder="Translate this text..."
                 value={translationQuery}
                 onChange={(e) => setTranslationQuery(e.target.value)}
-                className="flex-1 bg-transparent outline-none text-sm resize-none"
+                className={`flex-1 bg-transparent outline-none text-sm resize-none ${
+                  isReaderDark ? 'text-gray-100 placeholder:text-gray-400' : 'text-gray-900 placeholder:text-gray-500'
+                }`}
               />
               <button
                 onClick={closeTranslation}
-                className="p-1 text-gray-400 hover:text-red-500"
+                className={`p-1 hover:text-red-500 ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}
               >
                 <X size={18} />
               </button>
@@ -1857,7 +1868,11 @@ export default function Reader() {
                   setSourceLanguage(next);
                   if (translationQuery.trim()) translateText(translationQuery, targetLanguage, next);
                 }}
-                className="py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                className={`py-2 px-3 rounded-xl text-xs font-bold ${
+                  isReaderDark
+                    ? 'border border-gray-700 bg-gray-800 text-gray-100'
+                    : 'border border-gray-300 bg-white text-gray-900'
+                }`}
               >
                 {sourceLanguageOptions.map((lang) => (
                   <option key={lang.code} value={lang.code}>
@@ -1872,7 +1887,11 @@ export default function Reader() {
                   setTargetLanguage(next);
                   if (translationQuery.trim()) translateText(translationQuery, next, sourceLanguage);
                 }}
-                className="py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                className={`py-2 px-3 rounded-xl text-xs font-bold ${
+                  isReaderDark
+                    ? 'border border-gray-700 bg-gray-800 text-gray-100'
+                    : 'border border-gray-300 bg-white text-gray-900'
+                }`}
               >
                 {languageOptions.map((lang) => (
                   <option key={lang.code} value={lang.code}>
@@ -1891,25 +1910,29 @@ export default function Reader() {
               </button>
               <button
                 onClick={clearTranslation}
-                className="py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold"
+                className={`py-2 rounded-xl text-xs font-bold ${
+                  isReaderDark ? 'border border-gray-700' : 'border border-gray-300 text-gray-900'
+                }`}
               >
                 Clear
               </button>
             </div>
 
-            <div className="mt-2 text-[10px] uppercase tracking-widest text-gray-400">
+            <div className={`mt-2 text-[10px] uppercase tracking-widest ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}>
               Provider: {translateProviderLabel}{SUPPORTS_AUTO_DETECT ? '' : ' · select source language'}
             </div>
 
             <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
               {isTranslating && (
-                <div className="text-xs text-gray-500">Translating...</div>
+                <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}>Translating...</div>
               )}
               {!isTranslating && translationError && (
                 <div className="text-xs text-red-500">{translationError}</div>
               )}
               {!isTranslating && translationResult && (
-                <div className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/40 text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
+                <div className={`p-3 rounded-2xl text-sm whitespace-pre-wrap ${
+                  isReaderDark ? 'bg-gray-900/40 text-gray-200' : 'bg-gray-100 text-gray-900'
+                }`}>
                   {translationResult}
                 </div>
               )}
