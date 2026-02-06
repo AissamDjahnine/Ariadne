@@ -31,54 +31,34 @@ export default function BookView({
   const applyTheme = (rendition, theme) => {
     if (!rendition) return;
     const isScrolled = settings.flow === 'scrolled';
-    const textColor = theme === 'dark' ? '#e5e7eb' : '#111827';
-    const scrolledOuterBackground = theme === 'dark' ? '#0b1220' : '#f3f4f6';
-    const scrolledPageBackground = theme === 'dark' ? '#111827' : '#ffffff';
-    const bodyStyles = theme === 'dark' 
-      ? { 
-          'html': {
-            'background': `${isScrolled ? scrolledOuterBackground : '#111827'} !important`
-          },
-          'body': {
-            'color': `${textColor} !important`,
-            'background': `${scrolledPageBackground} !important`,
-            'max-width': isScrolled ? 'min(940px, calc(100vw - 88px)) !important' : 'none !important',
-            'width': '100% !important',
-            'margin': isScrolled ? '20px auto 28px auto !important' : '0 !important',
-            'padding-left': isScrolled ? '32px !important' : '0 !important',
-            'padding-right': isScrolled ? '32px !important' : '0 !important',
-            'padding-top': isScrolled ? '0 !important' : '0 !important',
-            'padding-bottom': isScrolled ? '0 !important' : '0 !important',
-            'box-sizing': 'border-box !important'
-          },
-          'p, span, div, li, h1, h2, h3, h4, h5, h6': { 'color': `${textColor} !important` },
-          'img, svg, video, canvas': {
-            'max-width': '100% !important',
-            'height': 'auto !important'
-          }
-        } 
-      : { 
-          'html': {
-            'background': `${isScrolled ? scrolledOuterBackground : '#ffffff'} !important`
-          },
-          'body': {
-            'color': `${textColor} !important`,
-            'background': `${scrolledPageBackground} !important`,
-            'max-width': isScrolled ? 'min(940px, calc(100vw - 88px)) !important' : 'none !important',
-            'width': '100% !important',
-            'margin': isScrolled ? '20px auto 28px auto !important' : '0 !important',
-            'padding-left': isScrolled ? '32px !important' : '0 !important',
-            'padding-right': isScrolled ? '32px !important' : '0 !important',
-            'padding-top': isScrolled ? '0 !important' : '0 !important',
-            'padding-bottom': isScrolled ? '0 !important' : '0 !important',
-            'box-sizing': 'border-box !important'
-          },
-          'p, span, div, li, h1, h2, h3, h4, h5, h6': { 'color': `${textColor} !important` },
-          'img, svg, video, canvas': {
-            'max-width': '100% !important',
-            'height': 'auto !important'
-          }
-        };
+    const isDark = theme === 'dark';
+    const isSepia = theme === 'sepia';
+    const textColor = isDark ? '#e5e7eb' : isSepia ? '#3f2f1f' : '#111827';
+    const paginatedBackground = isDark ? '#111827' : isSepia ? '#f8efd2' : '#ffffff';
+    const scrolledOuterBackground = isDark ? '#0b1220' : isSepia ? '#eadfbd' : '#f3f4f6';
+    const scrolledPageBackground = paginatedBackground;
+    const bodyStyles = {
+      'html': {
+        'background': `${isScrolled ? scrolledOuterBackground : paginatedBackground} !important`
+      },
+      'body': {
+        'color': `${textColor} !important`,
+        'background': `${scrolledPageBackground} !important`,
+        'max-width': isScrolled ? 'min(940px, calc(100vw - 88px)) !important' : 'none !important',
+        'width': '100% !important',
+        'margin': isScrolled ? '20px auto 28px auto !important' : '0 !important',
+        'padding-left': isScrolled ? '32px !important' : '0 !important',
+        'padding-right': isScrolled ? '32px !important' : '0 !important',
+        'padding-top': '0 !important',
+        'padding-bottom': '0 !important',
+        'box-sizing': 'border-box !important'
+      },
+      'p, span, div, li, h1, h2, h3, h4, h5, h6': { 'color': `${textColor} !important` },
+      'img, svg, video, canvas': {
+        'max-width': '100% !important',
+        'height': 'auto !important'
+      }
+    };
     
     rendition.themes.register(EPUB_THEME_KEY, bodyStyles);
     rendition.themes.select(EPUB_THEME_KEY);
@@ -279,7 +259,16 @@ export default function BookView({
 
   return (
     <div className="h-full flex flex-col relative transition-colors duration-200">
-      <div ref={viewerRef} className={`flex-1 h-full w-full ${settings.theme === 'dark' ? 'bg-gray-900' : 'bg-white'}`} />
+      <div
+        ref={viewerRef}
+        className={`flex-1 h-full w-full ${
+          settings.theme === 'dark'
+            ? 'bg-gray-900'
+            : settings.theme === 'sepia'
+              ? 'bg-amber-100'
+              : 'bg-white'
+        }`}
+      />
       {settings.flow === 'paginated' && (
         <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-2">
           <button onClick={prevPage} className="pointer-events-auto bg-black/20 hover:bg-black/50 text-white p-2 rounded-full">‹</button>

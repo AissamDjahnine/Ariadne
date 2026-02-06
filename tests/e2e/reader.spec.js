@@ -180,3 +180,19 @@ test('theme toggle works repeatedly in reader', async ({ page }) => {
   const revertedBg = await getBodyBg();
   expect(revertedBg).toBe(initialBg);
 });
+
+test('sepia mode toggles warm reading background', async ({ page }) => {
+  await openFixtureBook(page);
+
+  const iframe = page.frameLocator('iframe');
+  const getBodyBg = async () =>
+    iframe.locator('body').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  const initialBg = await getBodyBg();
+
+  await page.getByTestId('sepia-toggle').click();
+  await expect.poll(getBodyBg).toBe('rgb(248, 239, 210)');
+
+  await page.getByTestId('sepia-toggle').click();
+  await expect.poll(getBodyBg).toBe(initialBg);
+});

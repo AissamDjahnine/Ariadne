@@ -27,6 +27,31 @@ const DEFAULT_READER_SETTINGS = {
   fontFamily: 'publisher'
 };
 
+function OwlIcon({ size = 18, className = '' }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 18v-7a8 8 0 0 1 16 0v7" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <path d="m11 15 1 1 1-1" />
+      <path d="m7 6-2 2" />
+      <path d="m17 6 2 2" />
+      <path d="M4 18h16" />
+    </svg>
+  );
+}
+
 export default function Reader() {
   const [searchParams] = useSearchParams();
   const bookId = searchParams.get('id');
@@ -1461,11 +1486,23 @@ export default function Reader() {
     dictionaryEntry?.phonetics?.find((p) => p.text)?.text ||
     "";
   const isReaderDark = settings.theme === 'dark';
+  const isReaderSepia = settings.theme === 'sepia';
+  const toggleDarkTheme = () => {
+    setSettings((s) => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  };
+  const toggleSepiaTheme = () => {
+    setSettings((s) => ({ ...s, theme: s.theme === 'sepia' ? 'light' : 'sepia' }));
+  };
+  const readerThemeClass = isReaderDark
+    ? 'bg-gray-900 text-white'
+    : isReaderSepia
+      ? 'bg-amber-50 text-amber-950'
+      : 'bg-gray-100 text-gray-800';
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
   return (
-    <div className={`h-screen flex flex-col overflow-hidden transition-colors duration-200 ${settings.theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'}`}>
+    <div className={`h-screen flex flex-col overflow-hidden transition-colors duration-200 ${readerThemeClass}`}>
       
       <style>{`
         @keyframes orbit {
@@ -2393,12 +2430,16 @@ export default function Reader() {
             <Bookmark size={18} />
           </button>
           <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <button onClick={toggleDarkTheme} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" data-testid="theme-toggle">
+            {isReaderDark ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
           <button
-            onClick={() => setSettings(s => ({...s, theme: s.theme === 'light' ? 'dark' : 'light'}))}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-            data-testid="theme-toggle"
+            onClick={toggleSepiaTheme}
+            className={`p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700 ${isReaderSepia ? 'text-amber-700 bg-amber-100 dark:bg-amber-900/30' : ''}`}
+            data-testid="sepia-toggle"
+            title={isReaderSepia ? 'Disable night reading mode' : 'Enable night reading mode'}
           >
-            {settings.theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            <OwlIcon size={20} />
           </button>
           <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
           <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
