@@ -94,7 +94,8 @@ Everything runs in the browser. No backend required for core reading.
 - Keyboard navigation:
   - `ArrowLeft/ArrowRight` in paginated mode
   - `ArrowUp/ArrowDown` in scroll mode
-- Click chapter entries from TOC.
+- Open chapter contents from the top-left menu (3-lines icon).
+- Click chapter entries from the contents drawer TOC.
 - Save bookmarks from current position and jump back instantly.
 
 ### 4) Work on Text While Reading
@@ -189,6 +190,7 @@ E2E tests live in:
   - Search marker cleanup after `Clear`
   - Dictionary stale-response race handling
   - Translation behavior
+  - Chapters drawer open/close and TOC selection flow
   - Repeated theme toggle stability (dark/light)
   - Sepia mode toggle behavior
   - Reader iframe remount regression guard
