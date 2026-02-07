@@ -52,6 +52,42 @@ test('library card shows language and estimated pages metadata', async ({ page }
   await expect(page.getByTestId('book-meta-pages').first()).toContainText(/Pages:\s*\d+/i);
 });
 
+test('to read tag is manual and filter follows the tag state', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await expect(page.getByTestId('book-to-read-tag')).toHaveCount(0);
+
+  const filterSelect = page.getByTestId('library-filter');
+  await filterSelect.selectOption('to-read');
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+
+  await filterSelect.selectOption('all');
+  await expect(bookLink).toBeVisible();
+
+  await page.getByTestId('book-toggle-to-read').first().click();
+  await expect(page.getByTestId('book-to-read-tag').first()).toBeVisible();
+
+  await filterSelect.selectOption('to-read');
+  await expect(bookLink).toBeVisible();
+
+  await filterSelect.selectOption('all');
+  await page.getByTestId('book-toggle-to-read').first().click();
+  await expect(page.getByTestId('book-to-read-tag')).toHaveCount(0);
+
+  await filterSelect.selectOption('to-read');
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+});
+
 test('library view toggle persists after reload', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {

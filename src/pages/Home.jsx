@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { addBook, getAllBooks, deleteBook, toggleFavorite, markBookStarted, backfillBookMetadata, moveBookToTrash, restoreBookFromTrash, purgeExpiredTrashBooks } from '../services/db'; 
+import { addBook, getAllBooks, deleteBook, toggleFavorite, toggleToRead, markBookStarted, backfillBookMetadata, moveBookToTrash, restoreBookFromTrash, purgeExpiredTrashBooks } from '../services/db'; 
 import ePub from 'epubjs';
-import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Filter, ArrowUpDown, LayoutGrid, List, Flame, RotateCcw, ArrowLeft } from 'lucide-react';
+import { Plus, Book as BookIcon, User, Calendar, Trash2, Clock, Search, Heart, Tag, Filter, ArrowUpDown, LayoutGrid, List, Flame, RotateCcw, ArrowLeft } from 'lucide-react';
 
 const STARTED_BOOK_IDS_KEY = 'library-started-book-ids';
 const TRASH_RETENTION_DAYS = 30;
@@ -298,6 +298,13 @@ export default function Home() {
     loadLibrary();
   };
 
+  const handleToggleToRead = async (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await toggleToRead(id);
+    loadLibrary();
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (file && file.type === "application/epub+zip") {
@@ -310,6 +317,7 @@ export default function Home() {
 
   const filterOptions = [
     { value: "all", label: "All books" },
+    { value: "to-read", label: "To read" },
     { value: "favorites", label: "Favorites" },
     { value: "in-progress", label: "In progress" },
     { value: "finished", label: "Finished" },
@@ -346,6 +354,17 @@ export default function Home() {
     return `${year}-${month}-${day}`;
   };
   const startedBookIds = readStartedBookIds();
+  const isBookStarted = (book) => {
+    const progress = normalizeNumber(book?.progress);
+    return (
+      startedBookIds.has(book?.id) ||
+      Boolean(book?.hasStarted) ||
+      Boolean(book?.lastLocation) ||
+      progress > 0 ||
+      normalizeNumber(book?.readingTime) > 0
+    );
+  };
+  const isBookToRead = (book) => Boolean(book?.isToRead);
 
   const bookMatchesLibrarySearch = (book, query) => {
     if (!query) return true;
@@ -384,8 +403,7 @@ export default function Home() {
       libraryBooks
         .filter((book) => {
           if (book.isDeleted) return false;
-          const progress = normalizeNumber(book.progress);
-          return startedBookIds.has(book.id) || Boolean(book.hasStarted) || Boolean(book.lastLocation) || progress > 0 || normalizeNumber(book.readingTime) > 0;
+          return isBookStarted(book);
         })
         .map((book) => toLocalDateKey(book.lastRead))
         .filter(Boolean)
@@ -439,6 +457,7 @@ export default function Home() {
         activeFilter === "trash" ? inTrash
         : inTrash ? false
         : activeFilter === "all" ? true
+        : activeFilter === "to-read" ? isBookToRead(book)
         : activeFilter === "favorites" ? !!book.isFavorite
         : activeFilter === "in-progress" ? progress > 0 && progress < 100
         : activeFilter === "finished" ? progress >= 100
@@ -641,7 +660,7 @@ export default function Home() {
     .filter((book) => {
       if (book.isDeleted) return false;
       const progress = normalizeNumber(book.progress);
-      const hasStarted = startedBookIds.has(book.id) || Boolean(book.hasStarted) || Boolean(book.lastLocation) || progress > 0 || normalizeNumber(book.readingTime) > 0;
+      const hasStarted = isBookStarted(book);
       return hasStarted && progress < 100;
     })
     .sort((left, right) => normalizeTime(right.lastRead) - normalizeTime(left.lastRead))
@@ -656,6 +675,25 @@ export default function Home() {
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
+  };
+
+  const renderReadingStateBadge = (book, extraClasses = "") => (
+    <div className={`flex items-center gap-2 text-blue-500 text-xs font-semibold ${extraClasses}`}>
+      <Clock size={12} />
+      <span>{formatTime(book.readingTime)}</span>
+    </div>
+  );
+
+  const renderToReadTag = (book, extraClasses = "") => {
+    if (!isBookToRead(book)) return null;
+    return (
+      <span
+        data-testid="book-to-read-tag"
+        className={`inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-bold tracking-wide text-amber-700 ${extraClasses}`}
+      >
+        TO READ
+      </span>
+    );
   };
 
   const formatLastRead = (dateString) => {
@@ -1247,6 +1285,16 @@ export default function Home() {
                           >
                             <Trash2 size={16} />
                           </button>
+                          <button
+                            data-testid="book-toggle-to-read"
+                            onClick={(e) => handleToggleToRead(e, book.id)}
+                            className={`p-2 rounded-xl shadow-md transition-all active:scale-95 ${
+                              book.isToRead ? 'bg-amber-500 text-white' : 'bg-white text-gray-400 hover:text-amber-600'
+                            }`}
+                            title={book.isToRead ? "Remove To Read tag" : "Add To Read tag"}
+                          >
+                            <Tag size={16} />
+                          </button>
                           <button 
                             onClick={(e) => handleToggleFavorite(e, book.id)}
                             className={`p-2 rounded-xl shadow-md transition-all active:scale-95 ${
@@ -1277,10 +1325,8 @@ export default function Home() {
 
                     {renderMetadataBadges(book)}
 
-                    <div className="flex items-center gap-2 text-blue-500 text-xs mt-2 font-semibold">
-                      <Clock size={12} />
-                      <span>{formatTime(book.readingTime)}</span>
-                    </div>
+                    {renderReadingStateBadge(book, "mt-2")}
+                    {renderToReadTag(book, "mt-2")}
                     {renderSessionTimeline(book)}
 
                     <div className="mt-auto pt-4 flex justify-between items-center text-[10px] text-gray-400 font-medium">
@@ -1378,10 +1424,8 @@ export default function Home() {
 
                       {renderMetadataBadges(book)}
 
-                      <div className="mt-2 text-xs text-blue-500 font-semibold flex items-center gap-2">
-                        <Clock size={12} />
-                        <span>{formatTime(book.readingTime)}</span>
-                      </div>
+                      {renderReadingStateBadge(book, "mt-2")}
+                      {renderToReadTag(book, "mt-2")}
                       {renderSessionTimeline(book)}
 
                       <div className="mt-2 text-[11px] text-gray-400 flex items-center justify-between gap-3">
@@ -1454,6 +1498,16 @@ export default function Home() {
                           </>
                         ) : (
                           <>
+                            <button
+                              data-testid="book-toggle-to-read"
+                              onClick={(e) => handleToggleToRead(e, book.id)}
+                              className={`p-2 rounded-xl shadow-sm transition-all active:scale-95 ${
+                                book.isToRead ? 'bg-amber-500 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:text-amber-600'
+                              }`}
+                              title={book.isToRead ? "Remove To Read tag" : "Add To Read tag"}
+                            >
+                              <Tag size={16} />
+                            </button>
                             <button
                               onClick={(e) => handleToggleFavorite(e, book.id)}
                               className={`p-2 rounded-xl shadow-sm transition-all active:scale-95 ${

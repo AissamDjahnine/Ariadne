@@ -131,6 +131,7 @@ export const addBook = async (file) => {
       fontFamily: 'publisher'
     },
     isFavorite: false,
+    isToRead: false,
     isDeleted: false,
     deletedAt: null,
     readingTime: 0,
@@ -353,6 +354,13 @@ export const restoreBookFromTrash = async (id) => {
 export const toggleFavorite = async (id) => {
   return runBookMutation(id, (book) => {
     book.isFavorite = !book.isFavorite;
+    return book;
+  });
+};
+
+export const toggleToRead = async (id) => {
+  return runBookMutation(id, (book) => {
+    book.isToRead = !Boolean(book.isToRead);
     return book;
   });
 };
