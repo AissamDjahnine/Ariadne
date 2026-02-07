@@ -30,7 +30,7 @@ test('library sort and filter controls work with favorites', async ({ page }) =>
   await expect(bookLink).toBeVisible();
 
   await bookLink.hover();
-  await page.getByTitle('Favorite').first().click({ force: true });
+  await bookLink.locator('button[title="Favorite"]').click({ force: true });
 
   await filterSelect.selectOption('favorites');
   await expect(bookLink).toBeVisible();
@@ -50,6 +50,52 @@ test('library card shows language and estimated pages metadata', async ({ page }
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
   await expect(page.getByTestId('book-meta-language').first()).toContainText(/Language: English/i);
   await expect(page.getByTestId('book-meta-pages').first()).toContainText(/Pages:\s*\d+/i);
+});
+
+test('library quick filter chips show counts and apply filters', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await expect(page.getByTestId('library-quick-filters')).toBeVisible();
+  await expect(page.getByTestId('library-quick-filter-to-read-count')).toHaveText('0');
+  await expect(page.getByTestId('library-quick-filter-in-progress-count')).toHaveText('0');
+  await expect(page.getByTestId('library-quick-filter-finished-count')).toHaveText('0');
+  await expect(page.getByTestId('library-quick-filter-favorites-count')).toHaveText('0');
+
+  await bookLink.hover();
+  await page.getByTestId('book-toggle-to-read').first().click({ force: true });
+  await expect(page.getByTestId('library-quick-filter-to-read-count')).toHaveText('1');
+
+  await page.getByTestId('library-quick-filter-to-read').click();
+  await expect(page.getByTestId('library-filter')).toHaveValue('to-read');
+  await expect(bookLink).toBeVisible();
+
+  await page.getByTestId('library-filter').selectOption('all');
+  await bookLink.hover();
+  await bookLink.locator('button[title="Favorite"]').click({ force: true });
+  await expect(page.getByTestId('library-quick-filter-favorites-count')).toHaveText('1');
+
+  await page.getByTestId('library-quick-filter-favorites').click();
+  await expect(page.getByTestId('library-filter')).toHaveValue('favorites');
+  await expect(bookLink).toBeVisible();
+
+  await expect(page.getByTestId('library-quick-filter-in-progress-count')).toHaveText('0');
+  await expect(page.getByTestId('library-quick-filter-finished-count')).toHaveText('0');
+  await page.getByTestId('library-quick-filter-in-progress').click();
+  await expect(page.getByTestId('library-filter')).toHaveValue('in-progress');
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+
+  await page.getByTestId('library-quick-filter-finished').click();
+  await expect(page.getByTestId('library-filter')).toHaveValue('finished');
+  await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
 });
 
 test('to read tag is manual and filter follows the tag state', async ({ page }) => {

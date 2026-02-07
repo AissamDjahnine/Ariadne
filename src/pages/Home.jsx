@@ -440,6 +440,31 @@ export default function Home() {
   const activeBooks = books.filter((book) => !book.isDeleted);
   const trashedBooksCount = books.length - activeBooks.length;
   const isTrashView = activeFilter === "trash";
+  const quickFilterStats = [
+    {
+      key: "to-read",
+      label: "To read",
+      count: activeBooks.filter((book) => isBookToRead(book)).length
+    },
+    {
+      key: "in-progress",
+      label: "In progress",
+      count: activeBooks.filter((book) => {
+        const progress = normalizeNumber(book.progress);
+        return progress > 0 && progress < 100;
+      }).length
+    },
+    {
+      key: "finished",
+      label: "Finished",
+      count: activeBooks.filter((book) => normalizeNumber(book.progress) >= 100).length
+    },
+    {
+      key: "favorites",
+      label: "Favorites",
+      count: activeBooks.filter((book) => Boolean(book.isFavorite)).length
+    }
+  ];
 
   const sortedBooks = [...books]
     .filter((book) => {
@@ -897,6 +922,33 @@ export default function Home() {
             >
               <Flame size={14} className={streakCount > 0 ? 'text-orange-500' : 'text-gray-400'} />
               <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
+            </div>
+
+            <div data-testid="library-quick-filters" className="mt-3 flex flex-wrap gap-2">
+              {quickFilterStats.map((stat) => (
+                <button
+                  key={stat.key}
+                  type="button"
+                  data-testid={`library-quick-filter-${stat.key}`}
+                  onClick={() => setActiveFilter(stat.key)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    activeFilter === stat.key
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+                  }`}
+                  title={`Show ${stat.label.toLowerCase()} books`}
+                >
+                  <span>{stat.label}</span>
+                  <span
+                    data-testid={`library-quick-filter-${stat.key}-count`}
+                    className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                      activeFilter === stat.key ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {stat.count}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
