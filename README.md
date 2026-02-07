@@ -23,6 +23,16 @@ Everything runs in the browser. No backend required for core reading.
   - Genre
 - Store and render covers.
 - Search by title/author.
+- Global search across:
+  - Book metadata
+  - Highlights
+  - Notes
+  - Bookmarks
+  - In-book content
+- Global search content results use a paired per-book layout:
+  - Left: scrollable content snippets for a matched book
+  - Right: centered matched book cover card (title + author)
+- Clicking a global search snippet or matched book card opens reader with carried search context.
 - Filter by:
   - All
   - Favorites
@@ -78,7 +88,6 @@ Everything runs in the browser. No backend required for core reading.
   - Infinite scroll
 - Infinite scroll uses a centered portrait-style reading column with left/right empty space for better focus.
 - Switch light/dark theme.
-- Switch light/dark theme.
 - Enable `Sepia` night-reading mode (owl toggle) for warm yellow paper-style reading.
 - Change font size.
 - Change font family (multiple popular fonts available).
@@ -91,6 +100,11 @@ Everything runs in the browser. No backend required for core reading.
 ### 3) Navigate Faster
 
 - Top progress indicator with estimated time left.
+- In-reader search supports:
+  - Auto-open with `q` when coming from global search
+  - Active match index (`X/N`)
+  - Next/previous result navigation
+  - Enter-to-cycle behavior
 - Keyboard navigation:
   - `ArrowLeft/ArrowRight` in paginated mode
   - `ArrowUp/ArrowDown` in scroll mode
@@ -205,6 +219,9 @@ E2E tests live in:
   - Trash icon flow (`move -> restore -> delete forever`)
   - 30-day trash auto-purge behavior
   - Favorites filter behavior
+  - Global search panel behavior and grouped result opening
+  - Global search content inclusion from in-book matches
+  - Global search content scroll behavior and paired book-card layout
 
 To run browser tests locally:
 
@@ -220,8 +237,8 @@ If AI features are re-enabled for production, move model calls behind a secure s
 
 ## Key Files
 
-- `src/pages/Home.jsx` - library upload/search/sort/filter/trash/view-toggle/continue-reading/quick-actions
-- `src/pages/Reader.jsx` - reader UI, contextual tools, highlights/bookmarks panels, export, panel deep-link handling
+- `src/pages/Home.jsx` - library upload/search/sort/filter/trash/view-toggle/continue-reading/quick-actions/global-search paired layout
+- `src/pages/Reader.jsx` - reader UI, contextual tools, highlights/bookmarks panels, export, panel deep-link handling, query/cfi search handoff
 - `src/components/BookView.jsx` - epub.js rendering, navigation, location events
 - `src/services/db.js` - local data persistence (books, metadata backfill, trash retention/purge, reading sessions, highlights, notes, bookmarks, settings, started-state)
 - `src/services/ai.js` - AI summarization integration (currently not active for product flow)
