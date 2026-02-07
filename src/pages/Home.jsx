@@ -132,7 +132,8 @@ export default function Home() {
   
   // Search, filter & sort states
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [flagFilters, setFlagFilters] = useState([]);
   const [sortBy, setSortBy] = useState("last-read-desc");
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window === "undefined") return "grid";
@@ -150,7 +151,7 @@ export default function Home() {
 
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
-    const shouldSearchContent = query.length >= 2 && activeFilter !== "trash";
+    const shouldSearchContent = query.length >= 2 && statusFilter !== "trash";
 
     if (!shouldSearchContent) {
       setContentSearchMatches({});
@@ -187,7 +188,13 @@ export default function Home() {
         setIsContentSearching(false);
       }
     };
-  }, [books, searchQuery, activeFilter]);
+  }, [books, searchQuery, statusFilter]);
+
+  useEffect(() => {
+    if (statusFilter !== "trash") return;
+    if (!flagFilters.length) return;
+    setFlagFilters([]);
+  }, [statusFilter, flagFilters]);
 
   const loadLibrary = async () => {
     await purgeExpiredTrashBooks(TRASH_RETENTION_DAYS);
@@ -315,15 +322,17 @@ export default function Home() {
     }
   };
 
-  const filterOptions = [
+  const statusFilterOptions = [
     { value: "all", label: "All books" },
     { value: "to-read", label: "To read" },
-    { value: "favorites", label: "Favorites" },
     { value: "in-progress", label: "In progress" },
     { value: "finished", label: "Finished" },
-    { value: "has-highlights", label: "Has highlights" },
-    { value: "has-notes", label: "Has notes" },
     { value: "trash", label: "Trash" }
+  ];
+  const flagFilterOptions = [
+    { value: "favorites", label: "Favorites" },
+    { value: "has-highlights", label: "Has highlights" },
+    { value: "has-notes", label: "Has notes" }
   ];
 
   const sortOptions = [
@@ -365,6 +374,12 @@ export default function Home() {
     );
   };
   const isBookToRead = (book) => Boolean(book?.isToRead);
+  const isFlagFilterActive = (flag) => flagFilters.includes(flag);
+  const toggleFlagFilter = (flag) => {
+    setFlagFilters((current) =>
+      current.includes(flag) ? current.filter((item) => item !== flag) : [...current, flag]
+    );
+  };
 
   const bookMatchesLibrarySearch = (book, query) => {
     if (!query) return true;
@@ -439,7 +454,7 @@ export default function Home() {
 
   const activeBooks = books.filter((book) => !book.isDeleted);
   const trashedBooksCount = books.length - activeBooks.length;
-  const isTrashView = activeFilter === "trash";
+  const isTrashView = statusFilter === "trash";
   const quickFilterStats = [
     {
       key: "to-read",
@@ -478,19 +493,26 @@ export default function Home() {
       const progress = normalizeNumber(book.progress);
       const inTrash = Boolean(book.isDeleted);
 
-      const matchesFilter =
-        activeFilter === "trash" ? inTrash
+      const matchesStatus =
+        statusFilter === "trash" ? inTrash
         : inTrash ? false
-        : activeFilter === "all" ? true
-        : activeFilter === "to-read" ? isBookToRead(book)
-        : activeFilter === "favorites" ? !!book.isFavorite
-        : activeFilter === "in-progress" ? progress > 0 && progress < 100
-        : activeFilter === "finished" ? progress >= 100
-        : activeFilter === "has-highlights" ? highlightCount > 0
-        : activeFilter === "has-notes" ? noteCount > 0
+        : statusFilter === "all" ? true
+        : statusFilter === "to-read" ? isBookToRead(book)
+        : statusFilter === "in-progress" ? progress > 0 && progress < 100
+        : statusFilter === "finished" ? progress >= 100
         : true;
 
-      return matchesSearch && matchesFilter;
+      const matchesFlags =
+        statusFilter === "trash"
+          ? true
+          : flagFilters.every((flag) => {
+              if (flag === "favorites") return Boolean(book.isFavorite);
+              if (flag === "has-highlights") return highlightCount > 0;
+              if (flag === "has-notes") return noteCount > 0;
+              return true;
+            });
+
+      return matchesSearch && matchesStatus && matchesFlags;
     })
     .sort((left, right) => {
       if (sortBy === "last-read-desc") return normalizeTime(right.lastRead) - normalizeTime(left.lastRead);
@@ -691,7 +713,7 @@ export default function Home() {
     .sort((left, right) => normalizeTime(right.lastRead) - normalizeTime(left.lastRead))
     .slice(0, 8);
 
-  const showContinueReading = activeFilter === "all" && !searchQuery.trim() && continueReadingBooks.length > 0;
+  const showContinueReading = statusFilter === "all" && !searchQuery.trim() && continueReadingBooks.length > 0;
   const { streakCount, readToday } = getReadingStreak(books);
 
   const formatTime = (totalSeconds) => {
@@ -893,19 +915,21 @@ export default function Home() {
   };
 
   const getFilterLabel = () => {
-    if (activeFilter === "trash") return "Trash";
-    return filterOptions.find((f) => f.value === activeFilter)?.label || "All books";
+    if (statusFilter === "trash") return "Trash";
+    return statusFilterOptions.find((f) => f.value === statusFilter)?.label || "All books";
   };
 
   const resetLibraryFilters = () => {
     setSearchQuery("");
-    setActiveFilter("all");
+    setStatusFilter("all");
+    setFlagFilters([]);
     setSortBy("last-read-desc");
   };
 
   const hasActiveLibraryFilters =
     Boolean(searchQuery.trim()) ||
-    activeFilter !== "all" ||
+    statusFilter !== "all" ||
+    flagFilters.length > 0 ||
     sortBy !== "last-read-desc";
 
   return (
@@ -941,9 +965,18 @@ export default function Home() {
                   key={stat.key}
                   type="button"
                   data-testid={`library-quick-filter-${stat.key}`}
-                  onClick={() => setActiveFilter(stat.key)}
+                  onClick={() => {
+                    if (stat.key === "favorites") {
+                      if (statusFilter === "trash") setStatusFilter("all");
+                      toggleFlagFilter("favorites");
+                      return;
+                    }
+                    setStatusFilter(stat.key);
+                  }}
                   className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    activeFilter === stat.key
+                    (stat.key === "favorites"
+                      ? isFlagFilterActive("favorites")
+                      : statusFilter === stat.key)
                       ? "border-blue-200 bg-blue-50 text-blue-700"
                       : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
                   }`}
@@ -953,7 +986,11 @@ export default function Home() {
                   <span
                     data-testid={`library-quick-filter-${stat.key}-count`}
                     className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                      activeFilter === stat.key ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                      (stat.key === "favorites"
+                        ? isFlagFilterActive("favorites")
+                        : statusFilter === stat.key)
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-gray-100 text-gray-600"
                     }`}
                   >
                     {stat.count}
@@ -967,7 +1004,7 @@ export default function Home() {
             <button
               type="button"
               data-testid="trash-toggle-button"
-              onClick={() => setActiveFilter((current) => (current === "trash" ? "all" : "trash"))}
+              onClick={() => setStatusFilter((current) => (current === "trash" ? "all" : "trash"))}
               className={`relative p-3 rounded-full border shadow-sm transition-all ${
                 isTrashView
                   ? "bg-amber-500 text-white border-amber-500"
@@ -1001,7 +1038,7 @@ export default function Home() {
               </div>
               <button
                 type="button"
-                onClick={() => setActiveFilter("in-progress")}
+                onClick={() => setStatusFilter("in-progress")}
                 className="text-xs font-bold text-blue-600 hover:text-blue-700"
               >
                 View in-progress
@@ -1072,11 +1109,11 @@ export default function Home() {
               <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <select
                 data-testid="library-filter"
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value)}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm text-sm font-semibold text-gray-700"
               >
-                {filterOptions.map((option) => (
+                {statusFilterOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -1134,15 +1171,42 @@ export default function Home() {
               {hasActiveLibraryFilters && (
                 <button
                   type="button"
-                  data-testid="library-retry-button"
+                  data-testid="library-reset-filters-button"
                   onClick={resetLibraryFilters}
-                  className="inline-flex h-11 items-center rounded-2xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                  className="inline-flex h-11 items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                  title="Reset filters"
+                  aria-label="Reset filters"
                 >
-                  Retry
+                  <RotateCcw size={16} />
+                  <span>Reset filters</span>
                 </button>
               )}
             </div>
           </div>
+          {!isTrashView && (
+            <div data-testid="library-flag-filters" className="mt-2 flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Flags</span>
+              {flagFilterOptions.map((option) => {
+                const isActive = isFlagFilterActive(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    data-testid={`library-flag-filter-${option.value}`}
+                    aria-pressed={isActive}
+                    onClick={() => toggleFlagFilter(option.value)}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      isActive
+                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         {globalSearchQuery && !isTrashView && (
           <div className={`mb-4 ${showGlobalSearchSplitColumns ? "grid grid-cols-1 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.95fr)] gap-4 items-start" : ""}`}>
@@ -1265,11 +1329,26 @@ export default function Home() {
           )}
           </div>
         )}
-        <div className="mb-8 text-xs text-gray-500 flex items-center gap-2">
+        <div className="mb-8 text-xs text-gray-500 flex flex-wrap items-center gap-2">
           <span className="font-semibold text-gray-600">Active:</span>
           <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
             {getFilterLabel()}
           </span>
+          {flagFilters.map((flag) => {
+            const label = flagFilterOptions.find((item) => item.value === flag)?.label || flag;
+            return (
+              <button
+                key={`active-flag-${flag}`}
+                type="button"
+                data-testid={`active-flag-chip-${flag}`}
+                onClick={() => toggleFlagFilter(flag)}
+                className="px-2 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                title={`Remove ${label.toLowerCase()} filter`}
+              >
+                {label} x
+              </button>
+            );
+          })}
           <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
             {sortOptions.find((s) => s.value === sortBy)?.label || "Last read (newest)"}
           </span>
@@ -1285,7 +1364,7 @@ export default function Home() {
             <button
               type="button"
               data-testid="trash-back-button"
-              onClick={() => setActiveFilter("all")}
+              onClick={() => setStatusFilter("all")}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
             >
               <ArrowLeft size={14} />
@@ -1302,11 +1381,14 @@ export default function Home() {
             </p>
             {hasActiveLibraryFilters && (
               <button 
-                data-testid="library-empty-retry-button"
+                data-testid="library-empty-reset-filters-button"
                 onClick={resetLibraryFilters}
-                className="mt-4 text-blue-600 font-bold hover:underline"
+                className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                title="Reset filters"
+                aria-label="Reset filters"
               >
-                Retry
+                <RotateCcw size={16} />
+                <span>Reset filters</span>
               </button>
             )}
           </div>

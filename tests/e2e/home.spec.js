@@ -23,20 +23,24 @@ test('library sort and filter controls work with favorites', async ({ page }) =>
   await sortSelect.selectOption('title-asc');
   await expect(sortSelect).toHaveValue('title-asc');
 
-  await filterSelect.selectOption('favorites');
+  const favoritesFlag = page.getByTestId('library-flag-filter-favorites');
+  await favoritesFlag.click();
   await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+  await expect(favoritesFlag).toHaveAttribute('aria-pressed', 'true');
 
-  await filterSelect.selectOption('all');
+  await favoritesFlag.click();
+  await expect(favoritesFlag).toHaveAttribute('aria-pressed', 'false');
   await expect(bookLink).toBeVisible();
 
   await bookLink.hover();
   await bookLink.locator('button[title="Favorite"]').click({ force: true });
 
-  await filterSelect.selectOption('favorites');
+  await favoritesFlag.click();
+  await expect(favoritesFlag).toHaveAttribute('aria-pressed', 'true');
   await expect(bookLink).toBeVisible();
 });
 
-test('library toolbar is sticky and retry resets search filter and sort', async ({ page }) => {
+test('library toolbar is sticky and reset button clears search status and flag filters', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
     localStorage.clear();
@@ -56,18 +60,21 @@ test('library toolbar is sticky and retry resets search filter and sort', async 
   const searchInput = page.getByTestId('library-search');
   const filterSelect = page.getByTestId('library-filter');
   const sortSelect = page.getByTestId('library-sort');
+  const favoritesFlag = page.getByTestId('library-flag-filter-favorites');
 
   await searchInput.fill('no-match-token-xyz');
-  await filterSelect.selectOption('favorites');
+  await filterSelect.selectOption('in-progress');
+  await favoritesFlag.click();
   await sortSelect.selectOption('title-asc');
-  await expect(page.getByTestId('library-retry-button')).toBeVisible();
+  await expect(page.getByTestId('library-reset-filters-button')).toBeVisible();
   await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
 
-  await page.getByTestId('library-retry-button').click();
+  await page.getByTestId('library-reset-filters-button').click();
   await expect(searchInput).toHaveValue('');
   await expect(filterSelect).toHaveValue('all');
   await expect(sortSelect).toHaveValue('last-read-desc');
-  await expect(page.getByTestId('library-retry-button')).toHaveCount(0);
+  await expect(favoritesFlag).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('library-reset-filters-button')).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 });
 
@@ -119,7 +126,8 @@ test('library quick filter chips show counts and apply filters', async ({ page }
   await expect(page.getByTestId('library-quick-filter-favorites-count')).toHaveText('1');
 
   await page.getByTestId('library-quick-filter-favorites').click();
-  await expect(page.getByTestId('library-filter')).toHaveValue('favorites');
+  await expect(page.getByTestId('library-flag-filter-favorites')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('library-filter')).toHaveValue('all');
   await expect(bookLink).toBeVisible();
 
   await expect(page.getByTestId('library-quick-filter-in-progress-count')).toHaveText('0');
@@ -167,6 +175,33 @@ test('to read tag is manual and filter follows the tag state', async ({ page }) 
 
   await filterSelect.selectOption('to-read');
   await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
+});
+
+test('status and flag filters can be combined', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  await page.getByTestId('book-toggle-to-read').first().click({ force: true });
+  await bookLink.hover();
+  await bookLink.locator('button[title="Favorite"]').click({ force: true });
+
+  const filterSelect = page.getByTestId('library-filter');
+  const favoritesFlag = page.getByTestId('library-flag-filter-favorites');
+  await filterSelect.selectOption('to-read');
+  await favoritesFlag.click();
+
+  await expect(filterSelect).toHaveValue('to-read');
+  await expect(favoritesFlag).toHaveAttribute('aria-pressed', 'true');
+  await expect(bookLink).toBeVisible();
 });
 
 test('library view toggle persists after reload', async ({ page }) => {
