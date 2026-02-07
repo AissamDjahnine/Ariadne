@@ -304,11 +304,14 @@ test('global search panel shows grouped results and opens book from result', asy
   await expect(page.getByTestId('global-search-empty')).toBeVisible();
 
   await searchInput.fill('test book');
-  await expect(page.getByTestId('global-search-group-books')).toBeVisible();
-  await expect(page.getByTestId('global-search-result-books').first()).toBeVisible();
+  await expect(page.getByTestId('global-search-group-books')).toHaveCount(0);
+  await expect(page.getByTestId('global-search-found-books')).toBeVisible();
+  await expect(page.getByTestId('global-search-found-book-card').first()).toBeVisible();
 
-  await page.getByTestId('global-search-result-books').first().click();
+  await page.getByTestId('global-search-found-book-card').first().click();
   await expect(page).toHaveURL(/\/read\?id=/);
+  await expect(page).toHaveURL(/q=test\+book/);
+  await expect(page.getByPlaceholder('Search inside this book...')).toHaveValue('test book');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 });
 
@@ -317,6 +320,7 @@ test('global search includes in-book content matches', async ({ page }) => {
     indexedDB.deleteDatabase('SmartReaderLib');
     localStorage.clear();
   });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
 
   const fileInput = page.locator('input[type="file"][accept=".epub"]');
@@ -329,10 +333,58 @@ test('global search includes in-book content matches', async ({ page }) => {
   await expect
     .poll(async () => page.getByTestId('global-search-group-content').count(), { timeout: 25000 })
     .toBeGreaterThan(0);
+  await expect(page.getByTestId('global-search-group-books')).toHaveCount(0);
+  await expect(page.getByTestId('global-search-found-books')).toBeVisible();
+  const firstFoundCard = page.getByTestId('global-search-found-book-card').first();
+  await expect(firstFoundCard).toBeVisible();
+  await expect(firstFoundCard.getByTestId('global-search-found-book-title')).toBeVisible();
+  await expect(firstFoundCard.getByTestId('global-search-found-book-author')).toBeVisible();
+  await expect(firstFoundCard.getByTestId('book-meta-language')).toHaveCount(0);
+  await expect(firstFoundCard.getByText('Resume')).toHaveCount(0);
   await expect(page.getByTestId('global-search-result-content').first()).toBeVisible();
+
+  const firstRow = page.getByTestId('global-search-content-book-row').first();
+  const contentPanel = firstRow.getByTestId('global-search-group-content');
+  const cardPanel = firstRow.getByTestId('global-search-found-book-card');
+  const [contentRect, cardRect] = await Promise.all([
+    contentPanel.boundingBox(),
+    cardPanel.boundingBox()
+  ]);
+  expect(contentRect).not.toBeNull();
+  expect(cardRect).not.toBeNull();
+  expect((cardRect?.x || 0)).toBeGreaterThan((contentRect?.x || 0));
+  const heightDelta = Math.abs((cardRect?.height || 0) - (contentRect?.height || 0));
+  expect(heightDelta).toBeLessThanOrEqual(10);
 
   await page.getByTestId('global-search-result-content').first().click();
   await expect(page).toHaveURL(/\/read\?id=/);
   await expect(page).toHaveURL(/cfi=/);
+  await expect(page).toHaveURL(/q=valley/);
+  await expect(page.getByPlaceholder('Search inside this book...')).toHaveValue('valley');
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).not.toBe('0/0');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+});
+
+test('global search results panel is scrollable and can show more than capped content matches', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const searchInput = page.getByTestId('library-search');
+  await searchInput.fill('the');
+
+  await expect
+    .poll(async () => page.getByTestId('global-search-result-content').count(), { timeout: 25000 })
+    .toBeGreaterThan(4);
+
+  const scrollPanel = page.getByTestId('global-search-group-content-scroll').first();
+  await expect(scrollPanel).toBeVisible();
+  const overflowY = await scrollPanel.evaluate((el) => getComputedStyle(el).overflowY);
+  expect(['auto', 'scroll']).toContain(overflowY);
 });

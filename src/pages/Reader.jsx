@@ -57,6 +57,7 @@ export default function Reader() {
   const bookId = searchParams.get('id');
   const panelParam = searchParams.get('panel');
   const cfiParam = searchParams.get('cfi');
+  const searchTermParam = searchParams.get('q');
   const [book, setBook] = useState(null);
   const bookRef = useRef(null);
   
@@ -137,6 +138,7 @@ export default function Reader() {
   const [settings, setSettings] = useState(DEFAULT_READER_SETTINGS);
   const initialPanelAppliedRef = useRef(false);
   const initialJumpAppliedRef = useRef(false);
+  const initialSearchAppliedRef = useRef(false);
   const progressPersistRef = useRef({
     timer: null,
     lastWriteTs: 0,
@@ -721,11 +723,12 @@ export default function Reader() {
     setShowSearchMenu(false);
   };
 
-  const goToSearchIndex = (index) => {
-    if (!searchResults.length) return;
-    const clamped = Math.max(0, Math.min(index, searchResults.length - 1));
+  const goToSearchIndex = (index, overrideResults = null) => {
+    const sourceResults = Array.isArray(overrideResults) ? overrideResults : searchResults;
+    if (!sourceResults.length) return;
+    const clamped = Math.max(0, Math.min(index, sourceResults.length - 1));
     setActiveSearchIndex(clamped);
-    const target = searchResults[clamped];
+    const target = sourceResults[clamped];
     if (target?.cfi) setJumpTarget(target.cfi);
   };
 
@@ -741,7 +744,7 @@ export default function Reader() {
     goToSearchIndex(prev);
   };
 
-  const runSearch = async (query) => {
+  const runSearch = async (query, targetCfi = '') => {
     const term = query.trim();
     if (!rendition || !term) {
       clearSearch();
@@ -787,8 +790,14 @@ export default function Reader() {
       if (searchTokenRef.current !== token) return;
       setSearchResults(results);
       if (results.length) {
-        setActiveSearchIndex(0);
-        if (results[0]?.cfi) setJumpTarget(results[0].cfi);
+        const targetIndex = targetCfi
+          ? results.findIndex((result) => {
+              const matchCfi = result?.cfi || '';
+              return matchCfi === targetCfi || matchCfi.includes(targetCfi) || targetCfi.includes(matchCfi);
+            })
+          : -1;
+        const initialIndex = targetIndex >= 0 ? targetIndex : 0;
+        goToSearchIndex(initialIndex, results);
       }
     } catch (err) {
       console.error(err);
@@ -1477,7 +1486,8 @@ export default function Reader() {
   useEffect(() => {
     initialPanelAppliedRef.current = false;
     initialJumpAppliedRef.current = false;
-  }, [bookId, panelParam, cfiParam]);
+    initialSearchAppliedRef.current = false;
+  }, [bookId, panelParam, cfiParam, searchTermParam]);
 
   useEffect(() => {
     if (!book?.id || initialPanelAppliedRef.current) return;
@@ -1496,6 +1506,19 @@ export default function Reader() {
     jumpToCfi(cfiParam);
     initialJumpAppliedRef.current = true;
   }, [book?.id, cfiParam]);
+
+  useEffect(() => {
+    if (!book?.id || !rendition || initialSearchAppliedRef.current) return;
+    if (!searchTermParam) return;
+
+    const normalized = searchTermParam.trim();
+    if (!normalized) return;
+
+    setShowSearchMenu(true);
+    setSearchQuery(normalized);
+    runSearch(normalized, cfiParam || '');
+    initialSearchAppliedRef.current = true;
+  }, [book?.id, rendition, searchTermParam, cfiParam]);
 
   useEffect(() => {
     if (!book?.id) return;

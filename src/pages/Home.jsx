@@ -75,7 +75,7 @@ const flattenToc = (items, acc = []) => {
   return acc;
 };
 
-const searchBookContent = async (book, query, maxMatches = 4) => {
+const searchBookContent = async (book, query, maxMatches = 30) => {
   if (!book?.data || !query) return [];
   const epub = ePub(book.data);
   const matches = [];
@@ -120,6 +120,10 @@ const searchBookContent = async (book, query, maxMatches = 4) => {
 
   return matches;
 };
+
+const CONTENT_SCROLL_HEIGHT_CLASS = "h-[42vh]";
+const CONTENT_PANEL_HEIGHT_CLASS = "h-[calc(42vh+3rem)]";
+const FOUND_BOOK_COVER_PADDING_CLASS = "p-4";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -166,7 +170,7 @@ export default function Home() {
 
       for (const book of targetBooks) {
         if (contentSearchTokenRef.current !== token) return;
-        const matches = await searchBookContent(book, query, 4);
+        const matches = await searchBookContent(book, query, 30);
         if (contentSearchTokenRef.current !== token) return;
         if (matches.length) nextMatches[book.id] = matches;
       }
@@ -238,6 +242,8 @@ export default function Home() {
     const params = new URLSearchParams({ id });
     if (panel) params.set('panel', panel);
     if (options.cfi) params.set('cfi', options.cfi);
+    if (options.query) params.set('q', options.query);
+    if (options.openSearch) params.set('search', '1');
     return `/read?${params.toString()}`;
   };
 
@@ -253,7 +259,11 @@ export default function Home() {
     e.stopPropagation();
     if (!result?.bookId) return;
     handleOpenBook(result.bookId);
-    navigate(buildReaderPath(result.bookId, result.panel || "", { cfi: result.cfi || "" }));
+    navigate(buildReaderPath(result.bookId, "", {
+      cfi: result.cfi || "",
+      query: result.query || "",
+      openSearch: !!result.query
+    }));
   };
 
   const handleDeleteBook = async (e, id) => {
@@ -464,6 +474,7 @@ export default function Home() {
 
     books.forEach((book) => {
       if (book.isDeleted) return;
+      const existingBookResultIds = new Set();
 
       const metadataFields = [
         book.title,
@@ -472,15 +483,18 @@ export default function Home() {
         formatGenreLabel(book.genre)
       ];
       if (metadataFields.some((field) => normalizeString(field).includes(globalSearchQuery))) {
+        const resultId = `${book.id}-book`;
         nextGroups.books.push({
-          id: `${book.id}-book`,
+          id: resultId,
           bookId: book.id,
           panel: "",
           cfi: "",
+          query: globalSearchQuery,
           title: book.title,
           subtitle: book.author,
           snippet: `Book match: ${book.title} by ${book.author}`
         });
+        existingBookResultIds.add(resultId);
       }
 
       const highlights = Array.isArray(book.highlights) ? book.highlights : [];
@@ -492,6 +506,7 @@ export default function Home() {
             bookId: book.id,
             panel: "highlights",
             cfi: highlight?.cfiRange || "",
+            query: globalSearchQuery,
             title: book.title,
             subtitle: book.author,
             snippet: buildSnippet(textValue, globalSearchQuery)
@@ -505,6 +520,7 @@ export default function Home() {
             bookId: book.id,
             panel: "highlights",
             cfi: highlight?.cfiRange || "",
+            query: globalSearchQuery,
             title: book.title,
             subtitle: book.author,
             snippet: buildSnippet(noteValue, globalSearchQuery)
@@ -526,6 +542,7 @@ export default function Home() {
           bookId: book.id,
           panel: "bookmarks",
           cfi: bookmark?.cfi || "",
+          query: globalSearchQuery,
           title: book.title,
           subtitle: book.author,
           snippet: buildSnippet(textValue || labelValue, globalSearchQuery)
@@ -539,29 +556,86 @@ export default function Home() {
           bookId: book.id,
           panel: "",
           cfi: match?.cfi || "",
+          query: globalSearchQuery,
           title: book.title,
           subtitle: [book.author, match?.chapterLabel].filter(Boolean).join(" · "),
           snippet: buildSnippet(match?.excerpt || "", globalSearchQuery)
         });
       });
+
+      if (contentMatches.length > 0) {
+        const resultId = `${book.id}-book`;
+        const firstContentCfi = contentMatches[0]?.cfi || "";
+        if (!existingBookResultIds.has(resultId)) {
+          nextGroups.books.push({
+            id: resultId,
+            bookId: book.id,
+            panel: "",
+            cfi: firstContentCfi,
+            query: globalSearchQuery,
+            title: book.title,
+            subtitle: book.author,
+            snippet: `Found ${contentMatches.length} content match${contentMatches.length === 1 ? '' : 'es'}`
+          });
+          existingBookResultIds.add(resultId);
+        } else {
+          const existingIndex = nextGroups.books.findIndex((item) => item.id === resultId);
+          if (existingIndex >= 0 && !nextGroups.books[existingIndex].cfi) {
+            nextGroups.books[existingIndex] = {
+              ...nextGroups.books[existingIndex],
+              cfi: firstContentCfi
+            };
+          }
+        }
+      }
     });
 
     const descriptors = [
+      { key: "content", label: "Book content" },
       { key: "books", label: "Books" },
       { key: "highlights", label: "Highlights" },
       { key: "notes", label: "Notes" },
-      { key: "bookmarks", label: "Bookmarks" },
-      { key: "content", label: "Book content" }
+      { key: "bookmarks", label: "Bookmarks" }
     ];
 
     return descriptors
       .map((descriptor) => ({
         ...descriptor,
-        items: nextGroups[descriptor.key].slice(0, 8)
+        items: nextGroups[descriptor.key]
       }))
       .filter((group) => group.items.length > 0);
   })();
-  const globalSearchTotal = globalSearchGroups.reduce((total, group) => total + group.items.length, 0);
+  const globalSearchBookGroup = globalSearchGroups.find((group) => group.key === "books");
+  const globalSearchBookItems = globalSearchBookGroup?.items || [];
+  const visibleGlobalSearchGroups = globalSearchGroups.filter((group) => group.key !== "books");
+  const globalContentGroup = visibleGlobalSearchGroups.find((group) => group.key === "content");
+  const globalOtherGroups = visibleGlobalSearchGroups.filter((group) => group.key !== "content");
+  const globalSearchTotal = visibleGlobalSearchGroups.reduce((total, group) => total + group.items.length, 0) + globalSearchBookItems.length;
+  const booksById = new Map(books.filter((book) => !book.isDeleted).map((book) => [book.id, book]));
+  const globalMatchedBooks = globalSearchBookItems
+    .map((item) => ({
+      ...item,
+      book: booksById.get(item.bookId)
+    }))
+    .filter((item) => Boolean(item.book));
+  const globalContentItemsByBook = (globalContentGroup?.items || []).reduce((acc, item) => {
+    if (!item?.bookId) return acc;
+    if (!acc[item.bookId]) acc[item.bookId] = [];
+    acc[item.bookId].push(item);
+    return acc;
+  }, {});
+  const globalMatchedBookPairs = globalMatchedBooks
+    .map((item) => ({
+      ...item,
+      contentItems: globalContentItemsByBook[item.bookId] || []
+    }))
+    .filter((item) => item.contentItems.length > 0);
+  const showGlobalSearchBooksColumn = Boolean(
+    globalSearchQuery &&
+    !isTrashView &&
+    (globalMatchedBookPairs.length || globalMatchedBooks.length)
+  );
+  const showGlobalSearchSplitColumns = showGlobalSearchBooksColumn && globalMatchedBookPairs.length === 0;
 
   const continueReadingBooks = [...books]
     .filter((book) => {
@@ -710,6 +784,48 @@ export default function Home() {
           </span>
         ))}
       </div>
+    );
+  };
+
+  const renderGlobalSearchBookCard = (item, options = {}) => {
+    const book = item.book;
+    if (!book) return null;
+    const { coverHeightClass = CONTENT_PANEL_HEIGHT_CLASS } = options;
+    return (
+      <Link
+        to={buildReaderPath(book.id, "", {
+          cfi: item.cfi || "",
+          query: globalSearchQuery,
+          openSearch: true
+        })}
+        key={`global-card-${book.id}`}
+        data-testid="global-search-found-book-card"
+        onClick={() => handleOpenBook(book.id)}
+        className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 block relative ${coverHeightClass}`}
+      >
+        <div data-testid="global-search-found-book-cover" className={`h-full bg-gray-100 ${FOUND_BOOK_COVER_PADDING_CLASS}`}>
+          <div className="relative h-full w-full rounded-xl overflow-hidden bg-white border border-gray-100">
+            {book.cover ? (
+              <img src={book.cover} alt={book.title} className="w-full h-full object-contain group-hover:scale-[1.01] transition-transform duration-500" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
+                <BookIcon size={40} className="mb-2 opacity-20" />
+                <span className="text-xs font-medium uppercase tracking-widest">{book.title}</span>
+              </div>
+            )}
+
+            <div className="absolute inset-x-0 bottom-0 border-t border-gray-200 bg-white/95 backdrop-blur-sm px-3 py-2">
+              <h3 data-testid="global-search-found-book-title" className="font-bold text-gray-900 text-xl leading-tight line-clamp-1 group-hover:text-blue-600 transition-colors">
+                {book.title}
+              </h3>
+              <div data-testid="global-search-found-book-author" className="mt-1 flex items-center gap-2 text-gray-600 text-sm">
+                <User size={14} />
+                <span className="truncate">{book.author}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Link>
     );
   };
 
@@ -910,9 +1026,10 @@ export default function Home() {
           </div>
         </div>
         {globalSearchQuery && !isTrashView && (
+          <div className={`mb-4 ${showGlobalSearchSplitColumns ? "grid grid-cols-1 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.95fr)] gap-4 items-start" : ""}`}>
           <section
             data-testid="global-search-panel"
-            className="mb-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4"
+            className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"
           >
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-bold text-blue-900">Global Search Results</h2>
@@ -931,37 +1048,103 @@ export default function Home() {
                 No matches found in books, highlights, notes, or bookmarks.
               </p>
             ) : (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {globalSearchGroups.map((group) => (
-                  <div
-                    key={group.key}
-                    data-testid={`global-search-group-${group.key}`}
-                    className="rounded-xl border border-blue-100 bg-white p-3"
-                  >
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] font-bold text-blue-700">
-                      {group.label}
-                    </div>
-                    <div className="space-y-2">
-                      {group.items.map((item) => (
-                        <button
-                          key={item.id}
-                          data-testid={`global-search-result-${group.key}`}
-                          onClick={(e) => handleGlobalResultOpen(e, item)}
-                          className="w-full text-left rounded-lg border border-transparent hover:border-blue-200 hover:bg-blue-50 px-2 py-2 transition"
+              <div className="mt-3 space-y-3">
+                {globalMatchedBookPairs.length > 0 && (
+                  <div data-testid="global-search-found-books" className="space-y-3">
+                    {globalMatchedBookPairs.map((pair) => (
+                      <div
+                        key={`content-pair-${pair.bookId}`}
+                        data-testid="global-search-content-book-row"
+                        className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.65fr)_minmax(260px,0.95fr)] gap-3 items-start"
+                      >
+                        <div
+                          data-testid="global-search-group-content"
+                          className={`rounded-xl border border-blue-100 bg-white p-3 ${CONTENT_PANEL_HEIGHT_CLASS}`}
                         >
-                          <div className="text-xs font-bold text-gray-900 line-clamp-1">{item.title}</div>
-                          <div className="text-[11px] text-gray-500 line-clamp-1">{item.subtitle}</div>
-                          {item.snippet && (
-                            <div className="mt-1 text-[11px] text-gray-700 line-clamp-2">{item.snippet}</div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                          <div className="mb-2 text-[11px] uppercase tracking-[0.16em] font-bold text-blue-700">
+                            Book content · {pair.title}
+                          </div>
+                          <div
+                            data-testid="global-search-group-content-scroll"
+                            className={`space-y-2 ${CONTENT_SCROLL_HEIGHT_CLASS} overflow-y-auto pr-1 pb-2`}
+                          >
+                            {pair.contentItems.map((item) => (
+                              <button
+                                key={item.id}
+                                data-testid="global-search-result-content"
+                                onClick={(e) => handleGlobalResultOpen(e, item)}
+                                className="w-full text-left rounded-lg border border-transparent hover:border-blue-200 hover:bg-blue-50 px-2 py-2 transition"
+                              >
+                                <div className="text-xs font-bold text-gray-900 line-clamp-1">{item.title}</div>
+                                <div className="text-[11px] text-gray-500 line-clamp-1">{item.subtitle}</div>
+                                {item.snippet && (
+                                  <div className="mt-1 text-[11px] leading-[1.45] text-gray-700 line-clamp-2">{item.snippet}</div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>{renderGlobalSearchBookCard(pair)}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {globalOtherGroups.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {globalOtherGroups.map((group) => (
+                      <div
+                        key={group.key}
+                        data-testid={`global-search-group-${group.key}`}
+                        className="rounded-xl border border-blue-100 bg-white p-3"
+                      >
+                        <div className="mb-2 text-[11px] uppercase tracking-[0.16em] font-bold text-blue-700">
+                          {group.label}
+                        </div>
+                        <div className="space-y-2">
+                          {group.items.map((item) => (
+                            <button
+                              key={item.id}
+                              data-testid={`global-search-result-${group.key}`}
+                              onClick={(e) => handleGlobalResultOpen(e, item)}
+                              className="w-full text-left rounded-lg border border-transparent hover:border-blue-200 hover:bg-blue-50 px-2 py-2 transition"
+                            >
+                              <div className="text-xs font-bold text-gray-900 line-clamp-1">{item.title}</div>
+                              <div className="text-[11px] text-gray-500 line-clamp-1">{item.subtitle}</div>
+                              {item.snippet && (
+                                <div className="mt-1 text-[11px] text-gray-700 line-clamp-2">{item.snippet}</div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {globalMatchedBookPairs.length === 0 && globalOtherGroups.length === 0 && (
+                  <p className="text-xs text-blue-800/80">
+                    Book matches are shown on the right.
+                  </p>
+                )}
               </div>
             )}
           </section>
+          {showGlobalSearchSplitColumns && (
+            <aside
+              data-testid="global-search-found-books"
+              className="rounded-2xl border border-blue-100 bg-white p-4"
+            >
+              <div className="text-sm font-bold text-gray-900">Found books</div>
+              <p className="mt-1 text-xs text-gray-500">
+                {globalMatchedBooks.length} book{globalMatchedBooks.length === 1 ? "" : "s"} found
+              </p>
+              <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1 space-y-4">
+                {globalMatchedBooks.map((item) => renderGlobalSearchBookCard(item))}
+              </div>
+            </aside>
+          )}
+          </div>
         )}
         <div className="mb-8 text-xs text-gray-500 flex items-center gap-2">
           <span className="font-semibold text-gray-600">Active:</span>
@@ -992,7 +1175,7 @@ export default function Home() {
           </div>
         )}
 
-        {sortedBooks.length === 0 ? (
+        {!showGlobalSearchBooksColumn && (sortedBooks.length === 0 ? (
           <div className="bg-white border-2 border-dashed border-gray-200 rounded-3xl p-20 text-center shadow-sm">
             <BookIcon size={48} className="mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500 text-lg">
@@ -1297,7 +1480,7 @@ export default function Home() {
               );
             })}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
