@@ -37,9 +37,12 @@ import {
   RotateCcw,
   ArrowLeft,
   FileText,
+  Highlighter,
+  CircleUserRound,
+  Moon,
+  Sun,
   Languages,
   FolderClosed,
-  FolderPlus,
   Pencil,
   Check,
   X
@@ -47,10 +50,47 @@ import {
 
 const STARTED_BOOK_IDS_KEY = 'library-started-book-ids';
 const TRASH_RETENTION_DAYS = 30;
+const LIBRARY_THEME_KEY = 'library-theme';
+const LIBRARY_LANGUAGE_KEY = 'library-language';
+const ACCOUNT_PROFILE_KEY = 'library-account-profile';
+const ACCOUNT_DEFAULT_EMAIL = 'dreamerissame@gmail.com';
 const LANGUAGE_DISPLAY_NAMES =
   typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function"
     ? new Intl.DisplayNames(["en"], { type: "language" })
     : null;
+
+const readStoredAccountProfile = () => {
+  if (typeof window === "undefined") {
+    return {
+      firstName: "",
+      email: ACCOUNT_DEFAULT_EMAIL,
+      preferredLanguage: "en",
+      emailNotifications: "yes"
+    };
+  }
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_PROFILE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const fallbackLanguage = window.localStorage.getItem(LIBRARY_LANGUAGE_KEY) || "en";
+    return {
+      firstName: typeof parsed?.firstName === "string" ? parsed.firstName : "",
+      email: typeof parsed?.email === "string" && parsed.email.trim() ? parsed.email.trim() : ACCOUNT_DEFAULT_EMAIL,
+      preferredLanguage:
+        typeof parsed?.preferredLanguage === "string" && parsed.preferredLanguage.trim()
+          ? parsed.preferredLanguage
+          : fallbackLanguage,
+      emailNotifications: parsed?.emailNotifications === "no" ? "no" : "yes"
+    };
+  } catch (err) {
+    console.error(err);
+    return {
+      firstName: "",
+      email: ACCOUNT_DEFAULT_EMAIL,
+      preferredLanguage: "en",
+      emailNotifications: "yes"
+    };
+  }
+};
 
 const toPositiveNumber = (value) => {
   const parsed = Number(value);
@@ -184,13 +224,25 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
+  const [librarySection, setLibrarySection] = useState("library");
   const [flagFilters, setFlagFilters] = useState([]);
   const [sortBy, setSortBy] = useState("last-read-desc");
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window === "undefined") return "grid";
     return window.localStorage.getItem("library-view-mode") === "list" ? "list" : "grid";
   });
+  const [libraryTheme, setLibraryTheme] = useState(() => {
+    if (typeof window === "undefined") return "light";
+    return window.localStorage.getItem(LIBRARY_THEME_KEY) === "dark" ? "dark" : "light";
+  });
+  const [libraryLanguage, setLibraryLanguage] = useState(() => {
+    if (typeof window === "undefined") return "en";
+    return window.localStorage.getItem(LIBRARY_LANGUAGE_KEY) || "en";
+  });
+  const [accountProfile, setAccountProfile] = useState(() => readStoredAccountProfile());
+  const [accountSaveMessage, setAccountSaveMessage] = useState("");
   const [isNotesCenterOpen, setIsNotesCenterOpen] = useState(false);
+  const [isHighlightsCenterOpen, setIsHighlightsCenterOpen] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState("");
   const [noteEditorValue, setNoteEditorValue] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -202,6 +254,8 @@ export default function Home() {
   const [editingCollectionName, setEditingCollectionName] = useState("");
   const [collectionError, setCollectionError] = useState("");
   const [collectionPickerBookId, setCollectionPickerBookId] = useState("");
+  const [showCreateCollectionForm, setShowCreateCollectionForm] = useState(false);
+  const [collectionViewId, setCollectionViewId] = useState("");
   const [contentSearchMatches, setContentSearchMatches] = useState({});
   const [isContentSearching, setIsContentSearching] = useState(false);
   const contentSearchTokenRef = useRef(0);
@@ -211,6 +265,14 @@ export default function Home() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("library-view-mode", viewMode);
   }, [viewMode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LIBRARY_THEME_KEY, libraryTheme);
+  }, [libraryTheme]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LIBRARY_LANGUAGE_KEY, libraryLanguage);
+  }, [libraryLanguage]);
 
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -261,11 +323,12 @@ export default function Home() {
 
   useEffect(() => {
     if (statusFilter !== "trash") return;
-    if (!isNotesCenterOpen) return;
+    if (!isNotesCenterOpen && !isHighlightsCenterOpen) return;
     setIsNotesCenterOpen(false);
+    setIsHighlightsCenterOpen(false);
     setEditingNoteId("");
     setNoteEditorValue("");
-  }, [statusFilter, isNotesCenterOpen]);
+  }, [statusFilter, isNotesCenterOpen, isHighlightsCenterOpen]);
 
   useEffect(() => {
     if (!collectionPickerBookId) return;
@@ -413,6 +476,7 @@ export default function Home() {
       await createCollection(collectionNameDraft, collectionColorDraft);
       setCollectionNameDraft("");
       setCollectionColorDraft(COLLECTION_COLOR_OPTIONS[0]);
+      setShowCreateCollectionForm(false);
       await loadLibrary();
     } catch (err) {
       setCollectionError(err?.message || "Unable to create collection.");
@@ -449,13 +513,110 @@ export default function Home() {
     if (collectionFilter === collectionId) {
       setCollectionFilter("all");
     }
+    if (collectionViewId === collectionId) {
+      setCollectionViewId("");
+    }
     await loadLibrary();
   };
 
+  const openCollectionView = (collectionId) => {
+    setCollectionFilter(collectionId);
+    setCollectionViewId(collectionId);
+    setStatusFilter("all");
+    setShowCollectionsModal(false);
+    setShowCreateCollectionForm(false);
+  };
+
+  const exitCollectionView = () => {
+    setCollectionViewId("");
+    setCollectionFilter("all");
+  };
+
   const handleToggleNotesCenter = () => {
-    setIsNotesCenterOpen((current) => !current);
+    setIsNotesCenterOpen((current) => {
+      const next = !current;
+      if (next) {
+        setLibrarySection("notes");
+        setIsHighlightsCenterOpen(false);
+      } else if (librarySection === "notes") {
+        setLibrarySection("library");
+      }
+      return next;
+    });
     setEditingNoteId("");
     setNoteEditorValue("");
+  };
+
+  const handleToggleHighlightsCenter = () => {
+    setIsHighlightsCenterOpen((current) => {
+      const next = !current;
+      if (next) {
+        setLibrarySection("highlights");
+        setIsNotesCenterOpen(false);
+      } else if (librarySection === "highlights") {
+        setLibrarySection("library");
+      }
+      return next;
+    });
+  };
+
+  const handleSidebarSectionSelect = (section) => {
+    setLibrarySection(section);
+    if (section === "library") {
+      setIsNotesCenterOpen(false);
+      setIsHighlightsCenterOpen(false);
+      setShowCollectionsModal(false);
+      return;
+    }
+    if (section === "collections") {
+      setShowCollectionsModal(true);
+      setCollectionError("");
+      setShowCreateCollectionForm(false);
+      setIsNotesCenterOpen(false);
+      setIsHighlightsCenterOpen(false);
+      return;
+    }
+    if (section === "notes") {
+      setIsNotesCenterOpen(true);
+      setIsHighlightsCenterOpen(false);
+      setShowCollectionsModal(false);
+      return;
+    }
+    if (section === "highlights") {
+      setIsHighlightsCenterOpen(true);
+      setIsNotesCenterOpen(false);
+      setShowCollectionsModal(false);
+      return;
+    }
+    if (section === "account") {
+      setStatusFilter("all");
+      setCollectionViewId("");
+      setCollectionFilter("all");
+    }
+    setIsNotesCenterOpen(false);
+    setIsHighlightsCenterOpen(false);
+    setShowCollectionsModal(false);
+  };
+
+  const handleAccountFieldChange = (field, value) => {
+    setAccountSaveMessage("");
+    setAccountProfile((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleSaveAccountProfile = () => {
+    const nextProfile = {
+      firstName: (accountProfile.firstName || "").trim(),
+      email: (accountProfile.email || ACCOUNT_DEFAULT_EMAIL).trim() || ACCOUNT_DEFAULT_EMAIL,
+      preferredLanguage: accountProfile.preferredLanguage || "en",
+      emailNotifications: accountProfile.emailNotifications === "no" ? "no" : "yes"
+    };
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ACCOUNT_PROFILE_KEY, JSON.stringify(nextProfile));
+    }
+    setAccountProfile(nextProfile);
+    setLibraryLanguage(nextProfile.preferredLanguage);
+    setAccountSaveMessage("Changes saved.");
   };
 
   const handleStartNoteEdit = (entry) => {
@@ -487,6 +648,12 @@ export default function Home() {
     navigate(buildReaderPath(entry.bookId, "highlights", { cfi: entry.cfiRange || "" }));
   };
 
+  const handleOpenHighlightInReader = (entry) => {
+    if (!entry?.bookId) return;
+    handleOpenBook(entry.bookId);
+    navigate(buildReaderPath(entry.bookId, "highlights", { cfi: entry.cfiRange || "" }));
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (file && file.type === "application/epub+zip") {
@@ -503,10 +670,6 @@ export default function Home() {
     { value: "in-progress", label: "In progress" },
     { value: "finished", label: "Finished" },
     { value: "trash", label: "Trash" }
-  ];
-  const collectionFilterOptions = [
-    { value: "all", label: "All collections" },
-    ...collections.map((collection) => ({ value: collection.id, label: collection.name }))
   ];
   const flagFilterOptions = [
     { value: "favorites", label: "Favorites" },
@@ -647,6 +810,10 @@ export default function Home() {
   const activeBooks = books.filter((book) => !book.isDeleted);
   const trashedBooksCount = books.length - activeBooks.length;
   const isTrashView = statusFilter === "trash";
+  const activeCollectionView = collectionViewId
+    ? collections.find((collection) => collection.id === collectionViewId) || null
+    : null;
+  const isCollectionView = Boolean(activeCollectionView) && !isTrashView;
   const quickFilterStats = [
     {
       key: "to-read",
@@ -697,6 +864,34 @@ export default function Home() {
       normalizeString(entry.bookAuthor).includes(query) ||
       normalizeString(entry.note).includes(query) ||
       normalizeString(entry.highlightText).includes(query)
+    );
+  });
+  const highlightsCenterEntries = activeBooks
+    .flatMap((book) => {
+      const highlights = Array.isArray(book.highlights) ? book.highlights : [];
+      return highlights
+        .filter((highlight) => typeof highlight?.text === "string" && highlight.text.trim())
+        .map((highlight, index) => ({
+          id: `${book.id}::${highlight.cfiRange || `highlight-${index}`}`,
+          bookId: book.id,
+          cfiRange: highlight.cfiRange || "",
+          bookTitle: book.title,
+          bookAuthor: book.author,
+          text: compactWhitespace(highlight.text || ""),
+          note: compactWhitespace(highlight.note || ""),
+          color: highlight.color || "#fcd34d",
+          lastRead: book.lastRead
+        }));
+    })
+    .sort((left, right) => normalizeTime(right.lastRead) - normalizeTime(left.lastRead));
+  const highlightsCenterFilteredEntries = highlightsCenterEntries.filter((entry) => {
+    const query = normalizeString(searchQuery.trim());
+    if (!query) return true;
+    return (
+      normalizeString(entry.bookTitle).includes(query) ||
+      normalizeString(entry.bookAuthor).includes(query) ||
+      normalizeString(entry.text).includes(query) ||
+      normalizeString(entry.note).includes(query)
     );
   });
 
@@ -1203,6 +1398,7 @@ export default function Home() {
     setSearchQuery("");
     setStatusFilter("all");
     setCollectionFilter("all");
+    setCollectionViewId("");
     setFlagFilters([]);
     setSortBy("last-read-desc");
   };
@@ -1213,81 +1409,273 @@ export default function Home() {
     collectionFilter !== "all" ||
     flagFilters.length > 0 ||
     sortBy !== "last-read-desc";
+  const canShowResetFilters = hasActiveLibraryFilters && !isCollectionView;
+  const isDarkLibraryTheme = libraryTheme === "dark";
+  const isAccountSection = librarySection === "account";
+  const sidebarButtonBase = "flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition";
+  const sidebarButtonIdle = isDarkLibraryTheme
+    ? "border-slate-700 bg-slate-900 text-slate-200 hover:border-blue-500 hover:text-blue-300"
+    : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700";
+  const sidebarButtonActive = isDarkLibraryTheme
+    ? "border-blue-500 bg-blue-950 text-blue-200"
+    : "border-blue-200 bg-blue-50 text-blue-700";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 md:p-12 text-gray-900 font-sans">
-      <div className="max-w-6xl mx-auto">
+    <div className={`min-h-screen p-6 md:p-12 font-sans ${isDarkLibraryTheme ? "bg-slate-950 text-slate-100" : "bg-gray-50 text-gray-900"}`}>
+      <div className="mx-auto max-w-[1480px] md:grid md:grid-cols-[240px_minmax(0,1fr)] md:gap-8">
+        <aside
+          data-testid="library-sidebar"
+          className={`hidden md:block h-fit sticky top-6 rounded-3xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/80" : "border-gray-200 bg-white/90"}`}
+        >
+          <div className={`text-[11px] font-bold uppercase tracking-[0.2em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Workspace</div>
+          <nav className="mt-3 space-y-2">
+            <button
+              type="button"
+              data-testid="sidebar-my-library"
+              onClick={() => handleSidebarSectionSelect("library")}
+              className={`${sidebarButtonBase} ${librarySection === "library" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              <BookIcon size={16} />
+              <span>My Library</span>
+            </button>
+            <button
+              type="button"
+              data-testid="library-collections-trigger"
+              onClick={() => handleSidebarSectionSelect("collections")}
+              className={`${sidebarButtonBase} ${librarySection === "collections" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              <FolderClosed size={16} />
+              <span>My Collections</span>
+            </button>
+            <button
+              type="button"
+              data-testid="library-notes-center-toggle"
+              onClick={() => handleSidebarSectionSelect("notes")}
+              className={`${sidebarButtonBase} ${librarySection === "notes" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              <FileText size={16} />
+              <span>Notes Center</span>
+              <span className={`ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                librarySection === "notes"
+                  ? (isDarkLibraryTheme ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-700")
+                  : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-gray-100 text-gray-600")
+              }`}>
+                {notesCenterEntries.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="library-highlights-center-toggle"
+              onClick={() => handleSidebarSectionSelect("highlights")}
+              className={`${sidebarButtonBase} ${librarySection === "highlights" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              <Highlighter size={16} />
+              <span>Highlights Center</span>
+              <span className={`ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                librarySection === "highlights"
+                  ? (isDarkLibraryTheme ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-700")
+                  : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-gray-100 text-gray-600")
+              }`}>
+                {highlightsCenterEntries.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="library-account-trigger"
+              onClick={() => handleSidebarSectionSelect("account")}
+              className={`${sidebarButtonBase} ${librarySection === "account" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              <CircleUserRound size={16} />
+              <span>Account</span>
+            </button>
+          </nav>
+        </aside>
+
+        <div className="w-full min-w-0">
+        <div className="mb-4 md:hidden">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => handleSidebarSectionSelect("library")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "library"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <BookIcon size={13} />
+              <span>Library</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSidebarSectionSelect("collections")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "collections"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <FolderClosed size={13} />
+              <span>Collections</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSidebarSectionSelect("notes")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "notes"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <FileText size={13} />
+              <span>Notes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSidebarSectionSelect("highlights")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "highlights"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <Highlighter size={13} />
+              <span>Highlights</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSidebarSectionSelect("account")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "account"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <CircleUserRound size={13} />
+              <span>Account</span>
+            </button>
+          </div>
+        </div>
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
           <div>
-            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">My Library</h1>
-            <p className="text-gray-500 mt-1">
-              {isTrashView
-                ? `Trash has ${sortedBooks.length} books`
-                : sortedBooks.length === activeBooks.length
-                ? `You have ${activeBooks.length} books`
-                : `Showing ${sortedBooks.length} of ${activeBooks.length} books`}
-              {!isTrashView && trashedBooksCount > 0 ? ` · ${trashedBooksCount} in trash` : ""}
-            </p>
-            <div
-              data-testid="library-streak-badge"
-              className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
-                streakCount > 0
-                  ? 'border-orange-200 bg-orange-50 text-orange-700'
-                  : 'border-gray-200 bg-white text-gray-500'
-              }`}
-              title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
-            >
-              <Flame size={14} className={streakCount > 0 ? 'text-orange-500' : 'text-gray-400'} />
-              <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
-            </div>
-
-            <div data-testid="library-quick-filters" className="mt-3 flex flex-wrap gap-2">
-              {quickFilterStats.map((stat) => {
-                const isQuickActive =
-                  stat.key === "favorites"
-                    ? isFlagFilterActive("favorites")
-                    : statusFilter === stat.key;
-                return (
-                <button
-                  key={stat.key}
-                  type="button"
-                  data-testid={`library-quick-filter-${stat.key}`}
-                  aria-pressed={isQuickActive}
-                  onClick={() => {
-                    if (stat.key === "favorites") {
-                      if (statusFilter === "trash") setStatusFilter("all");
-                      toggleFlagFilter("favorites");
-                      return;
-                    }
-                    setStatusFilter(stat.key);
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    isQuickActive
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+            {isCollectionView && !isAccountSection && (
+              <button
+                type="button"
+                data-testid="collection-view-back-button"
+                onClick={exitCollectionView}
+                className="mb-3 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-blue-200 hover:text-blue-700"
+              >
+                <ArrowLeft size={13} />
+                <span>Back to Library</span>
+              </button>
+            )}
+            {isAccountSection ? (
+              <>
+                <h1 className={`text-4xl font-extrabold tracking-tight ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                  Account
+                </h1>
+                <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                  Manage your profile details and account preferences.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
+                  {isCollectionView ? activeCollectionView?.name || "Collection" : "My Library"}
+                </h1>
+                <p className="text-gray-500 mt-1">
+                  {isCollectionView
+                    ? `Collection view · ${sortedBooks.length} book${sortedBooks.length === 1 ? "" : "s"}`
+                    : isTrashView
+                    ? `Trash has ${sortedBooks.length} books`
+                    : sortedBooks.length === activeBooks.length
+                    ? `You have ${activeBooks.length} books`
+                    : `Showing ${sortedBooks.length} of ${activeBooks.length} books`}
+                  {!isTrashView && trashedBooksCount > 0 ? ` · ${trashedBooksCount} in trash` : ""}
+                </p>
+                <div
+                  data-testid="library-streak-badge"
+                  className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+                    streakCount > 0
+                      ? 'border-orange-200 bg-orange-50 text-orange-700'
+                      : 'border-gray-200 bg-white text-gray-500'
                   }`}
-                  title={`Show ${stat.label.toLowerCase()} books`}
+                  title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
                 >
-                  <span>{stat.label}</span>
-                  <span
-                    data-testid={`library-quick-filter-${stat.key}-count`}
-                    className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                      isQuickActive ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {stat.count}
-                  </span>
-                </button>
-                );
-              })}
-            </div>
+                  <Flame size={14} className={streakCount > 0 ? 'text-orange-500' : 'text-gray-400'} />
+                  <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
+                </div>
+
+                <div data-testid="library-quick-filters" className="mt-3 flex flex-wrap gap-2">
+                  {quickFilterStats.map((stat) => {
+                    const isQuickActive =
+                      stat.key === "favorites"
+                        ? isFlagFilterActive("favorites")
+                        : statusFilter === stat.key;
+                    return (
+                    <button
+                      key={stat.key}
+                      type="button"
+                      data-testid={`library-quick-filter-${stat.key}`}
+                      aria-pressed={isQuickActive}
+                      onClick={() => {
+                        if (stat.key === "favorites") {
+                          if (statusFilter === "trash") setStatusFilter("all");
+                          toggleFlagFilter("favorites");
+                          return;
+                        }
+                        setStatusFilter(stat.key);
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        isQuickActive
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+                      }`}
+                      title={`Show ${stat.label.toLowerCase()} books`}
+                    >
+                      <span>{stat.label}</span>
+                      <span
+                        data-testid={`library-quick-filter-${stat.key}-count`}
+                        className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                          isQuickActive ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {stat.count}
+                      </span>
+                    </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          {!isAccountSection && (
+          <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
+            <button
+              type="button"
+              data-testid="library-theme-toggle"
+              onClick={() => setLibraryTheme((current) => (current === "dark" ? "light" : "dark"))}
+              className={`inline-flex h-12 min-w-[122px] items-center justify-center gap-2 rounded-full border px-4 text-sm font-semibold transition ${
+                isDarkLibraryTheme
+                  ? "border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
+              }`}
+              title={isDarkLibraryTheme ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={isDarkLibraryTheme ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDarkLibraryTheme ? <Sun size={16} /> : <Moon size={16} />}
+              <span>{isDarkLibraryTheme ? "Light mode" : "Dark mode"}</span>
+            </button>
+
             <button
               type="button"
               data-testid="trash-toggle-button"
-              onClick={() => setStatusFilter((current) => (current === "trash" ? "all" : "trash"))}
+              onClick={() => {
+                setCollectionViewId("");
+                setCollectionFilter("all");
+                setStatusFilter((current) => (current === "trash" ? "all" : "trash"));
+              }}
               className={`relative p-3 rounded-full border shadow-sm transition-all ${
                 isTrashView
                   ? "bg-amber-500 text-white border-amber-500"
@@ -1310,8 +1698,123 @@ export default function Home() {
               <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
             </label>
           </div>
+          )}
         </header>
 
+        {isAccountSection && (
+          <section
+            data-testid="library-account-panel"
+            className={`mb-4 rounded-2xl border p-6 md:p-8 ${
+              isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-white"
+            }`}
+          >
+            <div className="mx-auto max-w-5xl">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="account-first-name" className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-slate-700"}`}>
+                    First name
+                  </label>
+                  <input
+                    id="account-first-name"
+                    data-testid="library-account-first-name"
+                    type="text"
+                    value={accountProfile.firstName}
+                    onChange={(event) => handleAccountFieldChange("firstName", event.target.value)}
+                    className={`mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDarkLibraryTheme
+                        ? "border-slate-600 bg-slate-800 text-slate-100 placeholder:text-slate-500"
+                        : "border-gray-200 bg-white text-slate-800"
+                    }`}
+                    placeholder="Enter your first name"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="account-email" className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-slate-700"}`}>
+                    Email address (not editable)
+                  </label>
+                  <input
+                    id="account-email"
+                    data-testid="library-account-email"
+                    type="email"
+                    value={accountProfile.email}
+                    readOnly
+                    disabled
+                    className={`mt-2 h-11 w-full cursor-not-allowed rounded-lg border px-3 text-sm ${
+                      isDarkLibraryTheme
+                        ? "border-slate-600 bg-slate-800/70 text-slate-300"
+                        : "border-gray-200 bg-gray-100 text-slate-700"
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="account-preferred-language" className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-slate-700"}`}>
+                    Preferred language
+                  </label>
+                  <select
+                    id="account-preferred-language"
+                    data-testid="library-account-language"
+                    value={accountProfile.preferredLanguage}
+                    onChange={(event) => handleAccountFieldChange("preferredLanguage", event.target.value)}
+                    className={`mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDarkLibraryTheme
+                        ? "border-slate-600 bg-slate-800 text-slate-100"
+                        : "border-gray-200 bg-white text-slate-800"
+                    }`}
+                  >
+                    <option value="en">English</option>
+                    <option value="fr">French</option>
+                    <option value="es">Spanish</option>
+                    <option value="ar">Arabic</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="account-email-notifications" className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-slate-700"}`}>
+                    Email notifications
+                  </label>
+                  <select
+                    id="account-email-notifications"
+                    data-testid="library-account-email-notifications"
+                    value={accountProfile.emailNotifications}
+                    onChange={(event) => handleAccountFieldChange("emailNotifications", event.target.value)}
+                    className={`mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDarkLibraryTheme
+                        ? "border-slate-600 bg-slate-800 text-slate-100"
+                        : "border-gray-200 bg-white text-slate-800"
+                    }`}
+                  >
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-5 flex items-center gap-3">
+                <button
+                  type="button"
+                  data-testid="library-account-save"
+                  onClick={handleSaveAccountProfile}
+                  className="inline-flex h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"
+                >
+                  Save changes
+                </button>
+                {accountSaveMessage && (
+                  <span
+                    data-testid="library-account-save-message"
+                    className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-emerald-300" : "text-emerald-700"}`}
+                  >
+                    {accountSaveMessage}
+                  </span>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!isAccountSection && (
+        <>
         {showContinueReading && (
           <section className="mb-8" data-testid="continue-reading-rail">
             <div className="flex items-center justify-between gap-3 mb-3">
@@ -1375,7 +1878,7 @@ export default function Home() {
           data-testid="library-toolbar-sticky"
           className="sticky top-3 z-20 mb-3 rounded-2xl bg-gray-50/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80"
         >
-          <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px_280px_auto]">
+          <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_220px_280px]">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
               <input 
@@ -1386,22 +1889,6 @@ export default function Home() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-            </div>
-
-            <div className="relative">
-              <FolderClosed className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <select
-                data-testid="library-collection-filter"
-                value={collectionFilter}
-                onChange={(e) => setCollectionFilter(e.target.value)}
-                className="h-[52px] w-full rounded-2xl border border-gray-200 bg-white pl-11 pr-4 text-sm font-semibold text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm"
-              >
-                {collectionFilterOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div className="relative">
@@ -1434,89 +1921,6 @@ export default function Home() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="flex items-stretch justify-end gap-2">
-              {!isTrashView && (
-                <button
-                  type="button"
-                  data-testid="library-manage-collections-button"
-                  onClick={() => {
-                    setShowCollectionsModal(true);
-                    setCollectionError("");
-                  }}
-                  className="inline-flex h-[52px] items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 hover:border-blue-200 hover:text-blue-700"
-                  title="Manage shelves"
-                >
-                  <FolderPlus size={16} />
-                  <span>Shelves</span>
-                </button>
-              )}
-
-              <div
-                className="flex h-[52px] w-[120px] items-center rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
-                data-testid="library-view-toggle"
-              >
-                <button
-                  type="button"
-                  data-testid="library-view-grid"
-                  aria-pressed={viewMode === "grid"}
-                  onClick={() => setViewMode("grid")}
-                  className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
-                    viewMode === "grid" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
-                  }`}
-                  title="Grid view"
-                >
-                  <LayoutGrid size={16} />
-                </button>
-                <button
-                  type="button"
-                  data-testid="library-view-list"
-                  aria-pressed={viewMode === "list"}
-                  onClick={() => setViewMode("list")}
-                  className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
-                    viewMode === "list" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
-                  }`}
-                  title="List view"
-                >
-                  <List size={16} />
-                </button>
-              </div>
-
-              {!isTrashView && (
-                <button
-                  type="button"
-                  data-testid="library-notes-center-toggle"
-                  onClick={handleToggleNotesCenter}
-                  className={`inline-flex h-[52px] items-center gap-2 rounded-2xl border px-3 text-sm font-semibold transition ${
-                    isNotesCenterOpen
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
-                  }`}
-                >
-                  <FileText size={15} />
-                  <span>Notes Center</span>
-                  <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                    isNotesCenterOpen ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
-                  }`}>
-                    {notesCenterEntries.length}
-                  </span>
-                </button>
-              )}
-
-              {hasActiveLibraryFilters && (
-                <button
-                  type="button"
-                  data-testid="library-reset-filters-button"
-                  onClick={resetLibraryFilters}
-                  className="inline-flex h-[52px] items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-                  title="Reset filters"
-                  aria-label="Reset filters"
-                >
-                  <RotateCcw size={16} />
-                  <span>Reset filters</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -1629,6 +2033,64 @@ export default function Home() {
           </section>
         )}
 
+        {isHighlightsCenterOpen && !isTrashView && (
+          <section data-testid="highlights-center-panel" className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-indigo-900">Highlights Center</h2>
+                <p className="mt-1 text-xs text-indigo-700/90">
+                  {highlightsCenterFilteredEntries.length} highlight{highlightsCenterFilteredEntries.length === 1 ? "" : "s"} shown
+                  {searchQuery.trim() ? ` for "${searchQuery.trim()}"` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleHighlightsCenter}
+                className="text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+              >
+                Close
+              </button>
+            </div>
+
+            {highlightsCenterFilteredEntries.length === 0 ? (
+              <div data-testid="highlights-center-empty" className="mt-3 rounded-xl border border-indigo-100 bg-white p-3 text-xs text-gray-600">
+                No highlights found yet. Add highlights in the Reader, then manage them here.
+              </div>
+            ) : (
+              <div className="mt-3 max-h-[56vh] space-y-3 overflow-y-auto pr-1">
+                {highlightsCenterFilteredEntries.map((entry) => (
+                  <article key={entry.id} data-testid="highlights-center-item" className="rounded-xl border border-indigo-100 bg-white p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">{entry.bookTitle}</div>
+                        <div className="text-xs text-gray-500">{entry.bookAuthor}</div>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="highlights-center-open-reader"
+                        onClick={() => handleOpenHighlightInReader(entry)}
+                        className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:border-blue-200 hover:text-blue-700"
+                      >
+                        Open in Reader
+                      </button>
+                    </div>
+
+                    <p className="mt-2 rounded-lg border border-gray-100 bg-gray-50 px-2 py-2 text-sm text-gray-800">
+                      {entry.text}
+                    </p>
+                    {entry.note && (
+                      <p className="mt-2 text-xs italic text-gray-500">
+                        Note: {entry.note}
+                      </p>
+                    )}
+                    <div className="mt-2 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {showCollectionsModal && !isTrashView && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div
@@ -1644,65 +2106,97 @@ export default function Home() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-bold text-gray-900">Manage Shelves</h2>
+                  <h2 className="text-base font-bold text-gray-900">My Collections</h2>
                   <p className="mt-1 text-xs text-gray-500">
-                    Group books into custom collections.
+                    Organize your books into custom collections.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  data-testid="collections-modal-close"
-                  onClick={() => {
-                    setShowCollectionsModal(false);
-                    cancelCollectionRename();
-                  }}
-                  className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
-                <div className="text-xs font-semibold text-gray-700">Create shelf</div>
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <input
-                    data-testid="collection-create-input"
-                    value={collectionNameDraft}
-                    onChange={(e) => setCollectionNameDraft(e.target.value)}
-                    placeholder="Shelf name (e.g. Classics)"
-                    className="h-10 flex-1 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <div className="flex items-center gap-2">
-                    {COLLECTION_COLOR_OPTIONS.map((color) => (
-                      <button
-                        key={`draft-${color}`}
-                        type="button"
-                        data-testid="collection-color-option"
-                        onClick={() => setCollectionColorDraft(color)}
-                        className={`h-6 w-6 rounded-full border-2 ${collectionColorDraft === color ? "border-gray-900" : "border-white"}`}
-                        style={{ backgroundColor: color }}
-                        title={color}
-                      />
-                    ))}
-                  </div>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    data-testid="collection-create-button"
-                    onClick={handleCreateCollection}
-                    className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"
+                    data-testid="collection-add-toggle"
+                    onClick={() => {
+                      setCollectionError("");
+                      setShowCreateCollectionForm((current) => !current);
+                    }}
+                    className="inline-flex h-9 items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 hover:bg-blue-100"
                   >
-                    Create
+                    <Plus size={14} />
+                    <span>{showCreateCollectionForm ? "Close" : "Add"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="collections-modal-close"
+                    onClick={() => {
+                      setShowCollectionsModal(false);
+                      cancelCollectionRename();
+                      setShowCreateCollectionForm(false);
+                    }}
+                    className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  >
+                    <X size={16} />
                   </button>
                 </div>
-                {collectionError && (
-                  <div className="mt-2 text-xs font-semibold text-red-600">{collectionError}</div>
-                )}
               </div>
 
+              {showCreateCollectionForm && (
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="text-xs font-semibold text-gray-700">Add a new collection</div>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      data-testid="collection-create-input"
+                      value={collectionNameDraft}
+                      onChange={(e) => setCollectionNameDraft(e.target.value)}
+                      placeholder="Collection name (e.g. Classics)"
+                      className="h-10 flex-1 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      {COLLECTION_COLOR_OPTIONS.map((color) => (
+                        <button
+                          key={`draft-${color}`}
+                          type="button"
+                          data-testid="collection-color-option"
+                          onClick={() => setCollectionColorDraft(color)}
+                          className={`h-6 w-6 rounded-full border-2 ${collectionColorDraft === color ? "border-gray-900" : "border-white"}`}
+                          style={{ backgroundColor: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="collection-create-button"
+                      onClick={handleCreateCollection}
+                      className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"
+                    >
+                      Create
+                    </button>
+                  </div>
+                  {collectionError && (
+                    <div className="mt-2 text-xs font-semibold text-red-600">{collectionError}</div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  data-testid="collection-filter-all"
+                  onClick={() => {
+                    setCollectionFilter("all");
+                    setCollectionViewId("");
+                  }}
+                  className={`w-full rounded-xl border px-3 py-2 text-left text-xs font-semibold ${
+                    collectionFilter === "all" && !isCollectionView
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+                  }`}
+                >
+                  All collections
+                </button>
                 {collections.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-                    No shelves yet. Create your first one above.
+                    No collections yet. Click Add to create your first one.
                   </div>
                 )}
                 {collections.map((collection) => {
@@ -1760,6 +2254,18 @@ export default function Home() {
                             </>
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                data-testid="collection-show-button"
+                                onClick={() => openCollectionView(collection.id)}
+                                className={`rounded-lg border px-2 py-1 text-xs font-bold ${
+                                  collectionViewId === collection.id
+                                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                                    : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
+                                }`}
+                              >
+                                {collectionViewId === collection.id ? "Showing" : "Show"}
+                              </button>
                               <button
                                 type="button"
                                 data-testid="collection-rename-button"
@@ -1909,32 +2415,80 @@ export default function Home() {
           )}
           </div>
         )}
-        <div className="mb-8 text-xs text-gray-500 flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-gray-600">Active:</span>
-          <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
-            {getFilterLabel()}
-          </span>
-          <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
-            {getCollectionFilterLabel()}
-          </span>
-          {flagFilters.map((flag) => {
-            const label = flagFilterOptions.find((item) => item.value === flag)?.label || flag;
-            return (
+        <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-gray-600">Active:</span>
+            <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+              {getFilterLabel()}
+            </span>
+            <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+              {getCollectionFilterLabel()}
+            </span>
+            {flagFilters.map((flag) => {
+              const label = flagFilterOptions.find((item) => item.value === flag)?.label || flag;
+              return (
+                <button
+                  key={`active-flag-${flag}`}
+                  type="button"
+                  data-testid={`active-flag-chip-${flag}`}
+                  onClick={() => toggleFlagFilter(flag)}
+                  className="px-2 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  title={`Remove ${label.toLowerCase()} filter`}
+                >
+                  {label} x
+                </button>
+              );
+            })}
+            <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+              {sortOptions.find((s) => s.value === sortBy)?.label || "Last read (newest)"}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+            <div
+              className="flex h-[42px] w-[108px] items-center rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
+              data-testid="library-view-toggle"
+            >
               <button
-                key={`active-flag-${flag}`}
                 type="button"
-                data-testid={`active-flag-chip-${flag}`}
-                onClick={() => toggleFlagFilter(flag)}
-                className="px-2 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                title={`Remove ${label.toLowerCase()} filter`}
+                data-testid="library-view-grid"
+                aria-pressed={viewMode === "grid"}
+                onClick={() => setViewMode("grid")}
+                className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
+                  viewMode === "grid" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+                }`}
+                title="Grid view"
               >
-                {label} x
+                <LayoutGrid size={16} />
               </button>
-            );
-          })}
-          <span className="px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
-            {sortOptions.find((s) => s.value === sortBy)?.label || "Last read (newest)"}
-          </span>
+              <button
+                type="button"
+                data-testid="library-view-list"
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+                className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
+                  viewMode === "list" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+                }`}
+                title="List view"
+              >
+                <List size={16} />
+              </button>
+            </div>
+
+            {canShowResetFilters && (
+              <button
+                type="button"
+                data-testid="library-reset-filters-button"
+                onClick={resetLibraryFilters}
+                className="inline-flex h-[42px] items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                title="Reset filters"
+                aria-label="Reset filters"
+              >
+                <RotateCcw size={14} />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
         </div>
         {isTrashView && (
           <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -1962,7 +2516,7 @@ export default function Home() {
             <p className="text-gray-500 text-lg">
               {isTrashView ? "Trash is empty." : "No books found matching your criteria."}
             </p>
-            {hasActiveLibraryFilters && (
+            {canShowResetFilters && (
               <button 
                 data-testid="library-empty-reset-filters-button"
                 onClick={resetLibraryFilters}
@@ -2369,7 +2923,10 @@ export default function Home() {
             })}
           </div>
         ))}
+        </>
+        )}
       </div>
+    </div>
     </div>
   );
 }

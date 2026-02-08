@@ -3,13 +3,26 @@ import path from 'path';
 
 const fixturePath = path.resolve(process.cwd(), 'tests/fixtures/fixture.epub');
 
-async function createShelf(page, name) {
-  await page.getByTestId('library-manage-collections-button').click();
+async function openCollectionsModal(page) {
+  await page.getByTestId('library-collections-trigger').click();
   await expect(page.getByTestId('collections-modal')).toBeVisible();
+}
+
+async function createShelf(page, name) {
+  await openCollectionsModal(page);
+  await page.getByTestId('collection-add-toggle').click();
   await page.getByTestId('collection-create-input').fill(name);
   await page.getByTestId('collection-create-button').click();
   await expect(page.getByTestId('collection-item-name').filter({ hasText: name })).toBeVisible();
   await page.getByTestId('collections-modal-close').click();
+  await expect(page.getByTestId('collections-modal')).toHaveCount(0);
+}
+
+async function showCollection(page, name) {
+  await openCollectionsModal(page);
+  const row = page.getByTestId('collection-item').filter({ hasText: name }).first();
+  await expect(row).toBeVisible();
+  await row.getByTestId('collection-show-button').click();
   await expect(page.getByTestId('collections-modal')).toHaveCount(0);
 }
 
@@ -76,7 +89,7 @@ test('collections create and assign flow works', async ({ page }) => {
   await assignFirstBookToShelf(page, 'Classics');
 });
 
-test('collection filter narrows visible books', async ({ page }) => {
+test('collection show opens collection view and back returns library', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
     localStorage.clear();
@@ -88,11 +101,17 @@ test('collection filter narrows visible books', async ({ page }) => {
 
   await createShelf(page, 'Shelf One');
   await assignFirstBookToShelf(page, 'Shelf One');
-  await page.getByTestId('library-collection-filter').selectOption({ label: 'Shelf One' });
-  await expect(page.getByTestId('library-collection-filter')).not.toHaveValue('all');
+  await showCollection(page, 'Shelf One');
+
+  await expect(page.getByRole('heading', { name: 'Shelf One' })).toBeVisible();
+  await expect(page.getByTestId('collection-view-back-button')).toBeVisible();
+  await expect(page.getByTestId('library-reset-filters-button')).toHaveCount(0);
+  await expect(page.getByTestId('library-empty-reset-filters-button')).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
-  await page.getByTestId('library-collection-filter').selectOption({ label: 'All collections' });
-  await expect(page.getByTestId('library-collection-filter')).toHaveValue('all');
+
+  await page.getByTestId('collection-view-back-button').click();
+  await expect(page.getByRole('heading', { name: 'My Library' })).toBeVisible();
+  await expect(page.getByTestId('collection-view-back-button')).toHaveCount(0);
 });
 
 test('collection rename updates filter options and chips', async ({ page }) => {
@@ -108,8 +127,7 @@ test('collection rename updates filter options and chips', async ({ page }) => {
   await createShelf(page, 'Old Shelf');
   await assignFirstBookToShelf(page, 'Old Shelf');
 
-  await page.getByTestId('library-manage-collections-button').click();
-  await expect(page.getByTestId('collections-modal')).toBeVisible();
+  await openCollectionsModal(page);
   await page.getByTestId('collection-rename-button').first().click();
   await page.getByTestId('collection-rename-input').first().fill('New Shelf');
   await page.getByTestId('collection-rename-save').first().click();
@@ -117,8 +135,10 @@ test('collection rename updates filter options and chips', async ({ page }) => {
   await expect(page.getByTestId('collection-item-name').filter({ hasText: 'Old Shelf' })).toHaveCount(0);
   await page.getByTestId('collections-modal-close').click();
 
-  await expect(page.getByTestId('library-collection-filter').locator('option', { hasText: 'New Shelf' })).toHaveCount(1);
-  await expect(page.getByTestId('library-collection-filter').locator('option', { hasText: 'Old Shelf' })).toHaveCount(0);
+  await showCollection(page, 'New Shelf');
+  await expect(page.getByRole('heading', { name: 'New Shelf' })).toBeVisible();
+  await expect(page.getByTestId('collection-view-back-button')).toBeVisible();
+  await page.getByTestId('collection-view-back-button').click();
   await expect(page.getByTestId('book-collection-chip').filter({ hasText: 'New Shelf' }).first()).toBeVisible();
 });
 
@@ -134,17 +154,16 @@ test('collection delete clears assignment and resets active collection filter', 
 
   await createShelf(page, 'Delete Me');
   await assignFirstBookToShelf(page, 'Delete Me');
-  await page.getByTestId('library-collection-filter').selectOption({ label: 'Delete Me' });
-  await expect(page.getByTestId('library-collection-filter')).toHaveValue(/col-/);
+  await showCollection(page, 'Delete Me');
+  await expect(page.getByRole('heading', { name: 'Delete Me' })).toBeVisible();
 
-  await page.getByTestId('library-manage-collections-button').click();
-  await expect(page.getByTestId('collections-modal')).toBeVisible();
+  await openCollectionsModal(page);
   await page.getByTestId('collection-delete-button').first().click();
   await expect(page.getByTestId('collection-item').filter({ hasText: 'Delete Me' })).toHaveCount(0);
   await page.getByTestId('collections-modal-close').click();
 
-  await expect(page.getByTestId('library-collection-filter')).toHaveValue('all');
-  await expect(page.getByTestId('library-collection-filter').locator('option', { hasText: 'Delete Me' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'My Library' })).toBeVisible();
+  await expect(page.getByTestId('collection-view-back-button')).toHaveCount(0);
   await expect(page.getByTestId('book-collection-chip').filter({ hasText: 'Delete Me' })).toHaveCount(0);
 });
 
@@ -164,7 +183,9 @@ test('collections and assignments persist after reload', async ({ page }) => {
 
   await page.reload();
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
-  await expect(page.getByTestId('library-collection-filter').locator('option', { hasText: 'Persistent Shelf' })).toHaveCount(1);
+  await openCollectionsModal(page);
+  await expect(page.getByTestId('collection-item-name').filter({ hasText: 'Persistent Shelf' })).toBeVisible();
+  await page.getByTestId('collections-modal-close').click();
   await expect(page.getByTestId('book-collection-chip').filter({ hasText: 'Persistent Shelf' }).first()).toBeVisible();
 });
 
@@ -221,9 +242,7 @@ test('library toolbar controls stay aligned to the search bar height', async ({ 
   const controls = {
     search: page.getByTestId('library-search'),
     filter: page.getByTestId('library-filter'),
-    sort: page.getByTestId('library-sort'),
-    viewToggle: page.getByTestId('library-view-toggle'),
-    notesCenter: page.getByTestId('library-notes-center-toggle')
+    sort: page.getByTestId('library-sort')
   };
 
   await Promise.all(Object.values(controls).map((locator) => expect(locator).toBeVisible()));
@@ -1039,4 +1058,29 @@ test('empty state reset button clears filters and restores results', async ({ pa
   await page.getByTestId('library-empty-reset-filters-button').click();
   await expect(searchInput).toHaveValue('');
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+});
+
+test('account section renders profile form even after opening trash view', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('trash-toggle-button').click();
+  await expect(page.getByTestId('trash-retention-note')).toBeVisible();
+
+  await page.getByTestId('library-account-trigger').click();
+  await expect(page.getByTestId('library-account-panel')).toBeVisible();
+  await expect(page.getByTestId('library-account-first-name')).toBeVisible();
+  await expect(page.getByTestId('library-account-email')).toHaveValue('dreamerissame@gmail.com');
+  await expect(page.getByTestId('library-account-language')).toBeVisible();
+  await expect(page.getByTestId('library-account-email-notifications')).toBeVisible();
+  await expect(page.getByTestId('library-account-save')).toBeVisible();
+  await expect(page.getByTestId('library-toolbar-sticky')).toHaveCount(0);
+  await expect(page.getByTestId('library-books-grid')).toHaveCount(0);
 });
