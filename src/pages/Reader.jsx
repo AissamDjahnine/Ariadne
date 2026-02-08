@@ -1641,6 +1641,9 @@ export default function Reader() {
   const isReaderDark = settings.theme === 'dark';
   const isReaderSepia = settings.theme === 'sepia';
   const activeSearchCfi = activeSearchIndex >= 0 ? (searchResults[activeSearchIndex]?.cfi || null) : null;
+  const toolbarIconButtonBaseClass = 'p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700';
+  const toolbarUtilityInactiveClass = `${toolbarIconButtonBaseClass} text-inherit`;
+  const toolbarUtilityActiveClass = `${toolbarIconButtonBaseClass} text-blue-600 bg-blue-50 dark:bg-blue-900/30`;
   const toggleDarkTheme = () => {
     setSettings((s) => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' }));
   };
@@ -2656,22 +2659,25 @@ export default function Reader() {
           </button>
           <button
             onClick={() => setShowSearchMenu((s) => !s)}
-            className={`p-2 rounded-full transition ${showSearchMenu ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={showSearchMenu ? toolbarUtilityActiveClass : toolbarUtilityInactiveClass}
             title="Search"
+            data-testid="reader-search-toggle"
           >
             <SearchIcon size={18} />
           </button>
           <button
             onClick={() => setShowHighlightsPanel((s) => !s)}
-            className={`p-2 rounded-full transition ${showHighlightsPanel ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={showHighlightsPanel ? toolbarUtilityActiveClass : toolbarUtilityInactiveClass}
             title="Highlights"
+            data-testid="reader-highlights-toggle"
           >
             <Highlighter size={18} />
           </button>
           <button
             onClick={() => setShowBookmarksPanel((s) => !s)}
-            className={`p-2 rounded-full transition ${showBookmarksPanel ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={showBookmarksPanel ? toolbarUtilityActiveClass : toolbarUtilityInactiveClass}
             title="Bookmarks"
+            data-testid="reader-bookmarks-toggle"
           >
             <Bookmark size={18} />
           </button>

@@ -200,6 +200,22 @@ test('theme toggle works repeatedly in reader', async ({ page }) => {
   expect(revertedBg).toBe(initialBg);
 });
 
+test('reader utility icon colors match theme controls when idle', async ({ page }) => {
+  await openFixtureBook(page);
+
+  const colorOf = async (locator) =>
+    locator.evaluate((el) => window.getComputedStyle(el).color);
+
+  const themeColor = await colorOf(page.getByTestId('theme-toggle'));
+  const searchColor = await colorOf(page.getByTestId('reader-search-toggle'));
+  const highlightsColor = await colorOf(page.getByTestId('reader-highlights-toggle'));
+  const bookmarksColor = await colorOf(page.getByTestId('reader-bookmarks-toggle'));
+
+  expect(searchColor).toBe(themeColor);
+  expect(highlightsColor).toBe(themeColor);
+  expect(bookmarksColor).toBe(themeColor);
+});
+
 test('sepia mode toggles warm reading background', async ({ page }) => {
   await openFixtureBook(page);
 
