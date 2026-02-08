@@ -37,6 +37,7 @@ import {
   RotateCcw,
   ArrowLeft,
   FileText,
+  Languages,
   FolderClosed,
   FolderPlus,
   Pencil,
@@ -1093,43 +1094,55 @@ export default function Home() {
     const language = formatLanguageLabel(book.language);
     const estimatedPages = toPositiveNumber(book.estimatedPages);
     const genre = formatGenreLabel(book.genre);
-    const badges = [];
+    const metaItems = [];
 
     if (language) {
-      badges.push({
+      metaItems.push({
         key: "language",
         testId: "book-meta-language",
-        label: `Language: ${language}`
+        icon: Languages,
+        label: language
       });
     }
     if (estimatedPages) {
-      badges.push({
+      metaItems.push({
         key: "pages",
         testId: "book-meta-pages",
-        label: `Pages: ${estimatedPages}`
+        icon: FileText,
+        label: `${estimatedPages} pages`
       });
     }
-    if (genre) {
-      badges.push({
-        key: "genre",
-        testId: "book-meta-genre",
-        label: `Genre: ${genre}`
-      });
-    }
-
-    if (!badges.length) return null;
+    if (!metaItems.length && !genre) return null;
 
     return (
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {badges.map((badge) => (
-          <span
-            key={`${book.id}-${badge.key}`}
-            data-testid={badge.testId}
-            className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600"
-          >
-            {badge.label}
-          </span>
-        ))}
+      <div className="mt-2">
+        {metaItems.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+            {metaItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <span
+                  key={`${book.id}-${item.key}`}
+                  data-testid={item.testId}
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Icon size={13} className="text-gray-400" />
+                  <span>{item.label}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {genre && (
+          <div className={metaItems.length ? "mt-2" : ""}>
+            <span
+              data-testid="book-meta-genre"
+              className="inline-flex items-center rounded-full border border-pink-500 bg-pink-50 px-3 py-0.5 text-xs font-semibold tracking-wide text-pink-600"
+            >
+              {genre}
+            </span>
+          </div>
+        )}
       </div>
     );
   };
