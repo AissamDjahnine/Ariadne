@@ -2217,23 +2217,23 @@ export default function Reader() {
           />
           <div
             className={`absolute right-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
-              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Highlighter size={18} className="text-gray-400" />
-                <div className="text-sm font-bold">Highlights</div>
+                <Highlighter size={18} className={isReaderDark ? 'text-gray-400' : 'text-gray-600'} />
+                <div className={`text-sm font-bold ${isReaderDark ? 'text-gray-100' : 'text-gray-900'}`}>Highlights</div>
               </div>
               <button
                 onClick={() => setShowHighlightsPanel(false)}
-                className="p-1 text-gray-400 hover:text-red-500"
+                className={`p-1 ${isReaderDark ? 'text-gray-400 hover:text-red-400' : 'text-gray-500 hover:text-red-500'}`}
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="mt-3 text-[11px] text-gray-500">
+            <div className={`mt-3 text-[11px] ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>
               {highlights.length} highlight{highlights.length === 1 ? '' : 's'}
               <button
                 onClick={exportHighlightsPdf}
@@ -2244,7 +2244,7 @@ export default function Reader() {
               </button>
             </div>
 
-            <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
+            <div className={`mt-2 flex items-center justify-between text-[11px] ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>
               <span>
                 {selectedHighlights.length} selected
               </span>
@@ -2263,7 +2263,7 @@ export default function Reader() {
                     selectionTouchedRef.current = true;
                     setSelectedHighlights([]);
                   }}
-                  className="text-[10px] font-bold text-gray-400 hover:text-gray-600"
+                  className={`text-[10px] font-bold ${isReaderDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   Clear
                 </button>
@@ -2272,12 +2272,15 @@ export default function Reader() {
 
             <div className="mt-4 max-h-[55vh] overflow-y-auto pr-1 space-y-3">
               {highlights.length === 0 && (
-                <div className="text-xs text-gray-500">No highlights yet.</div>
+                <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No highlights yet.</div>
               )}
               {highlights.map((h, idx) => (
                 <div
                   key={`${h.cfiRange}-${idx}`}
-                  className="p-3 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 transition"
+                  className={`p-3 rounded-2xl border border-transparent transition ${
+                    isReaderDark ? 'hover:border-gray-700' : 'hover:border-gray-200'
+                  }`}
+                  data-testid="highlight-item"
                 >
                   <div className="flex items-start gap-2">
                     <button
@@ -2291,7 +2294,7 @@ export default function Reader() {
                       className={`mt-1 w-4 h-4 rounded border flex items-center justify-center ${
                         selectedHighlights.includes(h.cfiRange)
                           ? 'bg-blue-600 border-blue-600'
-                          : 'border-gray-300 dark:border-gray-600'
+                          : (isReaderDark ? 'border-gray-600' : 'border-gray-300')
                       }`}
                       title="Select highlight"
                     >
@@ -2306,14 +2309,23 @@ export default function Reader() {
                       }}
                       className="text-left flex-1"
                     >
-                      <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">
+                      <div
+                        data-testid="highlight-item-label"
+                        className={`mb-1 text-[10px] uppercase tracking-widest ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}
+                      >
                         Highlight {idx + 1}
                       </div>
-                      <div className="text-sm text-gray-700 dark:text-gray-200 line-clamp-3">
+                      <div
+                        data-testid="highlight-item-text"
+                        className={`text-sm line-clamp-3 ${isReaderDark ? 'text-gray-200' : 'text-gray-800'}`}
+                      >
                         {h.text}
                       </div>
                       {h.note && (
-                        <div className="mt-2 text-xs text-gray-500 italic line-clamp-2">
+                        <div
+                          data-testid="highlight-item-note"
+                          className={`mt-2 text-xs italic line-clamp-2 ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}
+                        >
                           {h.note}
                         </div>
                       )}
@@ -2399,23 +2411,23 @@ export default function Reader() {
           />
           <div
             className={`absolute right-4 top-20 w-[92vw] max-w-md rounded-3xl shadow-2xl p-5 ${
-              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white'
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Bookmark size={18} className="text-gray-400" />
-                <div className="text-sm font-bold">Bookmarks</div>
+                <Bookmark size={18} className={isReaderDark ? 'text-gray-400' : 'text-gray-600'} />
+                <div className={`text-sm font-bold ${isReaderDark ? 'text-gray-100' : 'text-gray-900'}`}>Bookmarks</div>
               </div>
               <button
                 onClick={() => setShowBookmarksPanel(false)}
-                className="p-1 text-gray-400 hover:text-red-500"
+                className={`p-1 ${isReaderDark ? 'text-gray-400 hover:text-red-400' : 'text-gray-500 hover:text-red-500'}`}
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+            <div className={`mt-3 flex items-center justify-between text-[11px] ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>
               <span>
                 {bookmarks.length} bookmark{bookmarks.length === 1 ? '' : 's'}
               </span>
@@ -2429,12 +2441,15 @@ export default function Reader() {
 
             <div className="mt-4 max-h-[55vh] overflow-y-auto pr-1 space-y-3">
               {bookmarks.length === 0 && (
-                <div className="text-xs text-gray-500">No bookmarks yet.</div>
+                <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No bookmarks yet.</div>
               )}
               {bookmarks.map((b, idx) => (
                 <div
                   key={`${b.cfi}-${idx}`}
-                  className="p-3 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 transition"
+                  className={`p-3 rounded-2xl border border-transparent transition ${
+                    isReaderDark ? 'hover:border-gray-700' : 'hover:border-gray-200'
+                  }`}
+                  data-testid="bookmark-item"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <button
@@ -2444,11 +2459,17 @@ export default function Reader() {
                       }}
                       className="text-left flex-1"
                     >
-                      <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">
+                      <div
+                        data-testid="bookmark-item-label"
+                        className={`mb-1 text-[10px] uppercase tracking-widest ${isReaderDark ? 'text-gray-400' : 'text-gray-600'}`}
+                      >
                         {b.label || `Bookmark ${idx + 1}`}
                       </div>
                       {b.text && (
-                        <div className="text-sm text-gray-700 dark:text-gray-200 line-clamp-2">
+                        <div
+                          data-testid="bookmark-item-text"
+                          className={`text-sm line-clamp-2 ${isReaderDark ? 'text-gray-200' : 'text-gray-800'}`}
+                        >
                           {b.text}
                         </div>
                       )}

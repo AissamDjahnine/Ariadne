@@ -216,6 +216,163 @@ test('reader utility icon colors match theme controls when idle', async ({ page 
   expect(bookmarksColor).toBe(themeColor);
 });
 
+test('highlights panel uses readable text contrast in light theme', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = Array.isArray(payload.highlights) ? [...payload.highlights] : [];
+            highlights.push({
+              cfiRange: 'epubcfi(/6/2[seed-highlight]!/4/2/2,/4/2/10)',
+              text: 'Readable contrast excerpt for highlights panel',
+              color: '#bef264'
+            });
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('highlight-item-text').first()).toBeVisible();
+
+  const excerptColor = await panel.getByTestId('highlight-item-text').first()
+    .evaluate((el) => window.getComputedStyle(el).color);
+  const labelColor = await panel.getByTestId('highlight-item-label').first()
+    .evaluate((el) => window.getComputedStyle(el).color);
+
+  expect(excerptColor).toBe('rgb(31, 41, 55)');
+  expect(labelColor).toBe('rgb(75, 85, 99)');
+});
+
+test('bookmarks panel uses readable text contrast in light theme', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const bookmarks = Array.isArray(payload.bookmarks) ? [...payload.bookmarks] : [];
+            bookmarks.push({
+              cfi: 'epubcfi(/6/2[seed-bookmark]!/4/2/2)',
+              label: 'Section 1',
+              text: 'Readable bookmark excerpt for light theme contrast',
+              href: 'Text/section1.xhtml'
+            });
+            const nextPayload = { ...payload, bookmarks };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-bookmarks-toggle').click();
+  const panel = page.getByTestId('bookmarks-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('bookmark-item-text').first()).toBeVisible();
+
+  const excerptColor = await panel.getByTestId('bookmark-item-text').first()
+    .evaluate((el) => window.getComputedStyle(el).color);
+  const labelColor = await panel.getByTestId('bookmark-item-label').first()
+    .evaluate((el) => window.getComputedStyle(el).color);
+
+  expect(excerptColor).toBe('rgb(31, 41, 55)');
+  expect(labelColor).toBe('rgb(75, 85, 99)');
+});
+
 test('sepia mode toggles warm reading background', async ({ page }) => {
   await openFixtureBook(page);
 
