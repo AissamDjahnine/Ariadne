@@ -216,6 +216,9 @@ export default function Home() {
   const navigate = useNavigate();
   const [books, setBooks] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState("idle");
+  const [showUploadSuccess, setShowUploadSuccess] = useState(false);
   
   // Search, filter & sort states
   const [searchQuery, setSearchQuery] = useState("");
@@ -254,6 +257,8 @@ export default function Home() {
   const [contentSearchMatches, setContentSearchMatches] = useState({});
   const [isContentSearching, setIsContentSearching] = useState(false);
   const contentSearchTokenRef = useRef(0);
+  const uploadTimerRef = useRef(null);
+  const uploadSuccessTimerRef = useRef(null);
 
   useEffect(() => { loadLibrary(); }, []);
   useEffect(() => {
@@ -337,6 +342,38 @@ export default function Home() {
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [collectionPickerBookId]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadTimerRef.current) {
+        clearInterval(uploadTimerRef.current);
+      }
+      if (uploadSuccessTimerRef.current) {
+        clearTimeout(uploadSuccessTimerRef.current);
+      }
+    };
+  }, []);
+
+  const startUploadProgress = () => {
+    if (uploadTimerRef.current) {
+      clearInterval(uploadTimerRef.current);
+    }
+    setUploadProgress(8);
+    setUploadStage("reading");
+    uploadTimerRef.current = setInterval(() => {
+      setUploadProgress((current) => {
+        const next = Math.min(current + Math.floor(Math.random() * 8 + 4), 92);
+        return next;
+      });
+    }, 320);
+  };
+
+  const stopUploadProgress = () => {
+    if (uploadTimerRef.current) {
+      clearInterval(uploadTimerRef.current);
+      uploadTimerRef.current = null;
+    }
+  };
 
   const loadLibrary = async () => {
     await purgeExpiredTrashBooks(TRASH_RETENTION_DAYS);
@@ -635,9 +672,31 @@ export default function Home() {
     const file = event.target.files[0];
     if (file && file.type === "application/epub+zip") {
       setIsUploading(true);
-      await addBook(file);
-      await loadLibrary();
-      setIsUploading(false);
+      startUploadProgress();
+      try {
+        await addBook(file);
+        await loadLibrary();
+        stopUploadProgress();
+        setUploadProgress(100);
+        setUploadStage("done");
+        setShowUploadSuccess(true);
+        if (uploadSuccessTimerRef.current) {
+          clearTimeout(uploadSuccessTimerRef.current);
+        }
+        uploadSuccessTimerRef.current = setTimeout(() => {
+          setShowUploadSuccess(false);
+          setUploadStage("idle");
+          setUploadProgress(0);
+        }, 2800);
+      } catch (err) {
+        console.error(err);
+        stopUploadProgress();
+        setUploadStage("idle");
+        setUploadProgress(0);
+      } finally {
+        setIsUploading(false);
+        event.target.value = "";
+      }
     }
   };
 
@@ -1574,11 +1633,6 @@ export default function Home() {
               )}
             </button>
 
-            <label className={`cursor-pointer flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all transform hover:scale-105 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
-              <Plus size={20} />
-              <span>{isUploading ? 'Adding...' : 'Add Book'}</span>
-              <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
-            </label>
           </div>
           )}
         </header>
@@ -2184,6 +2238,47 @@ export default function Home() {
             })}
           </div>
         ))}
+        <label
+          data-testid="library-add-book-fab"
+          className={`fixed bottom-6 right-6 z-50 flex h-16 w-16 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white shadow-xl transition-all hover:scale-105 hover:bg-blue-700 focus-within:ring-4 focus-within:ring-blue-200 ${
+            isUploading ? 'opacity-60 pointer-events-none' : ''
+          }`}
+          title={isUploading ? 'Adding book...' : 'Add Book'}
+          aria-label={isUploading ? 'Adding book...' : 'Add Book'}
+        >
+          <Plus size={28} />
+          <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
+        </label>
+        {uploadStage === "reading" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div
+              className={`w-[360px] rounded-3xl border p-5 shadow-2xl ${
+                isDarkLibraryTheme ? "border-slate-700 bg-slate-900 text-slate-100" : "border-gray-200 bg-white text-gray-900"
+              }`}
+            >
+              <div className="text-sm font-bold">Adding book...</div>
+              <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                Reading and importing EPUB
+              </p>
+              <div className="mt-4 h-2 rounded-full bg-gray-200/70 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <div className={`mt-2 text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
+                {uploadProgress}%
+              </div>
+            </div>
+          </div>
+        )}
+        {showUploadSuccess && (
+          <div className="fixed bottom-24 right-6 z-50">
+            <div className="rounded-full border border-amber-300 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50/40 backdrop-blur-sm shadow-sm">
+              Book loaded and added
+            </div>
+          </div>
+        )}
         </>
         )}
       </div>
