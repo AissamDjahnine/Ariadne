@@ -51,6 +51,7 @@ Smart Reader is built around real reading behavior:
 - Light mode, dark mode, and sepia reading mode
 - Keyboard navigation support
 - Chapter menu + table of contents navigation
+- Dictionary lookup cancels stale responses when you close the panel
 
 ### Search That Works at Two Levels
 
