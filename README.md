@@ -26,7 +26,8 @@ Smart Reader is built around real reading behavior:
 - Search, filter, and sort to find the right book fast
 - Custom shelves (collections): create, rename, delete, and color-code your own reading buckets
 - Assign books to one or many shelves directly from each card
-- Open a shelf in dedicated collection view and return with `Back to Library`
+- Dedicated `My Collections` board page with Jira-style shelf columns
+- Each collection column shows its own books and supports quick remove from shelf
 - Sticky library toolbar (search, filters, sort, view mode always visible while scrolling)
 - Quick filter count chips (`To read`, `In progress`, `Finished`, `Favorites`) with one-click filtering
 - Combine `Status` filtering with quick `Favorites` filtering when needed
@@ -98,7 +99,7 @@ Open the app at the local Vite URL (usually `http://localhost:5173`).
 - `src/pages/Home.jsx` - Library page orchestrator (state, data loading, feature composition)
 - `src/pages/library/LibraryWorkspaceNav.jsx` - Sidebar and mobile workspace navigation
 - `src/pages/library/LibraryToolbarSection.jsx` - Library search/filter/sort toolbar + active chips + view toggle
-- `src/pages/library/LibraryCollectionsModal.jsx` - Collections management modal
+- `src/pages/library/LibraryCollectionsBoard.jsx` - Dedicated collections board with column-based shelf layout
 - `src/pages/library/LibraryNotesCenterPanel.jsx` - Notes Center panel
 - `src/pages/library/LibraryHighlightsCenterPanel.jsx` - Highlights Center panel
 - `src/pages/library/LibraryGlobalSearchPanel.jsx` - Global search result panel
