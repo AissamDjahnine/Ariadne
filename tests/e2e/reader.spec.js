@@ -319,6 +319,78 @@ test('highlights panel uses readable text contrast in light theme', async ({ pag
   expect(labelColor).toBe('rgb(75, 85, 99)');
 });
 
+test('highlights panel renders saved highlight note text', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = [
+              {
+                cfiRange: 'epubcfi(/6/2[seed-hl-note]!/4/2/2,/4/2/14)',
+                text: 'Seeded note highlight text',
+                color: '#fcd34d',
+                note: 'Stored highlight note text'
+              }
+            ];
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Open chapters/i })).toBeVisible();
+  await page.getByTestId('reader-highlights-toggle').click();
+
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('highlight-item-note').first()).toContainText('Stored highlight note text');
+});
+
 test('bookmarks panel uses readable text contrast in light theme', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
@@ -427,4 +499,181 @@ test('menu button opens chapter contents and chapter selection closes panel', as
 
   await panel.getByTestId('toc-item').first().click();
   await expect(page.getByTestId('chapters-panel')).toHaveCount(0);
+});
+
+test('highlights selection controls drive export availability', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = [
+              {
+                cfiRange: 'epubcfi(/6/2[seed-hl-1]!/4/2/2,/4/2/8)',
+                text: 'Seed highlight one for export state test',
+                color: '#fcd34d'
+              },
+              {
+                cfiRange: 'epubcfi(/6/2[seed-hl-2]!/4/2/10,/4/2/18)',
+                text: 'Seed highlight two for export state test',
+                color: '#bef264'
+              }
+            ];
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText('2 highlights')).toBeVisible();
+  await expect(panel.getByText('2 selected')).toBeVisible();
+
+  const exportButton = panel.getByRole('button', { name: 'Export Selected' });
+  await expect(exportButton).toBeEnabled();
+
+  await panel.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(panel.getByText('0 selected')).toBeVisible();
+  await expect(exportButton).toBeDisabled();
+
+  const firstItem = panel.getByTestId('highlight-item').first();
+  await firstItem.locator('button[title=\"Select highlight\"]').click();
+  await expect(panel.getByText('1 selected')).toBeVisible();
+  await expect(exportButton).toBeEnabled();
+
+  await panel.getByRole('button', { name: 'Select all' }).click();
+  await expect(panel.getByText('2 selected')).toBeVisible();
+});
+
+test('bookmarks panel supports jump-close and delete flow', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const bookmarks = [
+              {
+                cfi: 'epubcfi(/6/2[seed-bookmark-jump]!/4/2/2)',
+                label: 'Section 1',
+                text: 'Seeded bookmark for jump and delete test',
+                href: 'Text/section1.xhtml'
+              }
+            ];
+            const nextPayload = { ...payload, bookmarks };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-bookmarks-toggle').click();
+  const panel = page.getByTestId('bookmarks-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText('1 bookmark')).toBeVisible();
+  await expect(panel.getByTestId('bookmark-item').first()).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Add Bookmark' })).toBeVisible();
+
+  await panel.getByTestId('bookmark-item').first().locator('button.text-left').click();
+  await expect(page.getByTestId('bookmarks-panel')).toHaveCount(0);
+
+  await page.getByTestId('reader-bookmarks-toggle').click();
+  const reopened = page.getByTestId('bookmarks-panel');
+  await expect(reopened).toBeVisible();
+  await reopened.getByRole('button', { name: 'Delete' }).first().click({ force: true });
+  await expect
+    .poll(async () => reopened.getByTestId('bookmark-item').count(), { timeout: 10000 })
+    .toBe(0);
 });

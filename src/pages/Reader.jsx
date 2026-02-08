@@ -1047,17 +1047,20 @@ export default function Reader() {
     const currentBook = bookRef.current;
     if (!currentBook || !rendition) return;
     try {
-      const loc = rendition.currentLocation();
-      if (!loc?.start?.cfi) return;
+      const liveLocation = rendition.currentLocation?.() || rendition.location || null;
+      const liveStart = liveLocation?.start || {};
+      const fallbackCfi = typeof currentBook.lastLocation === 'string' ? currentBook.lastLocation : '';
+      const cfi = liveStart.cfi || fallbackCfi;
+      if (!cfi) return;
 
       const viewer = rendition.getContents()[0];
       const pageText = viewer?.document?.body?.innerText || '';
       const snippet = pageText.trim().slice(0, 140);
-      const label = getChapterLabel(loc);
+      const label = liveLocation?.start ? getChapterLabel(liveLocation) : 'Bookmark';
 
       const newBookmark = {
-        cfi: loc.start.cfi,
-        href: loc.start.href || '',
+        cfi,
+        href: liveStart.href || '',
         label,
         text: snippet,
         createdAt: new Date().toISOString()
