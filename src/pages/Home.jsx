@@ -1409,6 +1409,11 @@ export default function Home() {
   const canShowResetFilters = hasActiveLibraryFilters && !isCollectionView;
   const isDarkLibraryTheme = libraryTheme === "dark";
   const isAccountSection = librarySection === "account";
+  const isNotesSection = librarySection === "notes";
+  const isHighlightsSection = librarySection === "highlights";
+  const isCenterSection = isNotesSection || isHighlightsSection;
+  const shouldShowLibraryHomeContent = !isCenterSection;
+  const shouldShowContinueReading = showContinueReading && librarySection === "library";
 
   return (
     <div className={`min-h-screen p-6 md:p-12 font-sans ${isDarkLibraryTheme ? "bg-slate-950 text-slate-100" : "bg-gray-50 text-gray-900"}`}>
@@ -1583,7 +1588,7 @@ export default function Home() {
 
         {!isAccountSection && (
         <>
-        {showContinueReading && (
+        {shouldShowContinueReading && (
           <section className="mb-8" data-testid="continue-reading-rail">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
@@ -1641,25 +1646,27 @@ export default function Home() {
           </section>
         )}
 
-        <LibraryToolbarSection
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-          statusFilterOptions={statusFilterOptions}
-          sortBy={sortBy}
-          onSortChange={setSortBy}
-          sortOptions={sortOptions}
-          getFilterLabel={getFilterLabel}
-          getCollectionFilterLabel={getCollectionFilterLabel}
-          flagFilters={flagFilters}
-          flagFilterOptions={flagFilterOptions}
-          onToggleFlagFilter={toggleFlagFilter}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          canShowResetFilters={canShowResetFilters}
-          onResetFilters={resetLibraryFilters}
-        />
+        {shouldShowLibraryHomeContent && (
+          <LibraryToolbarSection
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            statusFilterOptions={statusFilterOptions}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            sortOptions={sortOptions}
+            getFilterLabel={getFilterLabel}
+            getCollectionFilterLabel={getCollectionFilterLabel}
+            flagFilters={flagFilters}
+            flagFilterOptions={flagFilterOptions}
+            onToggleFlagFilter={toggleFlagFilter}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            canShowResetFilters={canShowResetFilters}
+            onResetFilters={resetLibraryFilters}
+          />
+        )}
         {isNotesCenterOpen && !isTrashView && (
           <LibraryNotesCenterPanel
             notesCenterFilteredEntries={notesCenterFilteredEntries}
@@ -1727,7 +1734,7 @@ export default function Home() {
             onCollectionShow={openCollectionView}
           />
         )}
-        {globalSearchQuery && !isTrashView && (
+        {shouldShowLibraryHomeContent && globalSearchQuery && !isTrashView && (
           <LibraryGlobalSearchPanel
             showGlobalSearchSplitColumns={showGlobalSearchSplitColumns}
             globalSearchTotal={globalSearchTotal}
@@ -1741,7 +1748,7 @@ export default function Home() {
             renderGlobalSearchBookCard={renderGlobalSearchBookCard}
           />
         )}
-        {isTrashView && (
+        {shouldShowLibraryHomeContent && isTrashView && (
           <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div
               data-testid="trash-retention-note"
@@ -1761,7 +1768,7 @@ export default function Home() {
           </div>
         )}
 
-        {!showGlobalSearchBooksColumn && (sortedBooks.length === 0 ? (
+        {shouldShowLibraryHomeContent && !showGlobalSearchBooksColumn && (sortedBooks.length === 0 ? (
           <div className="bg-white border-2 border-dashed border-gray-200 rounded-3xl p-20 text-center shadow-sm">
             <BookIcon size={48} className="mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500 text-lg">

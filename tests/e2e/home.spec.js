@@ -473,6 +473,51 @@ test('notes center edits note and syncs to reader highlights panel', async ({ pa
   await expect(page.getByText('Updated note from Notes Center')).toBeVisible();
 });
 
+test('notes and highlights sections hide home-only library content', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await expect(page.getByTestId('library-books-grid')).toBeVisible();
+  await expect(page.getByTestId('library-toolbar-sticky')).toBeVisible();
+
+  const href = await bookLink.getAttribute('href');
+  const bookId = href ? new URL(href, 'http://localhost').searchParams.get('id') : null;
+  expect(bookId).toBeTruthy();
+  await page.evaluate((id) => {
+    localStorage.setItem('library-started-book-ids', JSON.stringify([id]));
+  }, bookId);
+  await page.reload();
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await expect(page.getByTestId('continue-reading-rail')).toBeVisible();
+
+  await page.getByTestId('library-notes-center-toggle').click();
+  await expect(page.getByTestId('notes-center-panel')).toBeVisible();
+  await expect(page.getByTestId('continue-reading-rail')).toHaveCount(0);
+  await expect(page.getByTestId('library-toolbar-sticky')).toHaveCount(0);
+  await expect(page.getByTestId('library-books-grid')).toHaveCount(0);
+  await expect(page.getByTestId('library-books-list')).toHaveCount(0);
+
+  await page.getByTestId('library-highlights-center-toggle').click();
+  await expect(page.getByTestId('highlights-center-panel')).toBeVisible();
+  await expect(page.getByTestId('continue-reading-rail')).toHaveCount(0);
+  await expect(page.getByTestId('library-toolbar-sticky')).toHaveCount(0);
+  await expect(page.getByTestId('library-books-grid')).toHaveCount(0);
+  await expect(page.getByTestId('library-books-list')).toHaveCount(0);
+
+  await page.getByTestId('sidebar-my-library').click();
+  await expect(page.getByTestId('library-toolbar-sticky')).toBeVisible();
+  await expect(page.getByTestId('library-books-grid')).toBeVisible();
+});
+
 test('library view toggle persists after reload', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
