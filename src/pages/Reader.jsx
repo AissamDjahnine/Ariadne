@@ -1089,7 +1089,11 @@ export default function Reader() {
 
   const handleSelection = useCallback((text, cfiRange, pos, isExisting = false) => {
     const trimmed = (text || '').trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setSelection(null);
+      setSelectionMode('actions');
+      return;
+    }
     setSelection({
       text: trimmed,
       cfiRange,

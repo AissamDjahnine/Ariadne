@@ -25,6 +25,15 @@ async function selectTextInBook(page) {
   await expect(page.getByTestId('selection-toolbar')).toBeVisible();
 }
 
+test('selection toolbar closes automatically when selection is cleared', async ({ page }) => {
+  await openFixtureBook(page);
+  await selectTextInBook(page);
+
+  const frame = page.frameLocator('iframe');
+  await frame.locator('body').click({ position: { x: 24, y: 24 } });
+  await expect(page.getByTestId('selection-toolbar')).toHaveCount(0);
+});
+
 
 test('search clear cancels results', async ({ page }) => {
   await openFixtureBook(page);

@@ -24,6 +24,7 @@ export default function BookView({
   const onSelectionRef = useRef(onSelection);
   const appliedHighlightsRef = useRef(new Map());
   const appliedSearchRef = useRef(new Map());
+  const selectionCleanupRef = useRef([]);
 
   useEffect(() => {
     onSelectionRef.current = onSelection;
@@ -95,6 +96,31 @@ export default function BookView({
 
     applyTheme(rendition, settings.theme);
 
+    const registerSelectionClearWatcher = (contents) => {
+      const doc = contents?.document;
+      const win = contents?.window;
+      if (!doc || !win) return;
+
+      const notifyIfCleared = () => {
+        const selectedText = win.getSelection?.()?.toString?.().trim?.() || '';
+        if (!selectedText && onSelectionRef.current) {
+          onSelectionRef.current('', null, null, false);
+        }
+      };
+
+      doc.addEventListener('mouseup', notifyIfCleared);
+      doc.addEventListener('keyup', notifyIfCleared);
+      doc.addEventListener('touchend', notifyIfCleared);
+
+      selectionCleanupRef.current.push(() => {
+        doc.removeEventListener('mouseup', notifyIfCleared);
+        doc.removeEventListener('keyup', notifyIfCleared);
+        doc.removeEventListener('touchend', notifyIfCleared);
+      });
+    };
+
+    rendition.hooks?.content?.register(registerSelectionClearWatcher);
+
     rendition.display(initialLocation || undefined).then(() => {
       book.locations.generate(1024).then(() => {
         const updateProgress = async () => {
@@ -153,7 +179,11 @@ export default function BookView({
       });
     });
 
-    return () => { if (book) book.destroy(); };
+    return () => {
+      selectionCleanupRef.current.forEach((cleanup) => cleanup());
+      selectionCleanupRef.current = [];
+      if (book) book.destroy();
+    };
   }, [bookData, settings.flow]); 
 
   useEffect(() => {
