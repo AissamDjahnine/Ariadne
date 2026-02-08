@@ -78,6 +78,41 @@ test('library toolbar is sticky and reset button clears search status and flag f
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 });
 
+test('library toolbar controls stay aligned to the search bar height', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const controls = {
+    search: page.getByTestId('library-search'),
+    filter: page.getByTestId('library-filter'),
+    sort: page.getByTestId('library-sort'),
+    viewToggle: page.getByTestId('library-view-toggle'),
+    notesCenter: page.getByTestId('library-notes-center-toggle')
+  };
+
+  await Promise.all(Object.values(controls).map((locator) => expect(locator).toBeVisible()));
+
+  const heights = await Promise.all(
+    Object.values(controls).map(async (locator) => {
+      const box = await locator.boundingBox();
+      return box?.height || 0;
+    })
+  );
+
+  const searchHeight = heights[0];
+  heights.slice(1).forEach((height) => {
+    expect(Math.abs(height - searchHeight)).toBeLessThanOrEqual(2);
+  });
+});
+
 test('library card shows language and estimated pages metadata', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
