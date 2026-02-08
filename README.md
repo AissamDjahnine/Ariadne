@@ -22,10 +22,11 @@ Smart Reader is built around real reading behavior:
 - Clean cover-based library (grid or list)
 - Smart metadata (author, language, estimated pages, genre when available)
 - Clean inline metadata rows on cards (lightweight language/pages display)
+- Workspace sidebar for fast section switching: `My Library`, `My Collections`, `Notes Center`, `Highlights Center`, `Account`
 - Search, filter, and sort to find the right book fast
 - Custom shelves (collections): create, rename, delete, and color-code your own reading buckets
 - Assign books to one or many shelves directly from each card
-- Filter library view by shelf to focus on one collection at a time
+- Open a shelf in dedicated collection view and return with `Back to Library`
 - Sticky library toolbar (search, filters, sort, view mode always visible while scrolling)
 - Quick filter count chips (`To read`, `In progress`, `Finished`, `Favorites`) with one-click filtering
 - Combine `Status` filtering with quick `Favorites` filtering when needed
@@ -35,6 +36,7 @@ Smart Reader is built around real reading behavior:
 - Notes Center in Library with cross-book note browsing, inline editing, and jump-to-reader
 - Continue Reading rail with progress and session context
 - Trash with restore flow and retention handling
+- Top-right `Dark mode / Light mode` toggle directly in the library header
 
 ### Reader Built for Focus
 
@@ -93,8 +95,7 @@ Open the app at the local Vite URL (usually `http://localhost:5173`).
 
 ## Main App Areas
 
-- `src/pages/Home.jsx` - Library, search, filters, sort, favorites, trash, and global search UI
-- `src/pages/Home.jsx` - Library, search, filters, shelves/collections, favorites, trash, and global search UI
+- `src/pages/Home.jsx` - Library workspace (sidebar sections), shelves/collections, notes center, highlights center, account panel, search/filter/sort, trash, and global search UI
 - `src/pages/Reader.jsx` - Reading experience, contextual tools, highlights, bookmarks, export, and search handoff
 - `src/components/BookView.jsx` - EPUB rendering and navigation engine
 - `src/services/db.js` - Local-first persistence layer
