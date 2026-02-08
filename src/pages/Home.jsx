@@ -867,6 +867,45 @@ export default function Home() {
       normalizeString(entry.note).includes(query)
     );
   });
+  const activeBooksById = new Map(activeBooks.map((book) => [book.id, book]));
+  const buildCenterPairs = (entries, prefix) => {
+    const pairs = [];
+    const pairMap = new Map();
+
+    entries.forEach((entry) => {
+      if (!entry?.bookId) return;
+      const book = activeBooksById.get(entry.bookId);
+      if (!book) return;
+
+      let pair = pairMap.get(entry.bookId);
+      if (!pair) {
+        pair = {
+          bookId: entry.bookId,
+          title: entry.bookTitle || book.title,
+          entries: [],
+          cardItem: {
+            id: `${prefix}-${entry.bookId}`,
+            bookId: entry.bookId,
+            book,
+            cfi: entry.cfiRange || "",
+            query: "",
+            openSearch: false
+          }
+        };
+        pairMap.set(entry.bookId, pair);
+        pairs.push(pair);
+      }
+
+      pair.entries.push(entry);
+      if (!pair.cardItem.cfi && entry.cfiRange) {
+        pair.cardItem.cfi = entry.cfiRange;
+      }
+    });
+
+    return pairs;
+  };
+  const notesCenterPairs = buildCenterPairs(notesCenterFilteredEntries, "notes-book");
+  const highlightsCenterPairs = buildCenterPairs(highlightsCenterFilteredEntries, "highlights-book");
 
   const sortedBooks = [...books]
     .filter((book) => {
@@ -1319,12 +1358,14 @@ export default function Home() {
     const book = item.book;
     if (!book) return null;
     const { coverHeightClass = CONTENT_PANEL_HEIGHT_CLASS } = options;
+    const query = typeof item.query === "string" ? item.query : "";
+    const openSearch = item.openSearch ?? Boolean(query);
     return (
       <Link
         to={buildReaderPath(book.id, "", {
           cfi: item.cfi || "",
-          query: globalSearchQuery,
-          openSearch: true
+          query,
+          openSearch
         })}
         key={`global-card-${book.id}`}
         data-testid="global-search-found-book-card"
@@ -1636,7 +1677,11 @@ export default function Home() {
         {isNotesCenterOpen && !isTrashView && (
           <LibraryNotesCenterPanel
             notesCenterFilteredEntries={notesCenterFilteredEntries}
+            notesCenterPairs={notesCenterPairs}
             searchQuery={searchQuery}
+            contentPanelHeightClass={CONTENT_PANEL_HEIGHT_CLASS}
+            contentScrollHeightClass={CONTENT_SCROLL_HEIGHT_CLASS}
+            renderBookCard={renderGlobalSearchBookCard}
             editingNoteId={editingNoteId}
             noteEditorValue={noteEditorValue}
             isSavingNote={isSavingNote}
@@ -1652,7 +1697,11 @@ export default function Home() {
         {isHighlightsCenterOpen && !isTrashView && (
           <LibraryHighlightsCenterPanel
             highlightsCenterFilteredEntries={highlightsCenterFilteredEntries}
+            highlightsCenterPairs={highlightsCenterPairs}
             searchQuery={searchQuery}
+            contentPanelHeightClass={CONTENT_PANEL_HEIGHT_CLASS}
+            contentScrollHeightClass={CONTENT_SCROLL_HEIGHT_CLASS}
+            renderBookCard={renderGlobalSearchBookCard}
             onClose={handleToggleHighlightsCenter}
             onOpenReader={handleOpenHighlightInReader}
           />
