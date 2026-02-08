@@ -338,13 +338,6 @@ export default function Home() {
     return `/read?${params.toString()}`;
   };
 
-  const handleQuickOpen = (e, id, panel = '') => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleOpenBook(id);
-    navigate(buildReaderPath(id, panel));
-  };
-
   const handleGlobalResultOpen = (e, result) => {
     e.preventDefault();
     e.stopPropagation();
@@ -2160,34 +2153,6 @@ export default function Home() {
                       />
                     </div>
 
-                    {!inTrash && (
-                      <div className="mt-3 grid grid-cols-3 gap-2">
-                        <button
-                          data-testid="quick-action-resume"
-                          onClick={(e) => handleQuickOpen(e, book.id)}
-                          className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                          title="Resume"
-                        >
-                          Resume
-                        </button>
-                        <button
-                          data-testid="quick-action-highlights"
-                          onClick={(e) => handleQuickOpen(e, book.id, 'highlights')}
-                          className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                          title="Open highlights"
-                        >
-                          Highlights
-                        </button>
-                        <button
-                          data-testid="quick-action-bookmarks"
-                          onClick={(e) => handleQuickOpen(e, book.id, 'bookmarks')}
-                          className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                          title="Open bookmarks"
-                        >
-                          Bookmarks
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </Link>
               );
@@ -2261,35 +2226,6 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col gap-2 md:w-44">
-                      {!inTrash && (
-                        <div className="grid grid-cols-3 gap-2">
-                          <button
-                            data-testid="quick-action-resume"
-                            onClick={(e) => handleQuickOpen(e, book.id)}
-                            className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                            title="Resume"
-                          >
-                            Resume
-                          </button>
-                          <button
-                            data-testid="quick-action-highlights"
-                            onClick={(e) => handleQuickOpen(e, book.id, 'highlights')}
-                            className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                            title="Open highlights"
-                          >
-                            Highlights
-                          </button>
-                          <button
-                            data-testid="quick-action-bookmarks"
-                            onClick={(e) => handleQuickOpen(e, book.id, 'bookmarks')}
-                            className="text-[10px] font-bold py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-                            title="Open bookmarks"
-                          >
-                            Bookmarks
-                          </button>
-                        </div>
-                      )}
-
                       <div className="flex items-center gap-2 justify-end">
                         {inTrash ? (
                           <>

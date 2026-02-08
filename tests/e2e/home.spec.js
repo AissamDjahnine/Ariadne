@@ -528,7 +528,7 @@ test('continue reading rail appears for started books and hides in filtered mode
   await expect(page.getByTestId('continue-reading-rail')).toHaveCount(0);
 });
 
-test('quick card actions open reader highlights and bookmarks panels', async ({ page }) => {
+test('library cards remove quick action row and still open reader on click', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
@@ -537,34 +537,27 @@ test('quick card actions open reader highlights and bookmarks panels', async ({ 
   await page.reload();
   const fileInput = page.locator('input[type="file"][accept=".epub"]');
   await fileInput.setInputFiles(fixturePath);
-  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
 
-  await page.getByTestId('quick-action-highlights').first().click();
-  await expect(page).toHaveURL(/panel=highlights/);
-  await expect(page.getByTestId('highlights-panel')).toBeVisible();
+  await expect(page.getByTestId('quick-action-resume')).toHaveCount(0);
+  await expect(page.getByTestId('quick-action-highlights')).toHaveCount(0);
+  await expect(page.getByTestId('quick-action-bookmarks')).toHaveCount(0);
 
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
-
-  await page.getByTestId('quick-action-bookmarks').first().click();
-  await expect(page).toHaveURL(/panel=bookmarks/);
-  await expect(page.getByTestId('bookmarks-panel')).toBeVisible();
-});
-
-test('quick action resume opens reader directly', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    indexedDB.deleteDatabase('SmartReaderLib');
-    localStorage.clear();
-  });
-  await page.reload();
-  const fileInput = page.locator('input[type="file"][accept=".epub"]');
-  await fileInput.setInputFiles(fixturePath);
-  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
-
-  await page.getByTestId('quick-action-resume').first().click();
+  await bookLink.click();
   await expect(page).toHaveURL(/\/read\?id=/);
-  await expect(page).not.toHaveURL(/panel=/);
+  await expect(page.getByRole('button', { name: /Open chapters/i })).toBeVisible();
+
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await page.getByTestId('library-view-list').click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  await expect(page.getByTestId('quick-action-resume')).toHaveCount(0);
+  await expect(page.getByTestId('quick-action-highlights')).toHaveCount(0);
+  await expect(page.getByTestId('quick-action-bookmarks')).toHaveCount(0);
+
+  await page.getByRole('link', { name: /Test Book/i }).first().click();
+  await expect(page).toHaveURL(/\/read\?id=/);
   await expect(page.getByRole('button', { name: /Open chapters/i })).toBeVisible();
 });
 
