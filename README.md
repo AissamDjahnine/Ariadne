@@ -24,6 +24,9 @@ Smart Reader is built around real reading behavior:
   - Overall progress (`current/total` books in the batch)
   - Current file progress (green bar per active file)
 - Duplicate upload guard (single or batch): per-file prompt to ignore, replace (with data loss warning), or keep both with numbered duplicate titles (`Duplicate 1`, `Duplicate 2`, etc.)
+- Bulk upload path optimized for speed:
+  - One library refresh after the full batch (instead of reloading after each file)
+  - In-memory duplicate index while processing each file
 - Yellow success toast after upload and a 10-second halo on newly added book cards
 - Clean cover-based library (grid or list)
 - Smart metadata (author, language, estimated pages, genre when available)
@@ -63,6 +66,9 @@ Smart Reader is built around real reading behavior:
   - Multiple books: optional ZIP export with one folder per book (`PDF` + `JSON`)
   - If a book has no highlights/notes, no backup prompt is shown
 - Top-right `Dark mode / Light mode` toggle directly in the library header
+- Optional performance debug traces for heavy libraries:
+  - Set `localStorage.setItem("library-perf-debug", "1")` to log `load/upload` timings in DevTools
+  - Read session timings from `window.__smartReaderPerfHistory`
 
 ### Reader Built for Focus
 
