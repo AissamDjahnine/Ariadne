@@ -179,6 +179,25 @@ test('collections and assignments persist after reload', async ({ page }) => {
   await expect(page.getByTestId('book-collection-chip').filter({ hasText: 'Persistent Shelf' }).first()).toBeVisible();
 });
 
+test('newly added book shows a temporary yellow halo highlight', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await expect(bookLink).toHaveClass(/ring-amber-400/);
+
+  await page.waitForTimeout(10200);
+  await expect(bookLink).not.toHaveClass(/ring-amber-400/);
+});
+
 test('library toolbar is sticky and reset button clears search status and flag filters', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');

@@ -219,6 +219,7 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState("idle");
   const [showUploadSuccess, setShowUploadSuccess] = useState(false);
+  const [recentlyAddedBookId, setRecentlyAddedBookId] = useState("");
   
   // Search, filter & sort states
   const [searchQuery, setSearchQuery] = useState("");
@@ -259,6 +260,7 @@ export default function Home() {
   const contentSearchTokenRef = useRef(0);
   const uploadTimerRef = useRef(null);
   const uploadSuccessTimerRef = useRef(null);
+  const recentHighlightTimerRef = useRef(null);
 
   useEffect(() => { loadLibrary(); }, []);
   useEffect(() => {
@@ -350,6 +352,9 @@ export default function Home() {
       }
       if (uploadSuccessTimerRef.current) {
         clearTimeout(uploadSuccessTimerRef.current);
+      }
+      if (recentHighlightTimerRef.current) {
+        clearTimeout(recentHighlightTimerRef.current);
       }
     };
   }, []);
@@ -674,12 +679,21 @@ export default function Home() {
       setIsUploading(true);
       startUploadProgress();
       try {
-        await addBook(file);
+        const newBook = await addBook(file);
         await loadLibrary();
         stopUploadProgress();
         setUploadProgress(100);
         setUploadStage("done");
         setShowUploadSuccess(true);
+        if (newBook?.id) {
+          setRecentlyAddedBookId(newBook.id);
+          if (recentHighlightTimerRef.current) {
+            clearTimeout(recentHighlightTimerRef.current);
+          }
+          recentHighlightTimerRef.current = setTimeout(() => {
+            setRecentlyAddedBookId("");
+          }, 10000);
+        }
         if (uploadSuccessTimerRef.current) {
           clearTimeout(uploadSuccessTimerRef.current);
         }
@@ -1846,6 +1860,7 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500" data-testid="library-books-grid">
             {sortedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
+              const isRecent = book.id === recentlyAddedBookId;
               return (
                 <Link 
                   to={inTrash ? "#" : buildReaderPath(book.id)} 
@@ -1857,7 +1872,9 @@ export default function Home() {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 flex flex-col relative"
+                  className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 flex flex-col relative ${
+                    isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
+                  }`}
                 >
                   <div className="aspect-[3/4] bg-gray-200 overflow-hidden relative">
                     {book.cover ? (
@@ -2043,6 +2060,7 @@ export default function Home() {
           <div className="space-y-4 animate-in fade-in duration-500" data-testid="library-books-list">
             {sortedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
+              const isRecent = book.id === recentlyAddedBookId;
               return (
                 <Link
                   to={inTrash ? "#" : buildReaderPath(book.id)}
@@ -2054,7 +2072,9 @@ export default function Home() {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className="group bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100 flex"
+                  className={`group bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100 flex ${
+                    isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
+                  }`}
                 >
                   <div className="w-24 sm:w-28 md:w-32 bg-gray-200 overflow-hidden relative shrink-0">
                     {book.cover ? (
