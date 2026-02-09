@@ -32,8 +32,14 @@ Smart Reader is built around real reading behavior:
 - Search, filter, and sort to find the right book fast
 - Custom shelves (collections): create, rename, delete, and color-code your own reading buckets
 - Assign books to one or many shelves directly from each card
-- Dedicated `My Collections` board page with Jira-style shelf columns
-- Each collection column shows its own books and supports quick remove from shelf
+- Dedicated `My Collections` workspace with scalable default layout:
+  - `Directory + Detail` view (left collections list, right selected collection books)
+  - Built-in collection search for fast switching at scale (`10+` collections)
+  - Add books directly from collection view with in-context modal picker
+- Optional `Board` toggle for overview mode:
+  - Fixed responsive columns (`4` desktop, `2` tablet, `1` mobile)
+  - Balanced auto-placement by collection size for cleaner scanning
+  - Quick “View all books” jump back into Directory detail mode
 - Sticky library toolbar (search, filters, sort, view mode always visible while scrolling)
 - Quick filter count chips (`To read`, `In progress`, `Finished`, `Favorites`) with one-click filtering
 - Combine `Status` filtering with quick `Favorites` filtering when needed
@@ -115,7 +121,7 @@ Open the app at the local Vite URL (usually `http://localhost:5173`).
 - `src/pages/Home.jsx` - Library page orchestrator (state, data loading, feature composition)
 - `src/pages/library/LibraryWorkspaceNav.jsx` - Sidebar and mobile workspace navigation
 - `src/pages/library/LibraryToolbarSection.jsx` - Library search/filter/sort toolbar + active chips + view toggle
-- `src/pages/library/LibraryCollectionsBoard.jsx` - Dedicated collections board with column-based shelf layout
+- `src/pages/library/LibraryCollectionsBoard.jsx` - Collections workspace (`Directory + Detail` default, optional balanced board toggle, add-books modal)
 - `src/pages/library/LibraryNotesCenterPanel.jsx` - Notes Center panel
 - `src/pages/library/LibraryHighlightsCenterPanel.jsx` - Highlights Center panel
 - `src/pages/library/LibraryGlobalSearchPanel.jsx` - Global search result panel
