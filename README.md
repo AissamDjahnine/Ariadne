@@ -20,6 +20,7 @@ Smart Reader is built around real reading behavior:
 
 - Upload EPUB books in seconds
 - Upload feedback: loading popup with a green progress bar, yellow “Book loaded and added” toast, and a 10-second halo on the new book card
+- Duplicate upload guard: prompt to ignore, replace (with data loss warning), or keep both with a numbered duplicate title
 - Clean cover-based library (grid or list)
 - Smart metadata (author, language, estimated pages, genre when available)
 - Clean inline metadata rows on cards (lightweight language/pages display)
