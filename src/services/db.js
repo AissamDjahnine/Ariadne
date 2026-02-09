@@ -180,6 +180,7 @@ export const addBook = async (file, options = {}) => {
     metadataVersion: BOOK_METADATA_VERSION,
     publisher: metadata.publisher || "Unknown Publisher",
     pubDate: metadata.pubdate || "",
+    epubMetadata: metadata || {},
     cover: finalCover,
     data: file,
     progress: 0,
@@ -285,6 +286,7 @@ export const backfillBookMetadata = async (id) => {
         language,
         estimatedPages: nextPages,
         genre: nextGenre,
+        epubMetadata: metadata || book.epubMetadata || {},
         metadataVersion: BOOK_METADATA_VERSION
       };
     } catch (err) {

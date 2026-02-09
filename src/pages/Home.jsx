@@ -37,6 +37,8 @@ import {
   Sun,
   Languages,
   FolderClosed,
+  Info,
+  X,
 } from 'lucide-react';
 import LibraryAccountSection from './library/LibraryAccountSection';
 import { LibraryWorkspaceSidebar, LibraryWorkspaceMobileNav } from './library/LibraryWorkspaceNav';
@@ -117,6 +119,77 @@ const formatGenreLabel = (value) => {
 };
 
 const compactWhitespace = (value) => (value || "").toString().replace(/\s+/g, " ").trim();
+const EXCLUDED_METADATA_KEYS = new Set(["modified", "identifier"]);
+const PRIORITIZED_METADATA_KEYS = ["title", "creator", "author", "language"];
+
+const getMetadataSortRank = (key) => {
+  const normalized = String(key || "").trim().toLowerCase();
+  const index = PRIORITIZED_METADATA_KEYS.indexOf(normalized);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+};
+
+const sortMetadataKeys = (a, b) => {
+  const rankA = getMetadataSortRank(a);
+  const rankB = getMetadataSortRank(b);
+  if (rankA !== rankB) return rankA - rankB;
+  return String(a || "").localeCompare(String(b || ""), undefined, { sensitivity: "base" });
+};
+
+const safeStringify = (value) => {
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized : String(value);
+  } catch (err) {
+    console.error(err);
+    return "[unsupported value]";
+  }
+};
+
+const formatMetadataValue = (rawValue, key = "") => {
+  const normalizedKey = String(key || "").trim().toLowerCase();
+  if (EXCLUDED_METADATA_KEYS.has(normalizedKey)) return "";
+
+  if (rawValue == null) return "";
+
+  const formatLanguageMetadata = (input) => {
+    if (input == null) return "";
+    if (Array.isArray(input)) {
+      return input
+        .map((item) => formatLanguageMetadata(item))
+        .filter(Boolean)
+        .join(", ");
+    }
+    if (typeof input !== "string") return "";
+    const parts = input
+      .split(/[,;|]/)
+      .map((part) => compactWhitespace(part))
+      .filter(Boolean);
+    if (!parts.length) return "";
+    const mapped = parts.map((part) => formatLanguageLabel(part) || part);
+    return compactWhitespace(mapped.join(", "));
+  };
+
+  if (normalizedKey === "language") {
+    return formatLanguageMetadata(rawValue);
+  }
+
+  if (Array.isArray(rawValue)) {
+    const joined = rawValue
+      .map((item) => {
+        if (item == null) return "";
+        if (typeof item === "string") return compactWhitespace(item);
+        if (typeof item === "number" || typeof item === "boolean") return String(item);
+        return safeStringify(item);
+      })
+      .filter(Boolean)
+      .join(", ");
+    return compactWhitespace(joined);
+  }
+  if (typeof rawValue === "string") return compactWhitespace(rawValue);
+  if (typeof rawValue === "number" || typeof rawValue === "boolean") return String(rawValue);
+  if (typeof rawValue === "object") return compactWhitespace(safeStringify(rawValue));
+  return compactWhitespace(String(rawValue));
+};
 
 const buildSnippet = (value, query) => {
   const source = compactWhitespace(value);
@@ -256,6 +329,7 @@ export default function Home() {
   const [editingCollectionName, setEditingCollectionName] = useState("");
   const [collectionError, setCollectionError] = useState("");
   const [collectionPickerBookId, setCollectionPickerBookId] = useState("");
+  const [infoPopover, setInfoPopover] = useState(null);
   const [showCreateCollectionForm, setShowCreateCollectionForm] = useState(false);
   const [contentSearchMatches, setContentSearchMatches] = useState({});
   const [isContentSearching, setIsContentSearching] = useState(false);
@@ -263,6 +337,40 @@ export default function Home() {
   const uploadTimerRef = useRef(null);
   const uploadSuccessTimerRef = useRef(null);
   const recentHighlightTimerRef = useRef(null);
+  const infoPopoverCloseTimerRef = useRef(null);
+  const infoPopoverRef = useRef(null);
+
+  const openInfoPopover = (book, rect, pinned = false) => {
+    if (!book || !rect) return;
+    if (infoPopoverCloseTimerRef.current) {
+      clearTimeout(infoPopoverCloseTimerRef.current);
+      infoPopoverCloseTimerRef.current = null;
+    }
+    const safeRect = {
+      left: Number.isFinite(rect.left) ? rect.left : 0,
+      right: Number.isFinite(rect.right) ? rect.right : 0,
+      top: Number.isFinite(rect.top) ? rect.top : 0,
+      bottom: Number.isFinite(rect.bottom) ? rect.bottom : 0,
+      width: Number.isFinite(rect.width) ? rect.width : 0,
+      height: Number.isFinite(rect.height) ? rect.height : 0
+    };
+    setInfoPopover({ book, rect: safeRect, pinned });
+  };
+
+  const scheduleInfoPopoverClose = () => {
+    if (infoPopover?.pinned) return;
+    if (infoPopoverCloseTimerRef.current) clearTimeout(infoPopoverCloseTimerRef.current);
+    infoPopoverCloseTimerRef.current = setTimeout(() => {
+      setInfoPopover(null);
+    }, 140);
+  };
+
+  const cancelInfoPopoverClose = () => {
+    if (infoPopoverCloseTimerRef.current) {
+      clearTimeout(infoPopoverCloseTimerRef.current);
+      infoPopoverCloseTimerRef.current = null;
+    }
+  };
 
   useEffect(() => { loadLibrary(); }, []);
   useEffect(() => {
@@ -277,6 +385,17 @@ export default function Home() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LIBRARY_LANGUAGE_KEY, libraryLanguage);
   }, [libraryLanguage]);
+
+  useEffect(() => {
+    if (!infoPopover) return;
+    const handleMouseDown = (event) => {
+      if (!infoPopoverRef.current) return;
+      if (infoPopoverRef.current.contains(event.target)) return;
+      setInfoPopover(null);
+    };
+    window.addEventListener("mousedown", handleMouseDown);
+    return () => window.removeEventListener("mousedown", handleMouseDown);
+  }, [infoPopover]);
 
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -2003,6 +2122,31 @@ export default function Home() {
                           >
                             <Heart size={16} fill={book.isFavorite ? "currentColor" : "none"} />
                           </button>
+                          <button
+                            type="button"
+                            data-testid="book-info"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              if (infoPopover?.book?.id === book.id && infoPopover?.pinned) {
+                                setInfoPopover(null);
+                                return;
+                              }
+                              openInfoPopover(book, rect, true);
+                            }}
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              openInfoPopover(book, rect, false);
+                            }}
+                            onMouseLeave={() => {
+                              scheduleInfoPopoverClose();
+                            }}
+                            className="p-2 bg-white text-gray-400 hover:text-blue-600 rounded-xl shadow-md transition-transform active:scale-95"
+                            title="Book info"
+                          >
+                            <Info size={16} />
+                          </button>
                         </>
                       )}
                     </div>
@@ -2244,6 +2388,31 @@ export default function Home() {
                             >
                               <Trash2 size={16} />
                             </button>
+                            <button
+                              type="button"
+                              data-testid="book-info"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                if (infoPopover?.book?.id === book.id && infoPopover?.pinned) {
+                                  setInfoPopover(null);
+                                  return;
+                                }
+                                openInfoPopover(book, rect, true);
+                              }}
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                openInfoPopover(book, rect, false);
+                              }}
+                              onMouseLeave={() => {
+                                scheduleInfoPopoverClose();
+                              }}
+                              className="p-2 bg-white border border-gray-200 text-gray-400 hover:text-blue-600 rounded-xl shadow-sm transition-transform active:scale-95"
+                              title="Book info"
+                            >
+                              <Info size={16} />
+                            </button>
                           </>
                         )}
                       </div>
@@ -2325,7 +2494,10 @@ export default function Home() {
           <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
         </label>
         {uploadStage === "reading" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div
+            data-testid="upload-progress-modal"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+          >
             <div
               className={`w-[360px] rounded-3xl border p-5 shadow-2xl ${
                 isDarkLibraryTheme ? "border-slate-700 bg-slate-900 text-slate-100" : "border-gray-200 bg-white text-gray-900"
@@ -2349,7 +2521,10 @@ export default function Home() {
         )}
         {showUploadSuccess && (
           <div className="fixed bottom-24 right-6 z-50">
-            <div className="rounded-full border border-amber-300 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50/40 backdrop-blur-sm shadow-sm">
+            <div
+              data-testid="upload-success-toast"
+              className="rounded-full border border-amber-300 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50/40 backdrop-blur-sm shadow-sm"
+            >
               Book loaded and added
             </div>
           </div>
@@ -2414,6 +2589,117 @@ export default function Home() {
             </div>
           </div>
         )}
+        {infoPopover && (() => {
+          const { book, rect } = infoPopover;
+          if (!book || !rect) return null;
+          const metadata = (book.epubMetadata && typeof book.epubMetadata === "object") ? book.epubMetadata : {};
+          const sortedKeys = Object.keys(metadata).sort(sortMetadataKeys);
+          const metadataEntries = sortedKeys
+            .map((key) => ({
+              key,
+              value: formatMetadataValue(metadata[key], key)
+            }))
+            .filter((item) => item.value);
+          const popoverLayout = (() => {
+            const width = 320;
+            if (typeof window === "undefined") {
+              return { left: 0, top: 0, width, maxHeight: 420 };
+            }
+            const maxHeight = Math.min(420, window.innerHeight - 24);
+            let left = Math.min(rect.left, window.innerWidth - width - 16);
+            left = Math.max(16, left);
+            let top = rect.bottom + 10;
+            if (top + maxHeight > window.innerHeight - 16) {
+              top = Math.max(16, rect.top - maxHeight - 10);
+            }
+            return { left, top, width, maxHeight };
+          })();
+          return (
+            <div
+              ref={infoPopoverRef}
+              data-testid="book-info-popover"
+              className="fixed z-[70] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden"
+              style={{
+                left: popoverLayout.left,
+                top: popoverLayout.top,
+                width: popoverLayout.width,
+                maxHeight: popoverLayout.maxHeight
+              }}
+              onMouseEnter={() => cancelInfoPopoverClose()}
+              onMouseLeave={() => scheduleInfoPopoverClose()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Book info</div>
+                  <div className="text-[11px] text-gray-500">EPUB metadata</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInfoPopover(null)}
+                  className="p-1.5 rounded-full text-gray-500 hover:bg-gray-100"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+                <div className="flex gap-3">
+                  <div className="w-16 h-24 rounded-lg overflow-hidden border border-gray-100 bg-gray-100 flex-shrink-0">
+                    {book.cover ? (
+                      <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-300">
+                        <BookIcon size={18} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-gray-900 truncate">{book.title}</div>
+                    <div className="text-xs text-gray-500 truncate">{book.author}</div>
+                    <div className="mt-2 text-[11px] text-gray-600">
+                      {book.language ? `Language: ${formatLanguageLabel(book.language)}` : "Language: n/a"}
+                    </div>
+                    <div className="text-[11px] text-gray-600">
+                      {book.estimatedPages ? `${book.estimatedPages} pages` : "Pages: n/a"}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {metadataEntries.length === 0 ? (
+                    <div className="text-xs text-gray-500">No extra metadata found.</div>
+                  ) : (
+                    metadataEntries.map((item) => (
+                      <div
+                        key={item.key}
+                        data-testid="book-info-metadata-item"
+                        className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                      >
+                        <div data-testid="book-info-metadata-key" className="text-[10px] uppercase tracking-widest text-gray-400">
+                          {item.key}
+                        </div>
+                        <div data-testid="book-info-metadata-value" className="text-xs text-gray-800 break-words">
+                          {item.value || "—"}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="border-t border-gray-100 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleOpenBook(book.id);
+                    navigate(buildReaderPath(book.id));
+                    setInfoPopover(null);
+                  }}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Open in Reader
+                </button>
+              </div>
+            </div>
+          );
+        })()}
         </>
         )}
       </div>

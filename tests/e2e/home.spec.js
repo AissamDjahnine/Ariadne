@@ -218,6 +218,42 @@ test('duplicate book upload prompts and keep both creates a second copy', async 
   await expect(page.getByRole('link', { name: /Test Book/i })).toHaveCount(2);
 });
 
+test('book info popover shows epub metadata', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('library-view-list').click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  await page.getByTestId('book-info').first().click({ force: true });
+
+  const popover = page.getByTestId('book-info-popover');
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText('Book info')).toBeVisible();
+  await expect(popover.getByText('EPUB metadata')).toBeVisible();
+
+  const keys = await popover.getByTestId('book-info-metadata-key').allTextContents();
+  const normalized = keys.map((text) => text.trim().toLowerCase()).filter(Boolean);
+
+  expect(normalized[0]).toBe('title');
+  if (normalized.length > 1) {
+    expect(['creator', 'author']).toContain(normalized[1]);
+  }
+  if (normalized.length > 2) {
+    expect(normalized[2]).toBe('language');
+  }
+
+  await expect(popover.getByText('identifier', { exact: true })).toHaveCount(0);
+  await expect(popover.getByText('modified', { exact: true })).toHaveCount(0);
+  await expect(popover.getByText('Language: English')).toHaveCount(1);
+});
+
 test('library toolbar is sticky and reset button clears search status and flag filters', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
