@@ -325,6 +325,11 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState("idle");
   const [showUploadSuccess, setShowUploadSuccess] = useState(false);
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState("Book loaded and added");
+  const [uploadBatchTotal, setUploadBatchTotal] = useState(0);
+  const [uploadBatchCompleted, setUploadBatchCompleted] = useState(0);
+  const [uploadBatchCurrentIndex, setUploadBatchCurrentIndex] = useState(0);
+  const [uploadBatchCurrentName, setUploadBatchCurrentName] = useState("");
   const [recentlyAddedBookId, setRecentlyAddedBookId] = useState("");
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
   
@@ -373,6 +378,7 @@ export default function Home() {
   const recentHighlightTimerRef = useRef(null);
   const infoPopoverCloseTimerRef = useRef(null);
   const infoPopoverRef = useRef(null);
+  const duplicateDecisionResolverRef = useRef(null);
 
   const openInfoPopover = (book, rect, pinned = false) => {
     if (!book || !rect) return;
@@ -430,6 +436,15 @@ export default function Home() {
     window.addEventListener("mousedown", handleMouseDown);
     return () => window.removeEventListener("mousedown", handleMouseDown);
   }, [infoPopover]);
+
+  useEffect(() => {
+    return () => {
+      if (duplicateDecisionResolverRef.current) {
+        duplicateDecisionResolverRef.current("ignore");
+        duplicateDecisionResolverRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1050,18 +1065,18 @@ export default function Home() {
 
   const normalizeDuplicateValue = (value) => (value || "").toString().trim().toLowerCase();
 
-  const findDuplicateBooks = (title, author) => {
+  const findDuplicateBooks = (title, author, sourceBooks = books) => {
     const normTitle = normalizeDuplicateValue(title);
     const normAuthor = normalizeDuplicateValue(author);
-    return books.filter((book) => {
+    return sourceBooks.filter((book) => {
       if (book.isDeleted) return false;
       return normalizeDuplicateValue(book.title) === normTitle && normalizeDuplicateValue(book.author) === normAuthor;
     });
   };
 
-  const buildDuplicateTitle = (baseTitle) => {
+  const buildDuplicateTitle = (baseTitle, sourceBooks = books) => {
     const existingTitles = new Set(
-      books
+      sourceBooks
         .filter((book) => !book.isDeleted)
         .map((book) => normalizeDuplicateValue(book.title))
     );
@@ -1075,70 +1090,142 @@ export default function Home() {
   };
 
   const completeAddBook = async (file, preparedMetadata, options = {}) => {
-    setIsUploading(true);
-    startUploadProgress();
-    try {
-      const newBook = await addBook(file, {
-        preparedMetadata,
-        titleOverride: options.titleOverride
-      });
-      await loadLibrary();
-      stopUploadProgress();
-      setUploadProgress(100);
-      setUploadStage("done");
-      setShowUploadSuccess(true);
-      if (newBook?.id) {
-        setRecentlyAddedBookId(newBook.id);
-        if (recentHighlightTimerRef.current) {
-          clearTimeout(recentHighlightTimerRef.current);
-        }
-        recentHighlightTimerRef.current = setTimeout(() => {
-          setRecentlyAddedBookId("");
-        }, 10000);
+    const newBook = await addBook(file, {
+      preparedMetadata,
+      titleOverride: options.titleOverride
+    });
+    await loadLibrary();
+    setUploadProgress(100);
+    if (newBook?.id) {
+      setRecentlyAddedBookId(newBook.id);
+      if (recentHighlightTimerRef.current) {
+        clearTimeout(recentHighlightTimerRef.current);
       }
-      if (uploadSuccessTimerRef.current) {
-        clearTimeout(uploadSuccessTimerRef.current);
-      }
-      uploadSuccessTimerRef.current = setTimeout(() => {
-        setShowUploadSuccess(false);
-        setUploadStage("idle");
-        setUploadProgress(0);
-      }, 2800);
-    } catch (err) {
-      console.error(err);
-      stopUploadProgress();
-      setUploadStage("idle");
-      setUploadProgress(0);
-    } finally {
-      setIsUploading(false);
+      recentHighlightTimerRef.current = setTimeout(() => {
+        setRecentlyAddedBookId("");
+      }, 10000);
     }
+    return newBook;
+  };
+
+  const requestDuplicateDecision = (payload) => {
+    return new Promise((resolve) => {
+      duplicateDecisionResolverRef.current = resolve;
+      setDuplicatePrompt(payload);
+    });
+  };
+
+  const resolveDuplicateDecision = (decision) => {
+    const resolver = duplicateDecisionResolverRef.current;
+    duplicateDecisionResolverRef.current = null;
+    setDuplicatePrompt(null);
+    if (resolver) resolver(decision);
+  };
+
+  const isEpubFile = (file) => {
+    if (!file) return false;
+    if (file.type === "application/epub+zip") return true;
+    return /\.epub$/i.test(file.name || "");
   };
 
   const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (file && file.type === "application/epub+zip") {
-      try {
-        const prepared = await readEpubMetadata(file);
-        const title = prepared?.metadata?.title || file.name.replace('.epub', '');
-        const author = prepared?.metadata?.creator || "Unknown Author";
-        const duplicates = findDuplicateBooks(title, author);
-        if (duplicates.length > 0) {
-          setDuplicatePrompt({
+    const input = event.target;
+    const files = Array.from(input.files || []).filter(isEpubFile);
+    if (!files.length) {
+      input.value = "";
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setShowUploadSuccess(false);
+      setUploadStage("reading");
+      setUploadBatchTotal(files.length);
+      setUploadBatchCompleted(0);
+      setUploadBatchCurrentIndex(0);
+      setUploadBatchCurrentName("");
+      setUploadProgress(0);
+
+      let addedCount = 0;
+      let knownBooks = await getAllBooks();
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        setUploadBatchCurrentIndex(index + 1);
+        setUploadBatchCurrentName(file.name || `Book ${index + 1}`);
+        startUploadProgress();
+
+        try {
+          const prepared = await readEpubMetadata(file);
+          const title = prepared?.metadata?.title || file.name.replace(/\.epub$/i, "");
+          const author = prepared?.metadata?.creator || "Unknown Author";
+          const duplicates = findDuplicateBooks(title, author, knownBooks);
+
+          if (duplicates.length === 0) {
+            await completeAddBook(file, prepared);
+            addedCount += 1;
+            knownBooks = await getAllBooks();
+            continue;
+          }
+
+          stopUploadProgress();
+          setUploadProgress(100);
+          const decision = await requestDuplicateDecision({
             file,
             preparedMetadata: prepared,
             title,
             author,
             duplicates
           });
-          event.target.value = "";
-          return;
+
+          if (decision === "ignore") {
+            continue;
+          }
+
+          if (decision === "replace") {
+            await Promise.all(duplicates.map((book) => deleteBook(book.id)));
+            await completeAddBook(file, prepared);
+            addedCount += 1;
+            knownBooks = await getAllBooks();
+            continue;
+          }
+
+          if (decision === "keep-both") {
+            const duplicateTitle = buildDuplicateTitle(title, knownBooks);
+            await completeAddBook(file, prepared, { titleOverride: duplicateTitle });
+            addedCount += 1;
+            knownBooks = await getAllBooks();
+          }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          stopUploadProgress();
+          setUploadProgress(100);
+          setUploadBatchCompleted(index + 1);
         }
-        await completeAddBook(file, prepared);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        event.target.value = "";
       }
+
+      setUploadStage("idle");
+      setUploadProgress(0);
+      setUploadBatchCurrentName("");
+      setUploadBatchCurrentIndex(0);
+      setUploadBatchTotal(0);
+      setUploadBatchCompleted(0);
+
+      if (addedCount > 0) {
+        setUploadSuccessMessage(
+          addedCount === 1 ? "Book loaded and added" : `${addedCount} books loaded and added`
+        );
+        setShowUploadSuccess(true);
+        if (uploadSuccessTimerRef.current) {
+          clearTimeout(uploadSuccessTimerRef.current);
+        }
+        uploadSuccessTimerRef.current = setTimeout(() => {
+          setShowUploadSuccess(false);
+        }, 2800);
+      }
+    } finally {
+      setIsUploading(false);
+      input.value = "";
     }
   };
 
@@ -2935,7 +3022,7 @@ export default function Home() {
             aria-label={isUploading ? 'Adding book...' : 'Add Book'}
           >
             <Plus size={28} />
-            <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
+            <input type="file" accept=".epub" multiple className="hidden" onChange={handleFileUpload} />
           </label>
         )}
         {uploadStage === "reading" && (
@@ -2948,18 +3035,43 @@ export default function Home() {
                 isDarkLibraryTheme ? "border-slate-700 bg-slate-900 text-slate-100" : "border-gray-200 bg-white text-gray-900"
               }`}
             >
-              <div className="text-sm font-bold">Adding book...</div>
-              <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                Reading and importing EPUB
+              <div className="text-sm font-bold">Adding books...</div>
+              <p
+                data-testid="upload-progress-overall-label"
+                className={`mt-1 text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}
+              >
+                Overall: {Math.max(uploadBatchCurrentIndex, uploadBatchCompleted, 1)}/{Math.max(uploadBatchTotal, 1)}
               </p>
-              <div className="mt-4 h-2 rounded-full bg-gray-200/70 overflow-hidden">
+              <div className="mt-2 h-2 rounded-full bg-gray-200/70 overflow-hidden">
                 <div
+                  data-testid="upload-progress-overall-bar"
+                  className="h-full bg-blue-600 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round(
+                        ((uploadBatchCompleted + uploadProgress / 100) / Math.max(uploadBatchTotal, 1)) * 100
+                      )
+                    )}%`
+                  }}
+                />
+              </div>
+
+              <p
+                data-testid="upload-progress-current-label"
+                className={`mt-3 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}
+              >
+                Current file: {uploadBatchCurrentName || "Preparing..."}
+              </p>
+              <div className="mt-2 h-2 rounded-full bg-gray-200/70 overflow-hidden">
+                <div
+                  data-testid="upload-progress-current-bar"
                   className="h-full bg-emerald-500 transition-all duration-300"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
               <div className={`mt-2 text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
-                {uploadProgress}%
+                {uploadProgress}% for current file
               </div>
             </div>
           </div>
@@ -2970,15 +3082,15 @@ export default function Home() {
               data-testid="upload-success-toast"
               className="rounded-full border border-amber-300 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50/40 backdrop-blur-sm shadow-sm"
             >
-              Book loaded and added
+              {uploadSuccessMessage}
             </div>
           </div>
         )}
         {duplicatePrompt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div
               className="absolute inset-0 bg-black/30"
-              onClick={() => setDuplicatePrompt(null)}
+              onClick={() => resolveDuplicateDecision("ignore")}
             />
             <div className="relative w-full max-w-lg rounded-3xl border border-gray-200 bg-white p-5 shadow-2xl">
               <h3 className="text-lg font-bold text-gray-900">Duplicate book detected</h3>
@@ -2999,7 +3111,7 @@ export default function Home() {
                 <button
                   type="button"
                   data-testid="duplicate-ignore"
-                  onClick={() => setDuplicatePrompt(null)}
+                  onClick={() => resolveDuplicateDecision("ignore")}
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 hover:border-gray-300"
                 >
                   Ignore
@@ -3007,12 +3119,7 @@ export default function Home() {
                 <button
                   type="button"
                   data-testid="duplicate-replace"
-                  onClick={async () => {
-                    const prompt = duplicatePrompt;
-                    setDuplicatePrompt(null);
-                    await Promise.all(prompt.duplicates.map((book) => deleteBook(book.id)));
-                    await completeAddBook(prompt.file, prompt.preparedMetadata);
-                  }}
+                  onClick={() => resolveDuplicateDecision("replace")}
                   className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
                 >
                   Replace
@@ -3020,12 +3127,7 @@ export default function Home() {
                 <button
                   type="button"
                   data-testid="duplicate-keep-both"
-                  onClick={async () => {
-                    const prompt = duplicatePrompt;
-                    setDuplicatePrompt(null);
-                    const duplicateTitle = buildDuplicateTitle(prompt.title);
-                    await completeAddBook(prompt.file, prompt.preparedMetadata, { titleOverride: duplicateTitle });
-                  }}
+                  onClick={() => resolveDuplicateDecision("keep-both")}
                   className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                 >
                   Keep Both

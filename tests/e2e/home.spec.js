@@ -248,6 +248,30 @@ test('duplicate book upload prompts and keep both creates a second copy', async 
   await expect(page.getByRole('link', { name: /Test Book/i })).toHaveCount(2);
 });
 
+test('bulk upload applies duplicate rules per file and increments duplicate suffix', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await fileInput.setInputFiles([fixturePath, fixturePath, fixturePath]);
+
+  for (const duplicateIndex of [1, 2, 3]) {
+    const duplicateModalTitle = page.getByText('Duplicate book detected');
+    await expect(duplicateModalTitle).toBeVisible({ timeout: 20000 });
+    await page.getByTestId('duplicate-keep-both').click();
+    await expect(page.getByRole('link', { name: new RegExp(`Test Book \\(Duplicate ${duplicateIndex}\\)`, 'i') }).first()).toBeVisible({ timeout: 20000 });
+  }
+
+  await expect(page.getByRole('link', { name: /Test Book/i })).toHaveCount(4);
+});
+
 test('book info popover shows epub metadata', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
