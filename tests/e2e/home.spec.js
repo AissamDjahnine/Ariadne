@@ -284,8 +284,9 @@ test('book info popover shows epub metadata', async ({ page }) => {
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 
   await page.getByTestId('library-view-list').click();
-  await expect(page.getByTestId('library-books-list')).toBeVisible();
-  await page.getByTestId('book-info').first().click({ force: true });
+  const listContainer = page.getByTestId('library-books-list');
+  await expect(listContainer).toBeVisible();
+  await listContainer.getByTestId('book-info').first().click({ force: true });
 
   const popover = page.getByTestId('book-info-popover');
   await expect(popover).toBeVisible();
@@ -306,6 +307,138 @@ test('book info popover shows epub metadata', async ({ page }) => {
   await expect(popover.getByText('identifier', { exact: true })).toHaveCount(0);
   await expect(popover.getByText('modified', { exact: true })).toHaveCount(0);
   await expect(popover.getByText('Language: English')).toHaveCount(1);
+});
+
+test('book info popover hover opens metadata without navigating away', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('library-view-list').click();
+  const listContainer = page.getByTestId('library-books-list');
+  await expect(listContainer).toBeVisible();
+
+  const infoButton = listContainer.getByTestId('book-info').first();
+  await infoButton.hover();
+
+  const popover = page.getByTestId('book-info-popover');
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText('Book info')).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('heading', { name: 'My Library' })).toBeVisible();
+});
+
+test('book info hover works from grid cards without triggering navigation', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const firstCard = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(firstCard).toBeVisible();
+
+  await firstCard.hover();
+  const infoButton = firstCard.getByTestId('book-info');
+  await expect(infoButton).toBeVisible();
+  await infoButton.hover();
+
+  const popover = page.getByTestId('book-info-popover');
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText('Book info')).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+});
+
+test('book info popover sanitizes html metadata values to plain text', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const patched = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs')
+          ? 'keyvaluepairs'
+          : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didPatch = false;
+
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+
+          const row = cursor.value;
+          const bookLike = row?.value && typeof row.value === 'object' ? row.value : row;
+          if (bookLike && typeof bookLike === 'object' && bookLike.title === 'Test Book') {
+            if (row?.value && typeof row.value === 'object') {
+              row.value.epubMetadata = {
+                ...(row.value.epubMetadata || {}),
+                description: '<div><p><strong>THE SUNDAY TIMES</strong><br>&amp; immersive at times</p></div>'
+              };
+              cursor.update(row);
+            } else {
+              row.epubMetadata = {
+                ...(row.epubMetadata || {}),
+                description: '<div><p><strong>THE SUNDAY TIMES</strong><br>&amp; immersive at times</p></div>'
+              };
+              cursor.update(row);
+            }
+            didPatch = true;
+          }
+          cursor.continue();
+        };
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didPatch);
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  });
+  expect(patched).toBeTruthy();
+
+  await page.getByTestId('library-view-list').click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  const listRow = page.getByRole('link', { name: /Test Book/i }).first();
+  await listRow.getByTitle('Favorite').click({ force: true });
+  await expect(page.getByTestId('library-quick-filter-favorites')).toContainText('1');
+  await listRow.getByTitle('Favorite').click({ force: true });
+  await expect(page.getByTestId('library-quick-filter-favorites')).toContainText('0');
+  await listRow.getByTestId('book-info').click({ force: true });
+
+  const popover = page.getByTestId('book-info-popover');
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText('THE SUNDAY TIMES')).toBeVisible();
+  await expect(popover.getByText('& immersive at times')).toBeVisible();
+  await expect(popover.getByText('<div>')).toHaveCount(0);
+  await expect(popover.getByText('<strong>')).toHaveCount(0);
 });
 
 test('library toolbar is sticky and reset button clears search status and flag filters', async ({ page }) => {

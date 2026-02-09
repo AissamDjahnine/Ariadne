@@ -126,6 +126,26 @@ const compactWhitespace = (value) => (value || "").toString().replace(/\s+/g, " 
 const EXCLUDED_METADATA_KEYS = new Set(["modified", "identifier"]);
 const PRIORITIZED_METADATA_KEYS = ["title", "creator", "author", "language"];
 
+const decodeHtmlEntities = (value) => {
+  if (typeof value !== "string") return value;
+  if (typeof document === "undefined") return value;
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const sanitizeMetadataText = (value) => {
+  if (typeof value !== "string") return value;
+  let normalized = value;
+  normalized = normalized.replace(/<\s*\/\s*/g, "</");
+  normalized = normalized.replace(/<\s*br\s*\/?\s*>/gi, " ");
+  normalized = normalized.replace(/<\s*\/\s*(p|div|li|h[1-6]|tr|section|article)\s*>/gi, " ");
+  normalized = normalized.replace(/<[^>]*>/g, " ");
+  normalized = decodeHtmlEntities(normalized);
+  normalized = normalized.replace(/\u00a0/g, " ");
+  return compactWhitespace(normalized);
+};
+
 const getMetadataSortRank = (key) => {
   const normalized = String(key || "").trim().toLowerCase();
   const index = PRIORITIZED_METADATA_KEYS.indexOf(normalized);
@@ -181,7 +201,7 @@ const formatMetadataValue = (rawValue, key = "") => {
     const joined = rawValue
       .map((item) => {
         if (item == null) return "";
-        if (typeof item === "string") return compactWhitespace(item);
+        if (typeof item === "string") return sanitizeMetadataText(item);
         if (typeof item === "number" || typeof item === "boolean") return String(item);
         return safeStringify(item);
       })
@@ -189,7 +209,7 @@ const formatMetadataValue = (rawValue, key = "") => {
       .join(", ");
     return compactWhitespace(joined);
   }
-  if (typeof rawValue === "string") return compactWhitespace(rawValue);
+  if (typeof rawValue === "string") return sanitizeMetadataText(rawValue);
   if (typeof rawValue === "number" || typeof rawValue === "boolean") return String(rawValue);
   if (typeof rawValue === "object") return compactWhitespace(safeStringify(rawValue));
   return compactWhitespace(String(rawValue));
@@ -885,6 +905,12 @@ export default function Home() {
     e.preventDefault();
     e.stopPropagation();
     await toggleBookCollectionMembership(bookId, collectionId);
+  };
+
+  const consumeCardActionEvent = (e) => {
+    if (!e) return;
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const handleCreateCollection = async () => {
@@ -2609,9 +2635,10 @@ export default function Home() {
                           <button
                             type="button"
                             data-testid="book-info"
+                            onMouseDown={consumeCardActionEvent}
+                            onPointerDown={consumeCardActionEvent}
                             onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
+                              consumeCardActionEvent(e);
                               const rect = e.currentTarget.getBoundingClientRect();
                               if (infoPopover?.book?.id === book.id && infoPopover?.pinned) {
                                 setInfoPopover(null);
@@ -2921,9 +2948,10 @@ export default function Home() {
                             <button
                               type="button"
                               data-testid="book-info"
+                              onMouseDown={consumeCardActionEvent}
+                              onPointerDown={consumeCardActionEvent}
                               onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                                consumeCardActionEvent(e);
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 if (infoPopover?.book?.id === book.id && infoPopover?.pinned) {
                                   setInfoPopover(null);
