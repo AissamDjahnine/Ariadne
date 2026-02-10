@@ -114,6 +114,8 @@ Smart Reader is built around real reading behavior:
 
 - Multi-color highlights
 - Highlights panel defaults to no pre-selected items (`Select all` / `Unselect all` workflow)
+- Re-clicking an existing highlight opens a contextual action popup anchored next to that highlight (delete, dictionary, translate)
+- Right after choosing a highlight color, an inline note composer opens near the selection so notes can be captured immediately
 - Add and edit notes on highlights
 - Jump to any saved highlight instantly
 - Highlight jumps use a single subtle flash cue (in panel and when opening from Highlights Center)
