@@ -1823,11 +1823,22 @@ export default function Reader() {
     : isReaderSepia
       ? 'bg-amber-50 text-amber-950'
       : 'bg-gray-100 text-gray-800';
+  const searchHighlightMode = showSearchMenu
+    ? 'all-search'
+    : focusedSearchCfi
+      ? 'focus-only'
+      : 'none';
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
   return (
     <div className={`h-screen flex flex-col overflow-hidden transition-colors duration-200 ${readerThemeClass}`}>
+      <span className="sr-only" data-testid="search-focus-state">
+        {focusedSearchCfi ? 'focused' : 'none'}
+      </span>
+      <span className="sr-only" data-testid="search-highlight-mode">
+        {searchHighlightMode}
+      </span>
       
       <style>{`
         @keyframes orbit {
@@ -2143,7 +2154,7 @@ export default function Reader() {
               </button>
             </div>
 
-            <div ref={searchResultsListRef} className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
+            <div ref={searchResultsListRef} data-testid="search-results-list" className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
               {!isSearching && searchQuery && searchResults.length === 0 && (
                 <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No matches found.</div>
               )}

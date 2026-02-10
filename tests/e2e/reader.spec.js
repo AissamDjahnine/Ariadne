@@ -217,6 +217,70 @@ test('clicking a search result jumps and closes the search panel', async ({ page
   await expect(searchInput).toHaveCount(0);
 });
 
+test('clicking a search result enters focus-only mode and outside click clears it', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTitle('Search').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('wizard');
+  await searchInput.press('Enter');
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+
+  await page.getByTestId('search-result-item-1').click();
+  await expect(searchInput).toHaveCount(0);
+  await expect(page.getByTestId('search-focus-state')).toHaveText('focused');
+  await expect(page.getByTestId('search-highlight-mode')).toHaveText('focus-only');
+
+  await page.mouse.click(20, 20);
+  await expect(page.getByTestId('search-focus-state')).toHaveText('none');
+  await expect(page.getByTestId('search-highlight-mode')).toHaveText('none');
+});
+
+test('Escape clears focused search highlight when panel is closed', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTitle('Search').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('wizard');
+  await searchInput.press('Enter');
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+
+  await page.getByTestId('search-result-item-1').click();
+  await expect(page.getByTestId('search-focus-state')).toHaveText('focused');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('search-focus-state')).toHaveText('none');
+  await expect(page.getByTestId('search-highlight-mode')).toHaveText('none');
+});
+
+test('search result list auto-scrolls to active item while navigating', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTitle('Search').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('the');
+  await searchInput.press('Enter');
+
+  await expect.poll(async () => {
+    const value = await page.getByTestId('search-progress').textContent();
+    return value || '0/0';
+  }, { timeout: 15000 }).toMatch(/1\/\d+/);
+
+  const progressText = await page.getByTestId('search-progress').textContent();
+  const total = Number((progressText || '0/0').split('/')[1] || 0);
+  expect(total).toBeGreaterThan(8);
+
+  const list = page.getByTestId('search-results-list');
+  const initialScrollTop = await list.evaluate((el) => el.scrollTop);
+
+  const steps = Math.min(12, total - 1);
+  for (let i = 0; i < steps; i += 1) {
+    await page.getByTitle('Next result').click();
+  }
+
+  await expect.poll(async () => list.evaluate((el) => el.scrollTop), { timeout: 5000 }).toBeGreaterThan(initialScrollTop);
+});
+
 test('dictionary ignores stale responses', async ({ page }) => {
   await page.route('https://api.dictionaryapi.dev/api/v2/entries/en/**', async (route) => {
     const url = route.request().url();
