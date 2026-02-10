@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote, updateBookReaderSettings, markBookStarted } from '../services/db';
 import BookView from '../components/BookView';
@@ -93,6 +93,10 @@ export default function Reader() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+  const [focusedSearchCfi, setFocusedSearchCfi] = useState(null);
+  const activeSearchCfi = activeSearchIndex >= 0 ? (searchResults[activeSearchIndex]?.cfi || null) : null;
+  const searchInputRef = useRef(null);
+  const searchResultsListRef = useRef(null);
   const searchTokenRef = useRef(0);
   const [showDictionary, setShowDictionary] = useState(false);
   const [dictionaryAnchor, setDictionaryAnchor] = useState(null);
@@ -720,20 +724,54 @@ export default function Reader() {
     setSearchQuery("");
     setSearchResults([]);
     setActiveSearchIndex(-1);
+    setFocusedSearchCfi(null);
   };
 
-  const closeSearchMenu = () => {
+  const closeSearchMenu = (options = {}) => {
+    const { preserveFocusedSearch = false } = options;
     cancelSearch();
+    if (!preserveFocusedSearch) {
+      setFocusedSearchCfi(null);
+    }
     setShowSearchMenu(false);
   };
 
-  const goToSearchIndex = (index, overrideResults = null) => {
+  const goToSearchIndex = (index, overrideResults = null, options = {}) => {
     const sourceResults = Array.isArray(overrideResults) ? overrideResults : searchResults;
     if (!sourceResults.length) return;
     const clamped = Math.max(0, Math.min(index, sourceResults.length - 1));
     setActiveSearchIndex(clamped);
     const target = sourceResults[clamped];
-    if (target?.cfi) setJumpTarget(target.cfi);
+    if (target?.cfi) {
+      setJumpTarget(target.cfi);
+      if (options.focus) {
+        setFocusedSearchCfi(target.cfi);
+      } else {
+        setFocusedSearchCfi(null);
+      }
+    } else {
+      setFocusedSearchCfi(null);
+    }
+  };
+
+  const handleSearchResultActivate = useCallback((cfi) => {
+    if (!cfi || !searchResults.length) return;
+    const index = searchResults.findIndex((result) => {
+      const matchCfi = result?.cfi || "";
+      return matchCfi === cfi || matchCfi.includes(cfi) || cfi.includes(matchCfi);
+    });
+    if (index >= 0) {
+      setActiveSearchIndex(index);
+    }
+  }, [searchResults]);
+
+  const dismissFocusedSearch = useCallback(() => {
+    setFocusedSearchCfi(null);
+  }, []);
+
+  const handleSearchResultClick = (idx) => {
+    goToSearchIndex(idx, null, { focus: true });
+    closeSearchMenu({ preserveFocusedSearch: true });
   };
 
   const goToNextResult = () => {
@@ -1613,7 +1651,115 @@ export default function Reader() {
   }, [bookId, settings]);
 
   useEffect(() => {
+    if (!searchResults.length) return;
+    if (activeSearchIndex >= 0 && activeSearchIndex < searchResults.length) return;
+    setActiveSearchIndex(0);
+  }, [searchResults, activeSearchIndex]);
+
+  useEffect(() => {
+    if (!searchResults.length || !activeSearchCfi) return;
+    const indexFromCfi = searchResults.findIndex((result) => {
+      const cfi = result?.cfi || "";
+      return cfi === activeSearchCfi || cfi.includes(activeSearchCfi) || activeSearchCfi.includes(cfi);
+    });
+    if (indexFromCfi >= 0 && indexFromCfi !== activeSearchIndex) {
+      setActiveSearchIndex(indexFromCfi);
+    }
+  }, [searchResults, activeSearchCfi, activeSearchIndex]);
+
+  useEffect(() => {
+    if (!showSearchMenu) return;
+    const list = searchResultsListRef.current;
+    if (!list) return;
+    if (!searchResults.length) return;
+
+    let targetIndex = -1;
+    if (activeSearchCfi) {
+      targetIndex = searchResults.findIndex((result) => {
+        const cfi = result?.cfi || "";
+        return cfi === activeSearchCfi || cfi.includes(activeSearchCfi) || activeSearchCfi.includes(cfi);
+      });
+    }
+    if (targetIndex < 0 && activeSearchIndex >= 0 && activeSearchIndex < searchResults.length) {
+      targetIndex = activeSearchIndex;
+    }
+    if (targetIndex < 0) {
+      targetIndex = 0;
+    }
+
+    // Wait for the active row class/ref assignment to complete before scrolling.
+    const id = window.requestAnimationFrame(() => {
+      const activeRow = list.querySelector(
+        `[data-search-result-index="${targetIndex}"]`
+      );
+      if (!activeRow) return;
+      activeRow.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth'
+      });
+    });
+
+    return () => window.cancelAnimationFrame(id);
+  }, [showSearchMenu, searchResults, activeSearchIndex, activeSearchCfi]);
+
+  useEffect(() => {
+    if (!focusedSearchCfi) return;
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        setFocusedSearchCfi(null);
+        return;
+      }
+      // Allow clicking a result row to move focus to another match without clearing first.
+      if (target.closest('[data-search-result-index]')) return;
+      setFocusedSearchCfi(null);
+    };
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [focusedSearchCfi]);
+
+  useEffect(() => {
+    if (!showSearchMenu) return;
+    const id = window.requestAnimationFrame(() => {
+      const input = searchInputRef.current;
+      if (!input) return;
+      input.focus();
+      const end = input.value?.length || 0;
+      if (typeof input.setSelectionRange === 'function') {
+        input.setSelectionRange(end, end);
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [showSearchMenu]);
+
+  useEffect(() => {
     const handleKey = (event) => {
+      const isFindShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
+      if (isFindShortcut) {
+        event.preventDefault();
+        setShowSearchMenu(true);
+        const input = searchInputRef.current;
+        if (input) {
+          input.focus();
+          const end = input.value?.length || 0;
+          if (typeof input.setSelectionRange === 'function') {
+            input.setSelectionRange(end, end);
+          }
+        }
+        return;
+      }
+
+      if (event.key === 'Escape' && showSearchMenu) {
+        event.preventDefault();
+        closeSearchMenu();
+        return;
+      }
+      if (event.key === 'Escape' && focusedSearchCfi) {
+        event.preventDefault();
+        setFocusedSearchCfi(null);
+        return;
+      }
+
       if (!rendition) return;
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target;
@@ -1643,7 +1789,7 @@ export default function Reader() {
 
     window.addEventListener('keydown', handleKey, { passive: false });
     return () => window.removeEventListener('keydown', handleKey);
-  }, [rendition, settings.flow]);
+  }, [rendition, settings.flow, showSearchMenu, focusedSearchCfi]);
 
   const phoneticText =
     dictionaryEntry?.phonetic ||
@@ -1651,7 +1797,18 @@ export default function Reader() {
     "";
   const isReaderDark = settings.theme === 'dark';
   const isReaderSepia = settings.theme === 'sepia';
-  const activeSearchCfi = activeSearchIndex >= 0 ? (searchResults[activeSearchIndex]?.cfi || null) : null;
+  const displayActiveSearchIndex = useMemo(() => {
+    if (!searchResults.length) return -1;
+    if (activeSearchCfi) {
+      const idx = searchResults.findIndex((result) => {
+        const cfi = result?.cfi || "";
+        return cfi === activeSearchCfi || cfi.includes(activeSearchCfi) || activeSearchCfi.includes(cfi);
+      });
+      if (idx >= 0) return idx;
+    }
+    if (activeSearchIndex >= 0 && activeSearchIndex < searchResults.length) return activeSearchIndex;
+    return 0;
+  }, [searchResults, activeSearchIndex, activeSearchCfi]);
   const toolbarIconButtonBaseClass = 'p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700';
   const toolbarUtilityInactiveClass = `${toolbarIconButtonBaseClass} text-inherit`;
   const toolbarUtilityActiveClass = `${toolbarIconButtonBaseClass} text-blue-600 bg-blue-50 dark:bg-blue-900/30`;
@@ -1908,6 +2065,7 @@ export default function Reader() {
             <div className="flex items-center gap-2">
               <SearchIcon size={18} className={isReaderDark ? 'text-gray-400' : 'text-gray-600'} />
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search inside this book..."
                 value={searchQuery}
@@ -1930,12 +2088,12 @@ export default function Reader() {
                 {isSearching
                   ? 'Searching...'
                   : searchResults.length
-                    ? `${activeSearchIndex + 1 > 0 ? activeSearchIndex + 1 : 1}/${searchResults.length}`
+                    ? `${displayActiveSearchIndex + 1 > 0 ? displayActiveSearchIndex + 1 : 1}/${searchResults.length}`
                     : '0 results'}
               </span>
               <span className="sr-only" data-testid="search-progress">
                 {searchResults.length
-                  ? `${activeSearchIndex + 1 > 0 ? activeSearchIndex + 1 : 1}/${searchResults.length}`
+                  ? `${displayActiveSearchIndex + 1 > 0 ? displayActiveSearchIndex + 1 : 1}/${searchResults.length}`
                   : '0/0'}
               </span>
               <div className="flex items-center gap-1">
@@ -1985,16 +2143,18 @@ export default function Reader() {
               </button>
             </div>
 
-            <div className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
+            <div ref={searchResultsListRef} className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
               {!isSearching && searchQuery && searchResults.length === 0 && (
                 <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No matches found.</div>
               )}
               {searchResults.map((result, idx) => (
                 <button
                   key={`${result.cfi}-${idx}`}
-                  onClick={() => goToSearchIndex(idx)}
+                  onClick={() => handleSearchResultClick(idx)}
+                  data-testid={`search-result-item-${idx}`}
+                  data-search-result-index={idx}
                   className={`w-full text-left p-3 rounded-2xl border transition ${
-                    activeSearchIndex === idx
+                    displayActiveSearchIndex === idx
                       ? isReaderDark
                         ? 'border-yellow-400 bg-yellow-900/30'
                         : 'border-yellow-500 bg-yellow-50'
@@ -2699,7 +2859,13 @@ export default function Reader() {
             <span className="hidden md:inline text-xs font-black uppercase">Story</span>
           </button>
           <button
-            onClick={() => setShowSearchMenu((s) => !s)}
+            onClick={() => {
+              if (showSearchMenu) {
+                closeSearchMenu();
+              } else {
+                setShowSearchMenu(true);
+              }
+            }}
             className={showSearchMenu ? toolbarUtilityActiveClass : toolbarUtilityInactiveClass}
             title="Search"
             data-testid="reader-search-toggle"
@@ -2752,6 +2918,10 @@ export default function Reader() {
           onChapterEnd={handleChapterEnd}
           searchResults={searchResults}
           activeSearchCfi={activeSearchCfi}
+          focusedSearchCfi={focusedSearchCfi}
+          showSearchHighlights={showSearchMenu || Boolean(focusedSearchCfi)}
+          onSearchResultActivate={handleSearchResultActivate}
+          onSearchFocusDismiss={dismissFocusedSearch}
           highlights={highlights}
           onSelection={handleSelection}
         />

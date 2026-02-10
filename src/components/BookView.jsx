@@ -15,6 +15,10 @@ export default function BookView({
   onRenditionReady,
   searchResults = [],
   activeSearchCfi = null,
+  focusedSearchCfi = null,
+  showSearchHighlights = true,
+  onSearchResultActivate,
+  onSearchFocusDismiss,
   onChapterEnd // NEW: Callback for AI summarization
 }) {
   const viewerRef = useRef(null);
@@ -22,6 +26,8 @@ export default function BookView({
   const bookRef = useRef(null);
   const lastChapterRef = useRef(null); // Track chapter changes
   const onSelectionRef = useRef(onSelection);
+  const onSearchResultActivateRef = useRef(onSearchResultActivate);
+  const onSearchFocusDismissRef = useRef(onSearchFocusDismiss);
   const appliedHighlightsRef = useRef(new Map());
   const appliedSearchRef = useRef(new Map());
   const selectionCleanupRef = useRef([]);
@@ -29,6 +35,14 @@ export default function BookView({
   useEffect(() => {
     onSelectionRef.current = onSelection;
   }, [onSelection]);
+
+  useEffect(() => {
+    onSearchResultActivateRef.current = onSearchResultActivate;
+  }, [onSearchResultActivate]);
+
+  useEffect(() => {
+    onSearchFocusDismissRef.current = onSearchFocusDismiss;
+  }, [onSearchFocusDismiss]);
 
   const applyTheme = (rendition, theme) => {
     if (!rendition) return;
@@ -112,10 +126,21 @@ export default function BookView({
       doc.addEventListener('keyup', notifyIfCleared);
       doc.addEventListener('touchend', notifyIfCleared);
 
+      const dismissFocusedSearch = () => {
+        if (onSearchFocusDismissRef.current) {
+          onSearchFocusDismissRef.current();
+        }
+      };
+
+      doc.addEventListener('mousedown', dismissFocusedSearch);
+      doc.addEventListener('touchstart', dismissFocusedSearch);
+
       selectionCleanupRef.current.push(() => {
         doc.removeEventListener('mouseup', notifyIfCleared);
         doc.removeEventListener('keyup', notifyIfCleared);
         doc.removeEventListener('touchend', notifyIfCleared);
+        doc.removeEventListener('mousedown', dismissFocusedSearch);
+        doc.removeEventListener('touchstart', dismissFocusedSearch);
       });
     };
 
@@ -210,14 +235,20 @@ export default function BookView({
       const rendition = renditionRef.current;
       const annotationType = 'highlight';
       const nextMap = new Map();
-      searchResults.forEach((result) => {
-        if (!result?.cfi) return;
-        const cfi = result.cfi;
-        const variant = cfi === activeSearchCfi ? 'active' : 'normal';
-        if (!nextMap.has(cfi) || variant === 'active') {
-          nextMap.set(cfi, variant);
+      if (showSearchHighlights) {
+        if (focusedSearchCfi) {
+          nextMap.set(focusedSearchCfi, 'focus');
+        } else {
+          searchResults.forEach((result) => {
+            if (!result?.cfi) return;
+            const cfi = result.cfi;
+            const variant = cfi === activeSearchCfi ? 'active' : 'normal';
+            if (!nextMap.has(cfi) || variant === 'active') {
+              nextMap.set(cfi, variant);
+            }
+          });
         }
-      });
+      }
 
       nextMap.forEach((variant, cfi) => {
         const prevVariant = appliedSearchRef.current.get(cfi);
@@ -230,9 +261,14 @@ export default function BookView({
             }
           }
           try {
-            rendition.annotations.add(annotationType, cfi, {}, null, variant === 'active' ? 'search-hl-active' : 'search-hl', {
-              fill: '#facc15',
-              'fill-opacity': variant === 'active' ? '0.85' : '0.28',
+            rendition.annotations.add(annotationType, cfi, {}, () => {
+              if (variant === 'focus' && onSearchFocusDismissRef.current) {
+                onSearchFocusDismissRef.current();
+              }
+              if (onSearchResultActivateRef.current) onSearchResultActivateRef.current(cfi);
+            }, variant === 'focus' ? 'search-hl-focus' : variant === 'active' ? 'search-hl-active' : 'search-hl', {
+              fill: variant === 'focus' ? '#22c55e' : '#facc15',
+              'fill-opacity': variant === 'focus' ? '0.78' : variant === 'active' ? '0.85' : '0.28',
               'mix-blend-mode': 'normal'
             });
           } catch (err) {
@@ -253,7 +289,7 @@ export default function BookView({
       appliedSearchRef.current = nextMap;
     }, 40);
     return () => clearTimeout(timer);
-  }, [bookData, searchResults, activeSearchCfi, settings.fontSize, settings.fontFamily, settings.flow, settings.theme]);
+  }, [bookData, searchResults, activeSearchCfi, focusedSearchCfi, showSearchHighlights, settings.fontSize, settings.fontFamily, settings.flow, settings.theme]);
 
   useEffect(() => {
     if (!renditionRef.current) return;

@@ -104,6 +104,35 @@ test('search sets first result active and Enter cycles through results', async (
   await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 10000 }).not.toBe(progressBeforeEnter);
 });
 
+test('Ctrl/Cmd+F opens reader search and focuses input, Escape closes it', async ({ page }) => {
+  await openFixtureBook(page);
+
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await expect(searchInput).toHaveCount(0);
+
+  await page.keyboard.press('Control+f');
+  await expect(searchInput).toBeVisible();
+  await expect(searchInput).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(searchInput).toHaveCount(0);
+});
+
+test('clicking a search result jumps and closes the search panel', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTitle('Search').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('wizard');
+  await searchInput.press('Enter');
+
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+  await expect(page.getByTestId('search-result-item-1')).toBeVisible();
+
+  await page.getByTestId('search-result-item-1').click();
+  await expect(searchInput).toHaveCount(0);
+});
+
 test('dictionary ignores stale responses', async ({ page }) => {
   await page.route('https://api.dictionaryapi.dev/api/v2/entries/en/**', async (route) => {
     const url = route.request().url();
