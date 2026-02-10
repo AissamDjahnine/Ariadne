@@ -360,6 +360,7 @@ const searchBookContent = async (book, query, maxMatches = 30) => {
 const CONTENT_SCROLL_HEIGHT_CLASS = "h-[42vh]";
 const CONTENT_PANEL_HEIGHT_CLASS = "h-[calc(42vh+3rem)]";
 const FOUND_BOOK_COVER_PADDING_CLASS = "p-4";
+const LIBRARY_RENDER_BATCH_SIZE = 48;
 const COLLECTION_COLOR_OPTIONS = [
   "#2563eb",
   "#7c3aed",
@@ -392,6 +393,8 @@ export default function Home() {
   const [librarySection, setLibrarySection] = useState("library");
   const [trashSortBy, setTrashSortBy] = useState("deleted-desc");
   const [selectedTrashBookIds, setSelectedTrashBookIds] = useState([]);
+  const [libraryRenderLimit, setLibraryRenderLimit] = useState(LIBRARY_RENDER_BATCH_SIZE);
+  const [trashRenderLimit, setTrashRenderLimit] = useState(LIBRARY_RENDER_BATCH_SIZE);
   const [flagFilters, setFlagFilters] = useState([]);
   const [sortBy, setSortBy] = useState("last-read-desc");
   const [viewMode, setViewMode] = useState(() => {
@@ -428,6 +431,7 @@ export default function Home() {
   const uploadTimerRef = useRef(null);
   const uploadSuccessTimerRef = useRef(null);
   const recentHighlightTimerRef = useRef(null);
+  const loadMoreBooksRef = useRef(null);
   const infoPopoverCloseTimerRef = useRef(null);
   const infoPopoverRef = useRef(null);
   const duplicateDecisionResolverRef = useRef(null);
@@ -1755,6 +1759,55 @@ export default function Home() {
       return normalizeString(left.title).localeCompare(normalizeString(right.title));
     });
 
+  useEffect(() => {
+    if (librarySection === "trash") {
+      setTrashRenderLimit(LIBRARY_RENDER_BATCH_SIZE);
+      return;
+    }
+    setLibraryRenderLimit(LIBRARY_RENDER_BATCH_SIZE);
+  }, [
+    librarySection,
+    viewMode,
+    searchQuery,
+    statusFilter,
+    collectionFilter,
+    sortBy,
+    trashSortBy,
+    flagFilters,
+    sortedBooks.length,
+    sortedTrashBooks.length
+  ]);
+
+  const hasMoreLibraryBooks = sortedBooks.length > libraryRenderLimit;
+  const hasMoreTrashBooks = sortedTrashBooks.length > trashRenderLimit;
+  const hasMoreBooksToRender = librarySection === "trash" ? hasMoreTrashBooks : hasMoreLibraryBooks;
+
+  useEffect(() => {
+    if (!hasMoreBooksToRender) return;
+    if (typeof IntersectionObserver !== "function") return;
+    const sentinel = loadMoreBooksRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (librarySection === "trash") {
+          setTrashRenderLimit((current) => Math.min(current + LIBRARY_RENDER_BATCH_SIZE, sortedTrashBooks.length));
+        } else {
+          setLibraryRenderLimit((current) => Math.min(current + LIBRARY_RENDER_BATCH_SIZE, sortedBooks.length));
+        }
+      },
+      {
+        root: null,
+        rootMargin: "600px 0px",
+        threshold: 0.01
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreBooksToRender, librarySection, sortedBooks.length, sortedTrashBooks.length, viewMode]);
+
   const globalSearchQuery = searchQuery.trim().toLowerCase();
   const globalSearchGroups = (() => {
     if (!globalSearchQuery) return [];
@@ -2225,6 +2278,11 @@ export default function Home() {
   const isTrashSection = librarySection === "trash";
   const shouldShowLibraryHomeContent = librarySection === "library";
   const shouldShowContinueReading = showContinueReading && librarySection === "library";
+  const renderedBooks = (isTrashSection ? sortedTrashBooks : sortedBooks).slice(
+    0,
+    isTrashSection ? trashRenderLimit : libraryRenderLimit
+  );
+  const showRenderSentinel = isTrashSection ? hasMoreTrashBooks : hasMoreLibraryBooks;
   const visibleTrashIds = Array.from(new Set(sortedTrashBooks.map((book) => book.id)));
   const trashSelectedCount = selectedTrashBookIds.length;
   const allVisibleTrashSelected =
@@ -2694,7 +2752,7 @@ export default function Home() {
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500" data-testid="library-books-grid">
-            {(isTrashSection ? sortedTrashBooks : sortedBooks).map((book) => {
+            {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
               return (
@@ -2943,7 +3001,7 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-4 animate-in fade-in duration-500" data-testid="library-books-list">
-            {(isTrashSection ? sortedTrashBooks : sortedBooks).map((book) => {
+            {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
               return (
@@ -3192,6 +3250,16 @@ export default function Home() {
             })}
           </div>
         ))}
+        {(shouldShowLibraryHomeContent || isTrashSection) &&
+          (!showGlobalSearchBooksColumn || isTrashSection) &&
+          (isTrashSection ? sortedTrashBooks.length : sortedBooks.length) > 0 &&
+          showRenderSentinel && (
+            <div
+              ref={loadMoreBooksRef}
+              data-testid="library-load-more-sentinel"
+              className="h-8 w-full"
+            />
+          )}
         {!isTrashSection && (
           <label
             data-testid="library-add-book-fab"
