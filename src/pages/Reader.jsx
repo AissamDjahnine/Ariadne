@@ -56,6 +56,7 @@ export default function Reader() {
   const panelParam = searchParams.get('panel');
   const cfiParam = searchParams.get('cfi');
   const searchTermParam = searchParams.get('q');
+  const flashParam = searchParams.get('flash');
   const [book, setBook] = useState(null);
   const bookRef = useRef(null);
   
@@ -143,6 +144,7 @@ export default function Reader() {
   const initialPanelAppliedRef = useRef(false);
   const initialJumpAppliedRef = useRef(false);
   const initialSearchAppliedRef = useRef(false);
+  const initialFlashAppliedRef = useRef(false);
   const progressPersistRef = useRef({
     timer: null,
     lastWriteTs: 0,
@@ -161,19 +163,18 @@ export default function Reader() {
   const triggerHighlightFlash = useCallback((cfiRange) => {
     if (!cfiRange) return;
     clearHighlightFlashTimers();
-    const pulses = [1, 2, 3, 4, 5];
-    pulses.forEach((pulse, idx) => {
-      const id = setTimeout(() => {
-        setFlashingHighlightCfi(cfiRange);
-        setFlashingHighlightPulse(pulse);
-      }, idx * 120);
-      highlightFlashTimersRef.current.push(id);
-    });
+    // Single flash cycle: one emphasis pulse, then restore.
+    setFlashingHighlightCfi(cfiRange);
+    setFlashingHighlightPulse(1);
+
+    const settleId = setTimeout(() => {
+      setFlashingHighlightPulse(0);
+    }, 160);
+    highlightFlashTimersRef.current.push(settleId);
 
     const clearId = setTimeout(() => {
       setFlashingHighlightCfi(null);
-      setFlashingHighlightPulse(0);
-    }, pulses.length * 120 + 20);
+    }, 220);
     highlightFlashTimersRef.current.push(clearId);
   }, [clearHighlightFlashTimers]);
 
@@ -1566,7 +1567,8 @@ export default function Reader() {
     initialPanelAppliedRef.current = false;
     initialJumpAppliedRef.current = false;
     initialSearchAppliedRef.current = false;
-  }, [bookId, panelParam, cfiParam, searchTermParam]);
+    initialFlashAppliedRef.current = false;
+  }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
     if (!book?.id || initialPanelAppliedRef.current) return;
@@ -1585,6 +1587,22 @@ export default function Reader() {
     jumpToCfi(cfiParam);
     initialJumpAppliedRef.current = true;
   }, [book?.id, cfiParam]);
+
+  useEffect(() => {
+    if (!book?.id || !cfiParam || initialFlashAppliedRef.current) return;
+    if (flashParam !== '1') return;
+    if (!Array.isArray(highlights) || highlights.length === 0) return;
+
+    const matched = highlights.find((item) => {
+      const target = (item?.cfiRange || '').trim();
+      if (!target) return false;
+      return target === cfiParam || target.includes(cfiParam) || cfiParam.includes(target);
+    });
+    if (!matched?.cfiRange) return;
+
+    triggerHighlightFlash(matched.cfiRange);
+    initialFlashAppliedRef.current = true;
+  }, [book?.id, cfiParam, panelParam, flashParam, highlights, triggerHighlightFlash]);
 
   useEffect(() => {
     if (!book?.id || !rendition || initialSearchAppliedRef.current) return;
