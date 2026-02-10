@@ -95,6 +95,7 @@ export default function Reader() {
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [focusedSearchCfi, setFocusedSearchCfi] = useState(null);
+  const [searchHighlightCount, setSearchHighlightCount] = useState(0);
   const activeSearchCfi = activeSearchIndex >= 0 ? (searchResults[activeSearchIndex]?.cfi || null) : null;
   const searchInputRef = useRef(null);
   const searchResultsListRef = useRef(null);
@@ -2113,6 +2114,9 @@ export default function Reader() {
       <span className="sr-only" data-testid="search-highlight-mode">
         {searchHighlightMode}
       </span>
+      <span className="sr-only" data-testid="search-highlight-count">
+        {String(searchHighlightCount)}
+      </span>
       <span className="sr-only" data-testid="highlight-flash-cfi">
         {flashingHighlightCfi || ''}
       </span>
@@ -3305,6 +3309,7 @@ export default function Reader() {
           activeSearchCfi={activeSearchCfi}
           focusedSearchCfi={focusedSearchCfi}
           showSearchHighlights={showSearchMenu || Boolean(focusedSearchCfi)}
+          onSearchHighlightCountChange={setSearchHighlightCount}
           flashingHighlightCfi={flashingHighlightCfi}
           flashingHighlightPulse={flashingHighlightPulse}
           onSearchResultActivate={handleSearchResultActivate}

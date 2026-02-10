@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import ePub from 'epubjs';
 
 const EPUB_THEME_KEY = 'reader-theme';
-const SEARCH_ANNOTATION_TYPE = 'mark';
+const SEARCH_ANNOTATION_TYPE = 'highlight';
 const USER_HIGHLIGHT_ANNOTATION_TYPE = 'highlight';
 
 export default function BookView({ 
@@ -23,6 +23,7 @@ export default function BookView({
   flashingHighlightPulse = 0,
   onSearchResultActivate,
   onSearchFocusDismiss,
+  onSearchHighlightCountChange,
   onChapterEnd // NEW: Callback for AI summarization
 }) {
   const viewerRef = useRef(null);
@@ -32,6 +33,7 @@ export default function BookView({
   const onSelectionRef = useRef(onSelection);
   const onSearchResultActivateRef = useRef(onSearchResultActivate);
   const onSearchFocusDismissRef = useRef(onSearchFocusDismiss);
+  const onSearchHighlightCountChangeRef = useRef(onSearchHighlightCountChange);
   const appliedHighlightsRef = useRef(new Map());
   const appliedSearchRef = useRef(new Map());
   const selectionCleanupRef = useRef([]);
@@ -47,6 +49,10 @@ export default function BookView({
   useEffect(() => {
     onSearchFocusDismissRef.current = onSearchFocusDismiss;
   }, [onSearchFocusDismiss]);
+
+  useEffect(() => {
+    onSearchHighlightCountChangeRef.current = onSearchHighlightCountChange;
+  }, [onSearchHighlightCountChange]);
 
   const applyTheme = (rendition, theme) => {
     if (!rendition) return;
@@ -71,9 +77,22 @@ export default function BookView({
         'padding-right': isScrolled ? '32px !important' : '0 !important',
         'padding-top': '0 !important',
         'padding-bottom': '0 !important',
-        'box-sizing': 'border-box !important'
+        'box-sizing': 'border-box !important',
+        'position': 'relative !important'
       },
       'p, span, div, li, h1, h2, h3, h4, h5, h6': { 'color': `${textColor} !important` },
+      '.search-hl': {
+        'background': 'rgba(250, 204, 21, 0.28) !important',
+        'border-radius': '2px !important'
+      },
+      '.search-hl-active': {
+        'background': 'rgba(250, 204, 21, 0.85) !important',
+        'border-radius': '2px !important'
+      },
+      '.search-hl-focus': {
+        'background': 'rgba(34, 197, 94, 0.78) !important',
+        'border-radius': '2px !important'
+      },
       'img, svg, video, canvas': {
         'max-width': '100% !important',
         'height': 'auto !important'
@@ -241,15 +260,8 @@ export default function BookView({
       if (showSearchHighlights) {
         if (focusedSearchCfi) {
           nextMap.set(focusedSearchCfi, 'focus');
-        } else {
-          searchResults.forEach((result) => {
-            if (!result?.cfi) return;
-            const cfi = result.cfi;
-            const variant = cfi === activeSearchCfi ? 'active' : 'normal';
-            if (!nextMap.has(cfi) || variant === 'active') {
-              nextMap.set(cfi, variant);
-            }
-          });
+        } else if (activeSearchCfi) {
+          nextMap.set(activeSearchCfi, 'active');
         }
       }
 
@@ -292,8 +304,16 @@ export default function BookView({
       });
 
       appliedSearchRef.current = nextMap;
+      if (onSearchHighlightCountChangeRef.current) {
+        onSearchHighlightCountChangeRef.current(nextMap.size);
+      }
     }, 40);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (onSearchHighlightCountChangeRef.current) {
+        onSearchHighlightCountChangeRef.current(0);
+      }
+    };
   }, [bookData, searchResults, activeSearchCfi, focusedSearchCfi, showSearchHighlights, settings.fontSize, settings.fontFamily, settings.flow, settings.theme]);
 
   useEffect(() => {

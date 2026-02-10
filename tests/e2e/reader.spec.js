@@ -86,9 +86,23 @@ test('search clear removes in-book search markers', async ({ page }) => {
   await searchInput.fill('wizard');
   await searchInput.press('Enter');
   await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+  await expect(page.getByTestId('search-highlight-count')).toHaveText('1');
 
   await page.getByRole('button', { name: 'Clear' }).click();
   await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 10000 }).toBe('0/0');
+  await expect(page.getByTestId('search-highlight-count')).toHaveText('0');
+});
+
+test('search renders in-book markers while results are active', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTitle('Search').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('wizard');
+  await searchInput.press('Enter');
+
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+  await expect(page.getByTestId('search-highlight-count')).toHaveText('1');
 });
 
 test('search sets first result active and Enter cycles through results', async ({ page }) => {
