@@ -101,6 +101,7 @@ Smart Reader is built around real reading behavior:
 
 - In-reader search with result navigation (`X/N`, next/previous)
 - Active search result stays synchronized between text highlight and result list auto-scroll
+- In-book search markers are applied reliably while search is active and cleared cleanly on `Clear`/close
 - Clicking a search result pins a temporary green focus marker at that exact reading location
 - Global search across:
   - Book metadata
