@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { jsPDF } from "jspdf";
 import {
   addBook,
   readEpubMetadata,
@@ -189,6 +188,19 @@ const sortMetadataKeys = (a, b) => {
   const rankB = getMetadataSortRank(b);
   if (rankA !== rankB) return rankA - rankB;
   return String(a || "").localeCompare(String(b || ""), undefined, { sensitivity: "base" });
+};
+
+let homeJsPdfCtorPromise = null;
+const loadHomeJsPdfCtor = async () => {
+  if (!homeJsPdfCtorPromise) {
+    homeJsPdfCtorPromise = import("jspdf")
+      .then((module) => module.jsPDF || module.default)
+      .catch((err) => {
+        homeJsPdfCtorPromise = null;
+        throw err;
+      });
+  }
+  return homeJsPdfCtorPromise;
 };
 
 const safeStringify = (value) => {
@@ -770,8 +782,9 @@ export default function Home() {
     };
   };
 
-  const buildBookBackupPdfBlob = (book, payload) => {
-    const doc = new jsPDF({
+  const buildBookBackupPdfBlob = async (book, payload) => {
+    const JsPdfCtor = await loadHomeJsPdfCtor();
+    const doc = new JsPdfCtor({
       orientation: "p",
       unit: "pt",
       format: "a4"
@@ -838,7 +851,7 @@ export default function Home() {
     if (validBooks.length === 1) {
       const book = validBooks[0];
       const payload = buildBookBackupPayload(book);
-      const pdfBlob = buildBookBackupPdfBlob(book, payload);
+      const pdfBlob = await buildBookBackupPdfBlob(book, payload);
       const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const baseName = toSafeFilename(`${book.title || "book"}-${book.author || "author"}`);
       triggerBlobDownload(pdfBlob, `${baseName}-highlights-notes.pdf`);
@@ -848,15 +861,16 @@ export default function Home() {
 
     const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
-    validBooks.forEach((book, index) => {
+    for (let index = 0; index < validBooks.length; index += 1) {
+      const book = validBooks[index];
       const payload = buildBookBackupPayload(book);
       const folderName = toSafeFilename(`${index + 1}-${book.title || "book"}`);
       const folder = zip.folder(folderName);
-      if (!folder) return;
-      const pdfBlob = buildBookBackupPdfBlob(book, payload);
+      if (!folder) continue;
+      const pdfBlob = await buildBookBackupPdfBlob(book, payload);
       folder.file("highlights-notes.pdf", pdfBlob);
       folder.file("highlights-notes.json", JSON.stringify(payload, null, 2));
-    });
+    }
     const zipBlob = await zip.generateAsync({ type: "blob" });
     triggerBlobDownload(zipBlob, `trash-backup-${new Date().toISOString().slice(0, 10)}.zip`);
   };
