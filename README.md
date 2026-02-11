@@ -92,7 +92,7 @@ Smart Reader is built around real reading behavior:
   - Font family
   - Reading flow
 - Light mode, dark mode, and sepia reading mode
-- Keyboard navigation support
+- Keyboard navigation support (Left/Right in paginated mode, Up/Down in infinite mode with gradual acceleration on hold)
 - Chapter menu + table of contents navigation
 - Reader search keyboard shortcuts (`Ctrl+F` to open search, `Esc` to close)
 - Return-to-previous-spot chip after navigation jumps (search, highlights, bookmarks, notes, TOC)
