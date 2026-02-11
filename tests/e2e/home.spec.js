@@ -952,6 +952,77 @@ test('continue reading rail appears for started books and hides in filtered mode
   await expect(page.getByTestId('continue-reading-rail')).toHaveCount(0);
 });
 
+test('continue reading card shows estimated time left under continue action', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const nextPayload = {
+              ...payload,
+              hasStarted: true,
+              progress: 40,
+              readingTime: 1800
+            };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await page.reload();
+  await expect.poll(async () => page.getByTestId('continue-reading-rail').count()).toBeGreaterThan(0);
+  await expect(page.getByTestId('continue-reading-ring').first()).toBeVisible();
+  const timeLeft = page.getByTestId('continue-reading-time-left').first();
+  await expect(timeLeft).toBeVisible();
+  await expect(timeLeft).toContainText(/left/i);
+});
+
 test('library cards remove quick action row and still open reader on click', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {

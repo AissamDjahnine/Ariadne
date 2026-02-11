@@ -2360,6 +2360,17 @@ export default function Home() {
     return `${hours}h ${remainingMinutes} min`;
   };
 
+  const formatEstimatedTimeLeft = (seconds) => {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    if (!safeSeconds) return "";
+    const minutes = Math.max(1, Math.round(safeSeconds / 60));
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (hours <= 0) return `${minutes}m left`;
+    if (remainingMinutes === 0) return `${hours}h left`;
+    return `${hours}h ${remainingMinutes}m left`;
+  };
+
   const getCalendarDayDiff = (dateString) => {
     const date = new Date(dateString || 0);
     if (!Number.isFinite(date.getTime())) return 0;
@@ -2734,6 +2745,12 @@ export default function Home() {
             <div className="grid [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))] gap-x-4 gap-y-10 pb-3 pr-2">
               {continueReadingBooks.map((book) => {
                 const progress = Math.max(0, Math.min(100, normalizeNumber(book.progress)));
+                const spentSeconds = Math.max(0, Number(book.readingTime) || 0);
+                const estimatedRemainingSeconds =
+                  progress > 0 && progress < 100 && spentSeconds > 0
+                    ? Math.round((spentSeconds * (100 - progress)) / progress)
+                    : 0;
+                const estimatedTimeLeft = formatEstimatedTimeLeft(estimatedRemainingSeconds);
                 return (
                   <div key={`continue-${book.id}`} className="pl-[88px] sm:pl-[100px] py-1">
                     <Link
@@ -2779,6 +2796,15 @@ export default function Home() {
                           </span>
                           <span className="text-[16px] sm:text-[17px] font-medium leading-none">Continue</span>
                         </div>
+                        {estimatedTimeLeft && (
+                          <div
+                            data-testid="continue-reading-time-left"
+                            className={`mt-2 inline-flex items-center gap-1.5 text-xs font-medium ${isDarkLibraryTheme ? "text-amber-300" : "text-amber-600"}`}
+                          >
+                            <Clock size={12} />
+                            <span>{estimatedTimeLeft}</span>
+                          </div>
+                        )}
                       </div>
                     </Link>
                   </div>
