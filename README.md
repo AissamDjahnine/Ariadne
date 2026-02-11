@@ -96,6 +96,10 @@ Smart Reader is built around real reading behavior:
 - Chapter menu + table of contents navigation
 - Reader search keyboard shortcuts (`Ctrl+F` to open search, `Esc` to close)
 - Dictionary lookup cancels stale responses when you close the panel
+- Footnote/endnote marker preview popup:
+  - Click in-book note marker links (for example `[1]`) to open an anchored preview
+  - Jump directly to the full note target with `Open full note`
+  - Quick dismiss on outside click, `Esc`, or viewport change
 
 ### Search That Works at Two Levels
 
