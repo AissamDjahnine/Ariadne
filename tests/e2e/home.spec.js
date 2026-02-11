@@ -1023,6 +1023,32 @@ test('continue reading card shows estimated time left under continue action', as
   await expect(timeLeft).toContainText(/left/i);
 });
 
+test('continue reading card shows favorite badge for favorite books', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  await bookLink.hover();
+  await bookLink.locator('button[title="Favorite"]').click({ force: true });
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Open chapters/i })).toBeVisible();
+  await page.waitForTimeout(600);
+
+  await page.goto('/');
+  await expect.poll(async () => page.getByTestId('continue-reading-rail').count()).toBeGreaterThan(0);
+  await expect(page.getByTestId('continue-reading-card')).toHaveCount(1);
+  await expect(page.getByTestId('continue-reading-favorite-badge').first()).toBeVisible();
+});
+
 test('library cards remove quick action row and still open reader on click', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {

@@ -2780,8 +2780,24 @@ export default function Home() {
                       </div>
 
                       <div className="ml-auto w-[75%] min-h-[178px] px-5 sm:px-6 py-5 sm:py-6 flex flex-col justify-between">
-                        <div className={`text-[14px] sm:text-[15px] font-normal leading-tight ${isDarkLibraryTheme ? "text-slate-400" : "text-[#666666]"}`}>
-                          {book.author}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className={`text-[14px] sm:text-[15px] font-normal leading-tight ${isDarkLibraryTheme ? "text-slate-400" : "text-[#666666]"}`}>
+                            {book.author}
+                          </div>
+                          {book.isFavorite ? (
+                            <span
+                              title="Favorite"
+                              aria-label="Favorite book"
+                              data-testid="continue-reading-favorite-badge"
+                              className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                                isDarkLibraryTheme
+                                  ? "border-rose-900/50 bg-rose-900/30 text-rose-300"
+                                  : "border-rose-200 bg-rose-50 text-rose-500"
+                              }`}
+                            >
+                              <Heart size={13} className="fill-current" />
+                            </span>
+                          ) : null}
                         </div>
                         <div className={`mt-1.5 text-[22px] sm:text-[24px] font-semibold leading-[1.12] tracking-tight line-clamp-2 ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                           {book.title}
