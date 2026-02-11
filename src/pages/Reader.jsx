@@ -1352,6 +1352,18 @@ export default function Reader() {
     }
   };
 
+  const findHighlightByCfi = useCallback((cfiRange) => {
+    if (!cfiRange) return null;
+    const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
+    const target = normalizeCfi(cfiRange);
+    if (!target) return null;
+    return highlights.find((item) => {
+      const source = normalizeCfi(item?.cfiRange);
+      if (!source) return false;
+      return source === target || source.includes(target) || target.includes(source);
+    }) || null;
+  }, [highlights]);
+
   const handleSelection = useCallback((text, cfiRange, pos, isExisting = false) => {
     closePostHighlightPrompt();
     const trimmed = (text || '').trim();
@@ -1366,7 +1378,7 @@ export default function Reader() {
       pos,
       isExisting
     });
-    setSelectionMode(isExisting ? 'delete' : 'actions');
+    setSelectionMode('actions');
   }, [closePostHighlightPrompt]);
 
   const jumpToCfi = (cfi) => {
@@ -1425,6 +1437,31 @@ export default function Reader() {
           setPostHighlightNoteDraft(savedHighlight?.note || '');
           setPostHighlightNoteError('');
         }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      clearSelection();
+    }
+  };
+
+  const recolorExistingHighlight = async (color) => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !selection?.cfiRange) return;
+    const existing = findHighlightByCfi(selection.cfiRange);
+    if (!existing?.cfiRange) return;
+
+    const nextHighlight = {
+      ...existing,
+      color
+    };
+
+    try {
+      const updated = await saveHighlight(currentBook.id, nextHighlight);
+      if (updated) {
+        setHighlights(updated);
+        setBook({ ...currentBook, highlights: updated });
+        triggerHighlightFlash(nextHighlight.cfiRange);
       }
     } catch (err) {
       console.error(err);
@@ -3025,13 +3062,45 @@ export default function Reader() {
           <div className={`flex items-center gap-2 px-3 py-2 rounded-2xl shadow-xl border ${
             settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'
           }`}>
-            {selection.isExisting ? (
+            {selectionMode === 'colors' ? (
+              <>
+                {highlightColors.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => {
+                      if (selection.isExisting) {
+                        recolorExistingHighlight(c.value);
+                        return;
+                      }
+                      addHighlight(c.value);
+                    }}
+                    className="w-5 h-5 rounded-full border border-white/40 shadow"
+                    title={`${selection.isExisting ? 'Recolor' : 'Highlight'} ${c.name}`}
+                    style={{ background: c.value }}
+                  />
+                ))}
+                <button
+                  onClick={() => setSelectionMode('actions')}
+                  className="ml-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  Back
+                </button>
+              </>
+            ) : selection.isExisting ? (
               <>
                 <button
                   onClick={() => removeHighlight(selection.cfiRange)}
                   className="text-xs font-bold text-red-500 hover:text-red-600"
                 >
                   Delete highlight
+                </button>
+                <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+                <button
+                  onClick={() => setSelectionMode('colors')}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
+                >
+                  <Highlighter size={12} />
+                  Color
                 </button>
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
@@ -3048,24 +3117,6 @@ export default function Reader() {
                 >
                   <Languages size={12} />
                   Translate
-                </button>
-              </>
-            ) : selectionMode === 'colors' ? (
-              <>
-                {highlightColors.map((c) => (
-                  <button
-                    key={c.name}
-                    onClick={() => addHighlight(c.value)}
-                    className="w-5 h-5 rounded-full border border-white/40 shadow"
-                    title={`Highlight ${c.name}`}
-                    style={{ background: c.value }}
-                  />
-                ))}
-                <button
-                  onClick={() => setSelectionMode('actions')}
-                  className="ml-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  Back
                 </button>
               </>
             ) : (
