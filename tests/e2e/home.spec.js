@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 
 const fixturePath = path.resolve(process.cwd(), 'tests/fixtures/fixture.epub');
+const genreFixturePath = path.resolve(process.cwd(), 'tests/fixtures/fixture-genre.epub');
 
 async function openCollectionsPage(page) {
   await page.getByTestId('library-collections-trigger').click();
@@ -547,6 +548,61 @@ test('library card shows language and estimated pages metadata', async ({ page }
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
   await expect(page.getByTestId('book-meta-language').first()).toContainText(/English/i);
   await expect(page.getByTestId('book-meta-pages').first()).toContainText(/\d+\s*pages/i);
+});
+
+test('library card derives genre chip from epub subject metadata', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(genreFixturePath);
+
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await expect(page.getByTestId('book-meta-genre').first()).toContainText(/Science Fiction|Fiction/i);
+});
+
+test('library card shows reading state above genre chip when genre exists', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(genreFixturePath);
+
+  const card = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(card).toBeVisible();
+
+  const readingState = card.getByTestId('book-reading-state').first();
+  const genreChip = card.getByTestId('book-meta-genre').first();
+  await expect(readingState).toBeVisible();
+  await expect(genreChip).toBeVisible();
+
+  const readingBox = await readingState.boundingBox();
+  const genreBox = await genreChip.boundingBox();
+  expect(readingBox).toBeTruthy();
+  expect(genreBox).toBeTruthy();
+  expect(readingBox.y).toBeLessThan(genreBox.y);
+});
+
+test('library card keeps reading state when genre is missing', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+
+  const card = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId('book-reading-state').first()).toBeVisible();
+  await expect(card.getByTestId('book-meta-genre')).toHaveCount(0);
 });
 
 test('library quick filter chips show counts and apply filters', async ({ page }) => {

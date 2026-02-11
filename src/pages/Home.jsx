@@ -35,6 +35,7 @@ import {
   Calendar,
   Trash2,
   Clock,
+  History,
   Heart,
   Tag,
   Flame,
@@ -805,7 +806,7 @@ export default function Home() {
         const missingLanguage = !String(book.language || "").trim();
         const missingPages = !toPositiveNumber(book.estimatedPages);
         const missingGenreField = typeof book.genre !== "string";
-        const isLegacyVersion = (book.metadataVersion || 0) < 1;
+        const isLegacyVersion = (book.metadataVersion || 0) < 2;
         return missingLanguage || missingPages || missingGenreField || isLegacyVersion;
       })
       .map((book) => book.id);
@@ -2274,7 +2275,10 @@ export default function Home() {
   };
 
   const renderReadingStateBadge = (book, extraClasses = "") => (
-    <div className={`flex items-center gap-2 text-blue-500 text-xs font-semibold ${extraClasses}`}>
+    <div
+      data-testid="book-reading-state"
+      className={`flex items-center gap-2 text-blue-500 text-xs font-semibold ${extraClasses}`}
+    >
       <Clock size={12} />
       <span>{formatTime(book.readingTime)}</span>
     </div>
@@ -2292,6 +2296,19 @@ export default function Home() {
     );
   };
 
+  const renderGenreChip = (book, extraClasses = "") => {
+    const genre = formatGenreLabel(book.genre);
+    if (!genre) return null;
+    return (
+      <span
+        data-testid="book-meta-genre"
+        className={`inline-flex items-center rounded-full border border-pink-500 bg-pink-50 px-3 py-0.5 text-xs font-semibold tracking-wide text-pink-600 ${extraClasses}`}
+      >
+        {genre}
+      </span>
+    );
+  };
+
   const renderCollectionChips = (book, extraClasses = "") => {
     const ids = Array.isArray(book?.collectionIds) ? book.collectionIds : [];
     if (!ids.length) return null;
@@ -2303,7 +2320,7 @@ export default function Home() {
     const visible = resolved.slice(0, 2);
     const remaining = resolved.length - visible.length;
     return (
-      <div className={`mt-2 flex flex-wrap items-center gap-1.5 ${extraClasses}`}>
+      <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 ${extraClasses}`}>
         {visible.map((collection) => (
           <span
             key={`${book.id}-${collection.id}`}
@@ -2360,6 +2377,17 @@ export default function Home() {
     return `${hours}h ${remainingMinutes} min`;
   };
 
+  const getPublicationYearLabel = (book) => {
+    if (!book?.pubDate) return "";
+    const parsed = new Date(book.pubDate);
+    if (Number.isFinite(parsed.getTime())) {
+      return String(parsed.getFullYear());
+    }
+    const raw = compactWhitespace(String(book.pubDate));
+    const yearMatch = raw.match(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})\b/);
+    return yearMatch ? yearMatch[1] : "";
+  };
+
   const formatEstimatedTimeLeft = (seconds) => {
     const safeSeconds = Math.max(0, Number(seconds) || 0);
     if (!safeSeconds) return "";
@@ -2406,8 +2434,9 @@ export default function Home() {
 
     if (compact) {
       return (
-        <div className="mt-1 text-[10px] font-semibold text-gray-500">
-          {label}
+        <div className="mt-1 inline-flex items-center gap-1.5 text-[10px] font-semibold text-gray-500">
+          <History size={11} className="text-gray-400" />
+          <span>{label}</span>
         </div>
       );
     }
@@ -2415,8 +2444,9 @@ export default function Home() {
     return (
       <div
         data-testid="book-session-summary"
-        className="mt-2 text-[10px] font-semibold text-gray-500"
+        className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-500"
       >
+        <History size={12} className="text-gray-400" />
         <span data-testid="book-last-session">{label}</span>
       </div>
     );
@@ -2425,7 +2455,7 @@ export default function Home() {
   const renderMetadataBadges = (book) => {
     const language = formatLanguageLabel(book.language);
     const estimatedPages = toPositiveNumber(book.estimatedPages);
-    const genre = formatGenreLabel(book.genre);
+    const publicationYear = getPublicationYearLabel(book);
     const metaItems = [];
 
     if (language) {
@@ -2444,12 +2474,20 @@ export default function Home() {
         label: `${estimatedPages} pages`
       });
     }
-    if (!metaItems.length && !genre) return null;
+    if (publicationYear) {
+      metaItems.push({
+        key: "year",
+        testId: "book-meta-year",
+        icon: Calendar,
+        label: publicationYear
+      });
+    }
+    if (!metaItems.length) return null;
 
     return (
-      <div className="mt-2">
+      <div className="mt-1.5">
         {metaItems.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-gray-500">
             {metaItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2463,16 +2501,6 @@ export default function Home() {
                 </span>
               );
             })}
-          </div>
-        )}
-        {genre && (
-          <div className={metaItems.length ? "mt-2" : ""}>
-            <span
-              data-testid="book-meta-genre"
-              className="inline-flex items-center rounded-full border border-pink-500 bg-pink-50 px-3 py-0.5 text-xs font-semibold tracking-wide text-pink-600"
-            >
-              {genre}
-            </span>
           </div>
         )}
       </div>
@@ -3101,7 +3129,11 @@ export default function Home() {
                       </div>
                     )}
 
-                    <div className="absolute top-3 right-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <div
+                      className={`absolute top-4 right-4 z-10 flex translate-y-1 flex-col gap-2 rounded-2xl p-1 opacity-0 backdrop-blur-sm transition-all group-hover:translate-y-0 group-hover:opacity-100 ${
+                        isDarkLibraryTheme ? "bg-slate-900/45" : "bg-white/70"
+                      }`}
+                    >
                       {inTrash ? (
                         <>
                           <button
@@ -3281,11 +3313,11 @@ export default function Home() {
                   </div>
 
                   <div className="p-5 flex-1 flex flex-col">
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">
+                    <h3 className="font-semibold text-[#1A1A2E] text-[22px] leading-[1.12] mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">
                       {book.title}
                     </h3>
                     
-                    <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <div className="flex items-center gap-2 text-[#666666] text-[15px] mb-1">
                       <User size={14} />
                       <span className="truncate">{book.author}</span>
                     </div>
@@ -3293,26 +3325,15 @@ export default function Home() {
                     {renderMetadataBadges(book)}
                     {renderCollectionChips(book)}
 
-                    {renderReadingStateBadge(book, "mt-2")}
-                    {renderToReadTag(book, "mt-2")}
+                    {renderReadingStateBadge(book, "mt-1.5")}
                     {renderSessionTimeline(book)}
-
-                    <div className="mt-auto pt-4 flex justify-between items-center text-[10px] text-gray-400 font-medium">
-                      {book.pubDate ? (
-                        <div className="flex items-center gap-1">
-                          <Calendar size={10} />
-                          <span>{new Date(book.pubDate).getFullYear() || book.pubDate}</span>
-                        </div>
-                      ) : <span></span>}
-                      
-                      <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
+                    <div className="mt-1.5 min-h-[26px] flex flex-wrap items-center gap-1.5">
+                      {renderGenreChip(book)}
+                      {renderToReadTag(book)}
                     </div>
 
-                    <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2 overflow-hidden">
-                      <div 
-                        className="bg-blue-600 h-full transition-all duration-1000" 
-                        style={{ width: `${book.progress}%` }}
-                      />
+                    <div className="mt-auto pt-4 text-[11px] text-gray-400 font-medium text-right">
+                      <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
                     </div>
 
                   </div>
@@ -3357,11 +3378,11 @@ export default function Home() {
 
                   <div className="flex-1 p-4 flex flex-col md:flex-row md:items-center gap-4 min-w-0">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-gray-900 text-base leading-tight line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      <h3 className="font-semibold text-[#1A1A2E] text-[22px] leading-[1.12] line-clamp-1 group-hover:text-blue-600 transition-colors">
                         {book.title}
                       </h3>
 
-                      <div className="mt-1 flex items-center gap-2 text-gray-500 text-sm">
+                      <div className="mt-1 flex items-center gap-2 text-[#666666] text-[15px]">
                         <User size={14} />
                         <span className="truncate">{book.author}</span>
                       </div>
@@ -3369,25 +3390,15 @@ export default function Home() {
                       {renderMetadataBadges(book)}
                       {renderCollectionChips(book)}
 
-                      {renderReadingStateBadge(book, "mt-2")}
-                      {renderToReadTag(book, "mt-2")}
+                      {renderReadingStateBadge(book, "mt-1.5")}
                       {renderSessionTimeline(book)}
-
-                      <div className="mt-2 text-[11px] text-gray-400 flex items-center justify-between gap-3">
-                        <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
-                        {book.pubDate ? (
-                          <span className="inline-flex items-center gap-1">
-                            <Calendar size={10} />
-                            <span>{new Date(book.pubDate).getFullYear() || book.pubDate}</span>
-                          </span>
-                        ) : <span />}
+                      <div className="mt-1.5 min-h-[26px] flex flex-wrap items-center gap-1.5">
+                        {renderGenreChip(book)}
+                        {renderToReadTag(book)}
                       </div>
 
-                      <div className="w-full bg-gray-100 h-1.5 rounded-full mt-3 overflow-hidden">
-                        <div
-                          className="bg-blue-600 h-full transition-all duration-700"
-                          style={{ width: `${book.progress}%` }}
-                        />
+                      <div className="mt-2 text-[11px] text-gray-400">
+                        <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
                       </div>
                     </div>
 
