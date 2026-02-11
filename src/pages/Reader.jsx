@@ -185,6 +185,9 @@ export default function Reader() {
   const [returnSpot, setReturnSpot] = useState(null);
   const returnSpotTimerRef = useRef(null);
   const currentLocationCfiRef = useRef('');
+  const [currentLocationCfi, setCurrentLocationCfi] = useState('');
+  const [lastArrowScrollStep, setLastArrowScrollStep] = useState(0);
+  const arrowScrollStateRef = useRef({ key: '', streak: 0, lastAt: 0 });
   const [footnotePreview, setFootnotePreview] = useState(null);
   const footnotePreviewPanelRef = useRef(null);
   const [postHighlightPrompt, setPostHighlightPrompt] = useState(null);
@@ -2010,6 +2013,7 @@ export default function Reader() {
     if (!loc?.start || !bookId) return;
     lastActiveRef.current = Date.now();
     currentLocationCfiRef.current = loc.start.cfi || '';
+    setCurrentLocationCfi(currentLocationCfiRef.current);
     const nextProgress = Math.min(Math.max(Math.floor((loc.percentage || 0) * 100), 0), 100);
     queueProgressPersist(loc.start.cfi, loc.percentage || 0);
     setProgressPct(nextProgress);
@@ -2404,6 +2408,7 @@ export default function Reader() {
   useEffect(() => {
     if (typeof book?.lastLocation === 'string' && book.lastLocation.trim()) {
       currentLocationCfiRef.current = book.lastLocation.trim();
+      setCurrentLocationCfi(currentLocationCfiRef.current);
     }
   }, [book?.id, book?.lastLocation]);
 
@@ -2569,6 +2574,22 @@ export default function Reader() {
   }, [recentAnnotationSearchQueries]);
 
   useEffect(() => {
+    const resetArrowScrollState = () => {
+      arrowScrollStateRef.current = { key: '', streak: 0, lastAt: 0 };
+    };
+
+    const computeArrowScrollDelta = (event, containerHeight) => {
+      const now = Date.now();
+      const prev = arrowScrollStateRef.current;
+      const sameDirection = prev.key === event.key;
+      const continuing = sameDirection && (event.repeat || now - prev.lastAt < 180);
+      const streak = continuing ? prev.streak + 1 : 1;
+      arrowScrollStateRef.current = { key: event.key, streak, lastAt: now };
+
+      const stepRatio = Math.min(0.16 + (streak - 1) * 0.06, 0.55);
+      return Math.max(36, Math.round(containerHeight * stepRatio));
+    };
+
     const handleKey = (event) => {
       const isFindShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
       if (isFindShortcut) {
@@ -2619,17 +2640,74 @@ export default function Reader() {
       } else {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault();
+          const direction = event.key === 'ArrowDown' ? 1 : -1;
+          const scrollContainer = rendition?.manager?.container;
+          if (scrollContainer && typeof scrollContainer.scrollBy === 'function') {
+            const delta = computeArrowScrollDelta(event, scrollContainer.clientHeight || window.innerHeight || 720);
+            setLastArrowScrollStep(delta);
+            scrollContainer.scrollBy({ top: direction * delta, left: 0, behavior: 'smooth' });
+            return;
+          }
+
+          const sourceWindow = event.view && typeof event.view.scrollBy === 'function'
+            ? event.view
+            : null;
+          if (sourceWindow) {
+            const delta = computeArrowScrollDelta(event, sourceWindow.innerHeight || window.innerHeight || 720);
+            setLastArrowScrollStep(delta);
+            sourceWindow.scrollBy({ top: direction * delta, left: 0, behavior: 'smooth' });
+            return;
+          }
+
           const content = rendition.getContents()[0];
           const win = content?.window;
           if (!win) return;
-          const delta = Math.round(win.innerHeight * 0.85);
-          win.scrollBy({ top: event.key === 'ArrowDown' ? delta : -delta, left: 0, behavior: 'smooth' });
+          const delta = computeArrowScrollDelta(event, win.innerHeight || window.innerHeight || 720);
+          setLastArrowScrollStep(delta);
+          win.scrollBy({ top: direction * delta, left: 0, behavior: 'smooth' });
         }
       }
     };
 
-    window.addEventListener('keydown', handleKey, { passive: false });
-    return () => window.removeEventListener('keydown', handleKey);
+    const handleKeyUp = (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        resetArrowScrollState();
+      }
+    };
+
+    const keydownOptions = { passive: false };
+    const attachedContentWindows = new Set();
+
+    const attachContentWindowListeners = () => {
+      const contents = rendition?.getContents?.() || [];
+      contents.forEach((content) => {
+        const win = content?.window;
+        if (!win || attachedContentWindows.has(win)) return;
+        win.addEventListener('keydown', handleKey, keydownOptions);
+        win.addEventListener('keyup', handleKeyUp);
+        attachedContentWindows.add(win);
+      });
+    };
+
+    window.addEventListener('keydown', handleKey, keydownOptions);
+    window.addEventListener('keyup', handleKeyUp);
+    attachContentWindowListeners();
+
+    const onRendered = () => attachContentWindowListeners();
+    const onRelocated = () => attachContentWindowListeners();
+    rendition?.on?.('rendered', onRendered);
+    rendition?.on?.('relocated', onRelocated);
+
+    return () => {
+      window.removeEventListener('keydown', handleKey, keydownOptions);
+      window.removeEventListener('keyup', handleKeyUp);
+      attachedContentWindows.forEach((win) => {
+        win.removeEventListener('keydown', handleKey, keydownOptions);
+        win.removeEventListener('keyup', handleKeyUp);
+      });
+      rendition?.off?.('rendered', onRendered);
+      rendition?.off?.('relocated', onRelocated);
+    };
   }, [rendition, settings.flow, showSearchMenu, showAnnotationSearchMenu, focusedSearchCfi]);
 
   const phoneticText =
@@ -2700,6 +2778,12 @@ export default function Reader() {
       </span>
       <span className="sr-only" data-testid="selection-cfi">
         {selection?.cfiRange || ''}
+      </span>
+      <span className="sr-only" data-testid="reader-current-cfi">
+        {currentLocationCfi || ''}
+      </span>
+      <span className="sr-only" data-testid="reader-last-arrow-scroll-step">
+        {String(lastArrowScrollStep)}
       </span>
       
       <style>{`

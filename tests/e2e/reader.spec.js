@@ -18,6 +18,72 @@ async function openFixtureBook(page) {
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 }
 
+async function openFixtureBookInScrolledMode(page) {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          if (!didSeed && payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+            const nextPayload = {
+              ...payload,
+              readerSettings: {
+                ...(payload.readerSettings || {}),
+                flow: 'scrolled',
+                theme: 'light',
+                fontSize: 100,
+                fontFamily: 'publisher'
+              }
+            };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+}
+
 async function selectTextInBook(page) {
   const frame = page.frameLocator('iframe');
   const textBlock = frame.locator('p, span, div').first();
@@ -267,6 +333,181 @@ test('Ctrl/Cmd+F opens reader search and focuses input, Escape closes it', async
 
   await page.keyboard.press('Escape');
   await expect(searchInput).toHaveCount(0);
+});
+
+test('ArrowRight and ArrowLeft navigate in paginated book mode', async ({ page }) => {
+  await openFixtureBook(page);
+
+  const currentCfi = page.getByTestId('reader-current-cfi');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe('');
+  const initialCfi = ((await currentCfi.textContent()) || '').trim();
+
+  const frame = page.frameLocator('iframe');
+  await frame.locator('body').click({ position: { x: 80, y: 80 } });
+
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe(initialCfi);
+  const nextCfi = ((await currentCfi.textContent()) || '').trim();
+
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe(nextCfi);
+});
+
+test('ArrowUp and ArrowDown scroll in infinite mode', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          if (!didSeed && payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+            const nextPayload = {
+              ...payload,
+              readerSettings: {
+                ...(payload.readerSettings || {}),
+                flow: 'scrolled',
+                theme: 'light',
+                fontSize: 100,
+                fontFamily: 'publisher'
+              }
+            };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+  const currentCfi = page.getByTestId('reader-current-cfi');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe('');
+  const initialCfi = ((await currentCfi.textContent()) || '').trim();
+
+  const frame = page.frameLocator('iframe').first();
+  await frame.locator('body').click({ position: { x: 80, y: 120 } });
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe(initialCfi);
+
+  const downCfi = ((await currentCfi.textContent()) || '').trim();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe(downCfi);
+});
+
+test('holding ArrowDown increases infinite-mode scroll step', async ({ page }) => {
+  await openFixtureBookInScrolledMode(page);
+
+  const frame = page.frameLocator('iframe').first();
+  await frame.locator('body').click({ position: { x: 80, y: 120 } });
+
+  const stepValue = page.getByTestId('reader-last-arrow-scroll-step');
+  await page.keyboard.press('ArrowDown');
+  const singleStep = Number(((await stepValue.textContent()) || '0').trim());
+  expect(singleStep).toBeGreaterThan(0);
+
+  for (let i = 0; i < 4; i += 1) {
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+        cancelable: true,
+        repeat: true
+      }));
+    });
+    await page.waitForTimeout(25);
+  }
+
+  const acceleratedStep = Number(((await stepValue.textContent()) || '0').trim());
+  expect(acceleratedStep).toBeGreaterThan(singleStep);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keyup', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true
+    }));
+  });
+});
+
+test('ArrowDown acceleration resets after key release', async ({ page }) => {
+  await openFixtureBookInScrolledMode(page);
+
+  const frame = page.frameLocator('iframe').first();
+  await frame.locator('body').click({ position: { x: 80, y: 120 } });
+
+  const stepValue = page.getByTestId('reader-last-arrow-scroll-step');
+  await page.keyboard.press('ArrowDown');
+  const baselineStep = Number(((await stepValue.textContent()) || '0').trim());
+  expect(baselineStep).toBeGreaterThan(0);
+
+  for (let i = 0; i < 3; i += 1) {
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+        cancelable: true,
+        repeat: true
+      }));
+    });
+    await page.waitForTimeout(20);
+  }
+
+  const acceleratedStep = Number(((await stepValue.textContent()) || '0').trim());
+  expect(acceleratedStep).toBeGreaterThan(baselineStep);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keyup', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true
+    }));
+  });
+
+  await page.keyboard.press('ArrowDown');
+  const resetStep = Number(((await stepValue.textContent()) || '0').trim());
+  expect(resetStep).toBeLessThanOrEqual(acceleratedStep);
 });
 
 test('clicking a search result jumps and closes the search panel', async ({ page }) => {
