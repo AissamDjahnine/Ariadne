@@ -1105,6 +1105,64 @@ test('continue reading card shows favorite badge for favorite books', async ({ p
   await expect(page.getByTestId('continue-reading-favorite-badge').first()).toBeVisible();
 });
 
+test('reading snapshot renders in left column above workspace sidebar', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const snapshot = page.getByTestId('reading-snapshot-card');
+  const sidebar = page.getByTestId('library-sidebar');
+  const heading = page.getByRole('heading', { name: 'My Library' });
+
+  await expect(snapshot).toBeVisible();
+  await expect(sidebar).toBeVisible();
+  await expect(snapshot).toContainText(/reading snapshot/i);
+  await expect(snapshot).toContainText(/hours/i);
+  await expect(snapshot).toContainText(/pages done/i);
+
+  const [snapshotBox, sidebarBox, headingBox] = await Promise.all([
+    snapshot.boundingBox(),
+    sidebar.boundingBox(),
+    heading.boundingBox()
+  ]);
+
+  expect(snapshotBox).toBeTruthy();
+  expect(sidebarBox).toBeTruthy();
+  expect(headingBox).toBeTruthy();
+  expect(snapshotBox.y).toBeLessThan(sidebarBox.y);
+  expect(snapshotBox.x).toBeLessThan(headingBox.x);
+});
+
+test('reading snapshot is visible only on My Library section', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await expect(page.getByTestId('reading-snapshot-card')).toBeVisible();
+
+  await page.getByTestId('library-collections-trigger').click();
+  await expect(page.getByTestId('collections-board')).toBeVisible();
+  await expect(page.getByTestId('reading-snapshot-card')).toHaveCount(0);
+
+  await page.getByTestId('sidebar-my-library').click();
+  await expect(page.getByRole('heading', { name: 'My Library' })).toBeVisible();
+  await expect(page.getByTestId('reading-snapshot-card')).toBeVisible();
+});
+
 test('library cards remove quick action row and still open reader on click', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {

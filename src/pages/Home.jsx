@@ -2377,6 +2377,14 @@ export default function Home() {
     return `${hours}h ${remainingMinutes} min`;
   };
 
+  const formatRoundedHours = (seconds) => {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    if (!safeSeconds) return "0h";
+    const hours = safeSeconds / 3600;
+    if (hours >= 10) return `${Math.round(hours)}h`;
+    return `${Math.round(hours * 10) / 10}h`;
+  };
+
   const getPublicationYearLabel = (book) => {
     if (!book?.pubDate) return "";
     const parsed = new Date(book.pubDate);
@@ -2591,18 +2599,109 @@ export default function Home() {
   const allVisibleTrashSelected =
     visibleTrashIds.length > 0 &&
     visibleTrashIds.every((id) => selectedTrashBookIds.includes(id));
+  const readingSnapshot = useMemo(() => {
+    const liveBooks = books.filter((book) => !book?.isDeleted);
+    const totalBooks = liveBooks.length;
+    const completedBooks = liveBooks.filter((book) => normalizeNumber(book.progress) >= 100);
+    const finishedBooks = completedBooks.length;
+    const completedPages = completedBooks.reduce((sum, book) => sum + (toPositiveNumber(book?.estimatedPages) || 0), 0);
+    const totalSeconds = liveBooks.reduce((sum, book) => sum + Math.max(0, Number(book?.readingTime) || 0), 0);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todaySeconds = liveBooks.reduce((sum, book) => {
+      const sessions = Array.isArray(book?.readingSessions) ? book.readingSessions : [];
+      return sum + sessions.reduce((sessionSum, session) => {
+        const endAt = new Date(session?.endAt || session?.startAt || 0);
+        if (!Number.isFinite(endAt.getTime()) || endAt < todayStart) return sessionSum;
+        return sessionSum + Math.max(0, Number(session?.seconds) || 0);
+      }, 0);
+    }, 0);
+    return {
+      totalBooks,
+      finishedBooks,
+      completedPages,
+      totalSeconds,
+      todaySeconds
+    };
+  }, [books]);
+  const showReadingSnapshot = shouldShowLibraryHomeContent;
+  const readingSnapshotProgress = readingSnapshot.totalBooks > 0
+    ? Math.max(0, Math.min(100, Math.round((readingSnapshot.finishedBooks / readingSnapshot.totalBooks) * 100)))
+    : 0;
 
   return (
     <div className={`min-h-screen p-6 md:p-12 font-sans ${isDarkLibraryTheme ? "bg-slate-950 text-slate-100" : "bg-gray-50 text-gray-900"}`}>
       <div className="mx-auto max-w-[1480px] md:grid md:grid-cols-[240px_minmax(0,1fr)] md:gap-8">
-        <LibraryWorkspaceSidebar
-          librarySection={librarySection}
-          isDarkLibraryTheme={isDarkLibraryTheme}
-          notesCount={notesCenterEntries.length}
-          highlightsCount={highlightsCenterEntries.length}
-          trashCount={trashedBooksCount}
-          onSelectSection={handleSidebarSectionSelect}
-        />
+        <div className="hidden md:flex md:flex-col">
+          {showReadingSnapshot && (
+            <aside
+              data-testid="reading-snapshot-card"
+              className={`rounded-[24px] border p-5 shadow-[0_14px_30px_rgba(15,23,42,0.08)] ${
+                isDarkLibraryTheme ? "border-slate-700 bg-slate-900/90" : "border-gray-200 bg-white"
+              }`}
+            >
+              <div className={`text-[12px] font-bold uppercase tracking-[0.16em] ${
+                isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"
+              }`}>
+                Reading Snapshot
+              </div>
+              <div className="mt-4 flex items-center gap-4">
+                <div
+                  className="relative h-20 w-20 shrink-0 rounded-full"
+                  style={{
+                    background: `conic-gradient(${isDarkLibraryTheme ? "#60a5fa" : "#2563eb"} ${readingSnapshotProgress}%, ${isDarkLibraryTheme ? "#334155" : "#e5e7eb"} ${readingSnapshotProgress}% 100%)`
+                  }}
+                >
+                  <div className={`absolute inset-[7px] rounded-full ${isDarkLibraryTheme ? "bg-slate-900" : "bg-white"}`} />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
+                    <span className={`text-[18px] font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                      {readingSnapshot.finishedBooks}
+                    </span>
+                    <span className={`text-[10px] font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                      / {readingSnapshot.totalBooks || 0}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="inline-flex items-center gap-2">
+                    <Clock size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+                    <div className="leading-tight">
+                      <div className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>hours</div>
+                      <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                        {formatRoundedHours(readingSnapshot.totalSeconds)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="inline-flex items-center gap-2">
+                    <FileText size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+                    <div className="leading-tight">
+                      <div className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>pages done</div>
+                      <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                        {readingSnapshot.completedPages}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={`mt-4 inline-flex w-full items-center gap-2 border-t pt-3 text-[12px] ${isDarkLibraryTheme ? "border-slate-700 text-slate-400" : "border-gray-100 text-gray-600"}`}>
+                <History size={14} className={isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"} />
+                <span className="font-medium">Today</span>
+                <span className={`ml-1 font-semibold ${isDarkLibraryTheme ? "text-blue-300" : "text-blue-600"}`}>
+                  {formatSessionDuration(readingSnapshot.todaySeconds)}
+                </span>
+              </div>
+            </aside>
+          )}
+          <LibraryWorkspaceSidebar
+            librarySection={librarySection}
+            isDarkLibraryTheme={isDarkLibraryTheme}
+            notesCount={notesCenterEntries.length}
+            highlightsCount={highlightsCenterEntries.length}
+            trashCount={trashedBooksCount}
+            onSelectSection={handleSidebarSectionSelect}
+            className={showReadingSnapshot ? "mt-3" : ""}
+          />
+        </div>
 
         <div className="w-full min-w-0">
         <LibraryWorkspaceMobileNav
@@ -2622,19 +2721,21 @@ export default function Home() {
               </>
             ) : (
               <>
-                <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
-                  {isCollectionsPage ? "My Collections" : isTrashSection ? "Trash" : "My Library"}
-                </h1>
-                <p className="text-gray-500 mt-1">
-                  {isCollectionsPage
-                    ? `${collections.length} collection${collections.length === 1 ? "" : "s"}`
-                    : isTrashSection
-                    ? `Showing ${sortedTrashBooks.length} of ${trashedBooksCount} deleted books`
-                    : sortedBooks.length === activeBooks.length
-                    ? `You have ${activeBooks.length} books`
-                    : `Showing ${sortedBooks.length} of ${activeBooks.length} books`}
-                  {!isTrashSection && !isCollectionsPage && trashedBooksCount > 0 ? ` · ${trashedBooksCount} in trash` : ""}
-                </p>
+                <div>
+                  <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
+                    {isCollectionsPage ? "My Collections" : isTrashSection ? "Trash" : "My Library"}
+                  </h1>
+                  <p className="text-gray-500 mt-1">
+                    {isCollectionsPage
+                      ? `${collections.length} collection${collections.length === 1 ? "" : "s"}`
+                      : isTrashSection
+                      ? `Showing ${sortedTrashBooks.length} of ${trashedBooksCount} deleted books`
+                      : sortedBooks.length === activeBooks.length
+                      ? `You have ${activeBooks.length} books`
+                      : `Showing ${sortedBooks.length} of ${activeBooks.length} books`}
+                    {!isTrashSection && !isCollectionsPage && trashedBooksCount > 0 ? ` · ${trashedBooksCount} in trash` : ""}
+                  </p>
+                </div>
                 {!isCollectionsPage && !isTrashSection && (
                   <>
                     <div

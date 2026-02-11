@@ -14,22 +14,23 @@ export function LibraryWorkspaceSidebar({
   notesCount,
   highlightsCount,
   trashCount,
-  onSelectSection
+  onSelectSection,
+  className = ""
 }) {
-  const sidebarButtonBase = "flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition";
+  const sidebarButtonBase = "group flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-2.5 text-sm font-semibold transition";
   const sidebarButtonIdle = isDarkLibraryTheme
     ? "border-slate-700 bg-slate-900 text-slate-200 hover:border-blue-500 hover:text-blue-300"
-    : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700";
+    : "border-gray-200 bg-white text-[#1A1A2E] hover:border-blue-200 hover:text-blue-700";
   const sidebarButtonActive = isDarkLibraryTheme
-    ? "border-blue-500 bg-blue-950 text-blue-200"
-    : "border-blue-200 bg-blue-50 text-blue-700";
+    ? "border-blue-500 bg-blue-950 text-blue-200 shadow-[0_8px_20px_rgba(30,64,175,0.22)]"
+    : "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_10px_18px_rgba(37,99,235,0.14)]";
 
   return (
     <aside
       data-testid="library-sidebar"
-      className={`hidden md:block h-fit sticky top-6 rounded-3xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/80" : "border-gray-200 bg-white/90"}`}
+      className={`hidden md:block h-fit sticky top-8 rounded-[24px] border p-4 shadow-[0_14px_26px_rgba(15,23,42,0.08)] ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/80" : "border-gray-200 bg-white/90"} ${className}`}
     >
-      <div className={`text-[11px] font-bold uppercase tracking-[0.2em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Workspace</div>
+      <div className={`text-[12px] font-bold uppercase tracking-[0.16em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>Workspace</div>
       <nav className="mt-3 space-y-2">
         <button
           type="button"
@@ -37,7 +38,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("library")}
           className={`${sidebarButtonBase} ${librarySection === "library" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <BookIcon size={16} />
+          <BookIcon size={17} className={librarySection === "library" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>My Library</span>
         </button>
         <button
@@ -46,7 +47,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("collections")}
           className={`${sidebarButtonBase} ${librarySection === "collections" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <FolderClosed size={16} />
+          <FolderClosed size={17} className={librarySection === "collections" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>My Collections</span>
         </button>
         <button
@@ -55,7 +56,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("notes")}
           className={`${sidebarButtonBase} ${librarySection === "notes" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <FileText size={16} />
+          <FileText size={17} className={librarySection === "notes" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>Notes Center</span>
           <span className={`ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
             librarySection === "notes"
@@ -71,7 +72,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("highlights")}
           className={`${sidebarButtonBase} ${librarySection === "highlights" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <Highlighter size={16} />
+          <Highlighter size={17} className={librarySection === "highlights" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>Highlights Center</span>
           <span className={`ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
             librarySection === "highlights"
@@ -87,7 +88,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("trash")}
           className={`${sidebarButtonBase} ${librarySection === "trash" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <Trash2 size={16} />
+          <Trash2 size={17} className={librarySection === "trash" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>Trash</span>
           <span className={`ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
             librarySection === "trash"
@@ -103,7 +104,7 @@ export function LibraryWorkspaceSidebar({
           onClick={() => onSelectSection("account")}
           className={`${sidebarButtonBase} ${librarySection === "account" ? sidebarButtonActive : sidebarButtonIdle}`}
         >
-          <CircleUserRound size={16} />
+          <CircleUserRound size={17} className={librarySection === "account" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>Account</span>
         </button>
       </nav>
