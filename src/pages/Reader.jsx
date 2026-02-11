@@ -127,6 +127,9 @@ export default function Reader() {
   const [selectedHighlights, setSelectedHighlights] = useState([]);
   const [editingHighlight, setEditingHighlight] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
+  const [pendingHighlightDelete, setPendingHighlightDelete] = useState(null);
+  const pendingHighlightDeleteRef = useRef(null);
+  const pendingHighlightDeleteTimerRef = useRef(null);
   const [flashingHighlightCfi, setFlashingHighlightCfi] = useState(null);
   const [flashingHighlightPulse, setFlashingHighlightPulse] = useState(0);
   const highlightFlashTimersRef = useRef([]);
@@ -244,9 +247,20 @@ export default function Reader() {
     clearReturnSpotTimer();
   }, [clearReturnSpotTimer]);
 
+  useEffect(() => () => {
+    if (pendingHighlightDeleteTimerRef.current) {
+      clearTimeout(pendingHighlightDeleteTimerRef.current);
+      pendingHighlightDeleteTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  useEffect(() => {
+    pendingHighlightDeleteRef.current = pendingHighlightDelete;
+  }, [pendingHighlightDelete]);
 
   useEffect(() => {
     postHighlightPromptStateRef.current = postHighlightPrompt;
@@ -1718,20 +1732,99 @@ export default function Reader() {
   };
 
   const removeHighlight = async (cfiRange) => {
+    const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
+    const clearPendingTimer = () => {
+      if (pendingHighlightDeleteTimerRef.current) {
+        clearTimeout(pendingHighlightDeleteTimerRef.current);
+        pendingHighlightDeleteTimerRef.current = null;
+      }
+    };
+
+    const clearPendingState = (payload = null) => {
+      clearPendingTimer();
+      if (!payload || pendingHighlightDeleteRef.current === payload) {
+        pendingHighlightDeleteRef.current = null;
+        setPendingHighlightDelete(null);
+      }
+    };
+
+    const finalizePendingDelete = async (payload = pendingHighlightDeleteRef.current) => {
+      if (!payload?.bookId || !payload?.highlight?.cfiRange) return;
+      clearPendingState(payload);
+      try {
+        const updated = await deleteHighlight(payload.bookId, payload.highlight.cfiRange);
+        if (updated) {
+          setHighlights(updated);
+          setBook((prev) => {
+            if (!prev || prev.id !== payload.bookId) return prev;
+            return { ...prev, highlights: updated };
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        if (Array.isArray(payload.previousHighlights)) {
+          setHighlights(payload.previousHighlights);
+          setBook((prev) => {
+            if (!prev || prev.id !== payload.bookId) return prev;
+            return { ...prev, highlights: payload.previousHighlights };
+          });
+        }
+      }
+    };
+
     const currentBook = bookRef.current;
     if (!currentBook || !cfiRange) return;
-    try {
-      const updated = await deleteHighlight(currentBook.id, cfiRange);
-      if (updated) {
-        setHighlights(updated);
-        setBook({ ...currentBook, highlights: updated });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      clearSelection();
+
+    if (pendingHighlightDeleteRef.current) {
+      await finalizePendingDelete();
     }
+
+    const target = findHighlightByCfi(cfiRange);
+    if (!target?.cfiRange) {
+      clearSelection();
+      return;
+    }
+
+    const targetKey = normalizeCfi(target.cfiRange);
+    const previousHighlights = Array.isArray(highlights) ? highlights : [];
+    const nextHighlights = previousHighlights.filter((item) => normalizeCfi(item?.cfiRange) !== targetKey);
+    const payload = {
+      bookId: currentBook.id,
+      highlight: target,
+      previousHighlights
+    };
+
+    setHighlights(nextHighlights);
+    setBook((prev) => {
+      if (!prev || prev.id !== currentBook.id) return prev;
+      return { ...prev, highlights: nextHighlights };
+    });
+
+    pendingHighlightDeleteRef.current = payload;
+    setPendingHighlightDelete(payload);
+    clearPendingTimer();
+    pendingHighlightDeleteTimerRef.current = setTimeout(() => {
+      finalizePendingDelete(payload);
+    }, 5000);
+
+    clearSelection();
   };
+
+  const undoPendingHighlightDelete = useCallback(() => {
+    const pending = pendingHighlightDeleteRef.current;
+    if (!pending?.highlight?.cfiRange || !Array.isArray(pending.previousHighlights)) return;
+    if (pendingHighlightDeleteTimerRef.current) {
+      clearTimeout(pendingHighlightDeleteTimerRef.current);
+      pendingHighlightDeleteTimerRef.current = null;
+    }
+    pendingHighlightDeleteRef.current = null;
+    setPendingHighlightDelete(null);
+    setHighlights(pending.previousHighlights);
+    setBook((prev) => {
+      if (!prev || prev.id !== pending.bookId) return prev;
+      return { ...prev, highlights: pending.previousHighlights };
+    });
+  }, []);
 
   const openNoteEditor = (highlight) => {
     closePostHighlightPrompt();
@@ -2129,6 +2222,12 @@ export default function Reader() {
     initialJumpAppliedRef.current = false;
     initialSearchAppliedRef.current = false;
     initialFlashAppliedRef.current = false;
+    pendingHighlightDeleteRef.current = null;
+    setPendingHighlightDelete(null);
+    if (pendingHighlightDeleteTimerRef.current) {
+      clearTimeout(pendingHighlightDeleteTimerRef.current);
+      pendingHighlightDeleteTimerRef.current = null;
+    }
   }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
@@ -3772,6 +3871,31 @@ export default function Reader() {
               aria-label="Dismiss return spot"
             >
               <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pendingHighlightDelete && (
+        <div
+          data-testid="highlight-undo-toast"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[69]"
+        >
+          <div className={`flex items-center gap-2 rounded-full border px-3 py-2 shadow-xl backdrop-blur ${
+            isReaderDark
+              ? 'bg-gray-800/95 border-gray-700 text-gray-100'
+              : 'bg-white/95 border-gray-200 text-gray-800'
+          }`}>
+            <span className={`text-xs font-medium ${isReaderDark ? 'text-gray-200' : 'text-gray-700'}`}>
+              Highlight deleted
+            </span>
+            <button
+              type="button"
+              data-testid="highlight-undo-action"
+              onClick={undoPendingHighlightDelete}
+              className="rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700"
+            >
+              Undo
             </button>
           </div>
         </div>

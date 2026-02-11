@@ -896,6 +896,90 @@ test('highlights selection controls drive export availability', async ({ page })
   await expect(panel.getByRole('button', { name: 'Unselect all' })).toBeVisible();
 });
 
+test('highlight delete supports undo in reader panel', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = [
+              {
+                cfiRange: 'epubcfi(/6/2[seed-hl-undo]!/4/2/2,/4/2/10)',
+                text: 'Seed highlight for undo delete test',
+                color: '#fcd34d'
+              }
+            ];
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('highlight-item')).toHaveCount(1);
+
+  await panel
+    .getByTestId('highlight-item')
+    .first()
+    .locator('button')
+    .filter({ hasText: /^Delete$/ })
+    .click();
+  await expect(page.getByTestId('highlight-undo-toast')).toBeVisible();
+  await expect(panel.getByTestId('highlight-item')).toHaveCount(0);
+
+  await page.getByTestId('highlight-undo-action').click();
+  await expect(page.getByTestId('highlight-undo-toast')).toHaveCount(0);
+  await expect(panel.getByTestId('highlight-item')).toHaveCount(1);
+});
+
 test('clicking a highlight item triggers temporary in-book flash', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');

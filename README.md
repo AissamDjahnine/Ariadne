@@ -126,6 +126,7 @@ Smart Reader is built around real reading behavior:
 - Existing highlights support in-place color changes from the same contextual popup (no delete/recreate needed)
 - Right after choosing a highlight color, an inline note composer opens near the selection so notes can be captured immediately
 - Highlights that include notes now show an inline note marker (`✎`) near the text; clicking it opens the note editor directly
+- Highlight deletion now includes a 5-second undo toast in the reader
 - Add and edit notes on highlights
 - Jump to any saved highlight instantly
 - Highlight jumps use a single subtle flash cue (in panel and when opening from Highlights Center)
