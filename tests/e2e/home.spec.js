@@ -646,8 +646,7 @@ test('status and flag filters can be combined', async ({ page }) => {
   await expect(bookLink).toBeVisible();
 
   await page.getByTestId('book-toggle-to-read').first().click({ force: true });
-  await bookLink.hover();
-  await bookLink.locator('button[title="Favorite"]').click({ force: true });
+  await page.locator('button[title="Favorite"]').first().click({ force: true });
 
   const filterSelect = page.getByTestId('library-filter');
   const favoritesQuickFilter = page.getByTestId('library-quick-filter-favorites');
