@@ -3693,10 +3693,6 @@ export default function Reader() {
         </div>
       </div>
 
-      <div className={`px-4 py-2 text-[11px] tracking-wide uppercase font-bold ${settings.theme === 'dark' ? 'bg-yellow-900/30 text-yellow-300' : 'bg-yellow-50 text-yellow-700'}`}>
-        AI FEATURES: NOT AVAILABLE NOW
-      </div>
-
       <div className="flex-1 overflow-hidden relative">
         <BookView 
           bookData={book.data} settings={settings} initialLocation={book.lastLocation}
