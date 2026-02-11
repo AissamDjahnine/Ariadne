@@ -24,6 +24,43 @@ const DEFAULT_READER_SETTINGS = {
   flow: 'paginated',
   fontFamily: 'publisher'
 };
+const READER_SEARCH_HISTORY_KEY = 'reader-search-history-v1';
+const READER_ANNOTATION_HISTORY_KEY = 'reader-annotation-search-history-v1';
+const MAX_RECENT_QUERIES = 8;
+
+const parseStoredQueryHistory = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    const cleaned = [];
+    parsed.forEach((value) => {
+      if (typeof value !== 'string') return;
+      const term = value.trim();
+      if (!term) return;
+      const normalized = term.toLowerCase();
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      cleaned.push(term);
+    });
+    return cleaned.slice(0, MAX_RECENT_QUERIES);
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+};
+
+const appendRecentQuery = (history, query) => {
+  const term = (query || '').trim();
+  if (!term) return history;
+  const normalized = term.toLowerCase();
+  const next = [
+    term,
+    ...history.filter((item) => item.toLowerCase() !== normalized)
+  ];
+  return next.slice(0, MAX_RECENT_QUERIES);
+};
 
 function OwlIcon({ size = 18, className = '' }) {
   return (
@@ -95,9 +132,17 @@ export default function Reader() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+  const [recentSearchQueries, setRecentSearchQueries] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    return parseStoredQueryHistory(window.localStorage.getItem(READER_SEARCH_HISTORY_KEY));
+  });
   const [annotationSearchQuery, setAnnotationSearchQuery] = useState('');
   const [annotationSearchResults, setAnnotationSearchResults] = useState([]);
   const [activeAnnotationSearchIndex, setActiveAnnotationSearchIndex] = useState(-1);
+  const [recentAnnotationSearchQueries, setRecentAnnotationSearchQueries] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    return parseStoredQueryHistory(window.localStorage.getItem(READER_ANNOTATION_HISTORY_KEY));
+  });
   const [focusedSearchCfi, setFocusedSearchCfi] = useState(null);
   const [searchHighlightCount, setSearchHighlightCount] = useState(0);
   const activeSearchCfi = activeSearchIndex >= 0 ? (searchResults[activeSearchIndex]?.cfi || null) : null;
@@ -1058,6 +1103,26 @@ export default function Reader() {
     setShowAnnotationSearchMenu(false);
   };
 
+  const rememberSearchQuery = useCallback((query) => {
+    const term = (query || '').trim();
+    if (!term) return;
+    setRecentSearchQueries((prev) => appendRecentQuery(prev, term));
+  }, []);
+
+  const rememberAnnotationSearchQuery = useCallback((query) => {
+    const term = (query || '').trim();
+    if (!term) return;
+    setRecentAnnotationSearchQueries((prev) => appendRecentQuery(prev, term));
+  }, []);
+
+  const clearRecentSearchQueries = useCallback(() => {
+    setRecentSearchQueries([]);
+  }, []);
+
+  const clearRecentAnnotationSearchQueries = useCallback(() => {
+    setRecentAnnotationSearchQueries([]);
+  }, []);
+
   const buildAnnotationExcerpt = (value) => {
     const text = (value || '').replace(/\s+/g, ' ').trim();
     if (!text) return '';
@@ -1096,6 +1161,8 @@ export default function Reader() {
       clearAnnotationSearch();
       return;
     }
+
+    rememberAnnotationSearchQuery(query);
 
     const results = [];
     highlights.forEach((item, idx) => {
@@ -1149,6 +1216,11 @@ export default function Reader() {
     closeAnnotationSearchMenu();
   };
 
+  const handleRecentAnnotationSearchClick = (query) => {
+    setAnnotationSearchQuery(query);
+    runAnnotationSearch(query);
+  };
+
   const goToSearchIndex = (index, overrideResults = null, options = {}) => {
     const { focus = false, rememberReturnSpot = true } = options;
     const sourceResults = Array.isArray(overrideResults) ? overrideResults : searchResults;
@@ -1188,6 +1260,11 @@ export default function Reader() {
     closeSearchMenu({ preserveFocusedSearch: true });
   };
 
+  const handleRecentSearchClick = (query) => {
+    setSearchQuery(query);
+    runSearch(query);
+  };
+
   const goToNextResult = () => {
     if (!searchResults.length) return;
     const next = activeSearchIndex + 1 >= searchResults.length ? 0 : activeSearchIndex + 1;
@@ -1206,6 +1283,8 @@ export default function Reader() {
       clearSearch();
       return;
     }
+
+    rememberSearchQuery(term);
 
     const token = searchTokenRef.current + 1;
     searchTokenRef.current = token;
@@ -2480,6 +2559,16 @@ export default function Reader() {
   }, [showAnnotationSearchMenu]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(READER_SEARCH_HISTORY_KEY, JSON.stringify(recentSearchQueries));
+  }, [recentSearchQueries]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(READER_ANNOTATION_HISTORY_KEY, JSON.stringify(recentAnnotationSearchQueries));
+  }, [recentAnnotationSearchQueries]);
+
+  useEffect(() => {
     const handleKey = (event) => {
       const isFindShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
       if (isFindShortcut) {
@@ -2927,6 +3016,47 @@ export default function Reader() {
               </button>
             </div>
 
+            {recentSearchQueries.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`text-[10px] uppercase tracking-widest font-bold ${
+                      isReaderDark ? 'text-gray-400' : 'text-gray-600'
+                    }`}
+                  >
+                    Recent queries
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="search-history-clear"
+                    onClick={clearRecentSearchQueries}
+                    className={`text-[11px] font-semibold ${
+                      isReaderDark ? 'text-gray-300 hover:text-red-400' : 'text-gray-700 hover:text-red-600'
+                    }`}
+                  >
+                    Reset history
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {recentSearchQueries.map((term, idx) => (
+                    <button
+                      key={`${term}-${idx}`}
+                      type="button"
+                      data-testid={`search-history-item-${idx}`}
+                      onClick={() => handleRecentSearchClick(term)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                        isReaderDark
+                          ? 'border-gray-600 text-gray-200 hover:border-blue-400 hover:text-blue-200'
+                          : 'border-gray-300 text-gray-800 hover:border-blue-400 hover:text-blue-700'
+                      }`}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div ref={searchResultsListRef} data-testid="search-results-list" className="mt-4 max-h-[45vh] overflow-y-auto pr-1 space-y-2">
               {!isSearching && searchQuery && searchResults.length === 0 && (
                 <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No matches found.</div>
@@ -3044,6 +3174,47 @@ export default function Reader() {
                 Clear
               </button>
             </div>
+
+            {recentAnnotationSearchQueries.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`text-[10px] uppercase tracking-widest font-bold ${
+                      isReaderDark ? 'text-gray-400' : 'text-gray-600'
+                    }`}
+                  >
+                    Recent queries
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="annotation-search-history-clear"
+                    onClick={clearRecentAnnotationSearchQueries}
+                    className={`text-[11px] font-semibold ${
+                      isReaderDark ? 'text-gray-300 hover:text-red-400' : 'text-gray-700 hover:text-red-600'
+                    }`}
+                  >
+                    Reset history
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {recentAnnotationSearchQueries.map((term, idx) => (
+                    <button
+                      key={`${term}-${idx}`}
+                      type="button"
+                      data-testid={`annotation-search-history-item-${idx}`}
+                      onClick={() => handleRecentAnnotationSearchClick(term)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                        isReaderDark
+                          ? 'border-gray-600 text-gray-200 hover:border-blue-400 hover:text-blue-200'
+                          : 'border-gray-300 text-gray-800 hover:border-blue-400 hover:text-blue-700'
+                      }`}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div
               ref={annotationSearchResultsListRef}

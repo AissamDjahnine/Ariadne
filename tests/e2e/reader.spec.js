@@ -348,6 +348,54 @@ test('search result list auto-scrolls to active item while navigating', async ({
   await expect.poll(async () => list.evaluate((el) => el.scrollTop), { timeout: 5000 }).toBeGreaterThan(initialScrollTop);
 });
 
+test('reader search keeps recent queries and allows quick re-run', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTestId('reader-search-toggle').click();
+  const searchInput = page.getByPlaceholder('Search inside this book...');
+  await searchInput.fill('wizard');
+  await searchInput.press('Enter');
+
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+  const historyItem = page.getByTestId('search-history-item-0');
+  await expect(historyItem).toBeVisible();
+  await expect(historyItem).toHaveText('wizard');
+
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(searchInput).toHaveValue('');
+
+  await historyItem.click();
+  await expect(searchInput).toHaveValue('wizard');
+  await expect.poll(async () => page.getByTestId('search-progress').textContent(), { timeout: 15000 }).toMatch(/1\/\d+/);
+
+  await page.getByTestId('search-history-clear').click();
+  await expect(page.getByTestId('search-history-item-0')).toHaveCount(0);
+});
+
+test('annotation search keeps recent queries and allows quick re-run', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTestId('reader-annotation-search-toggle').click();
+  const searchInput = page.getByPlaceholder('Search highlights, notes, bookmarks...');
+  await searchInput.fill('foobar');
+  await searchInput.press('Enter');
+  await expect(page.getByText('No annotation matches found.')).toBeVisible();
+
+  const historyItem = page.getByTestId('annotation-search-history-item-0');
+  await expect(historyItem).toBeVisible();
+  await expect(historyItem).toHaveText('foobar');
+
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(searchInput).toHaveValue('');
+
+  await historyItem.click();
+  await expect(searchInput).toHaveValue('foobar');
+  await expect(page.getByText('No annotation matches found.')).toBeVisible();
+
+  await page.getByTestId('annotation-search-history-clear').click();
+  await expect(page.getByTestId('annotation-search-history-item-0')).toHaveCount(0);
+});
+
 test('reader jump shows back-to-previous-spot chip and returns on click', async ({ page }) => {
   await openFixtureBook(page);
 
