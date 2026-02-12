@@ -1163,6 +1163,54 @@ test('reading snapshot is visible only on My Library section', async ({ page }) 
   await expect(page.getByTestId('reading-snapshot-card')).toBeVisible();
 });
 
+test('header controls use icon-only theme toggle and trash navigation lives in sidebar', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const themeToggle = page.getByTestId('library-theme-toggle');
+  await expect(themeToggle).toBeVisible();
+  await expect(themeToggle).toHaveAttribute('aria-label', /switch to (dark|light) mode/i);
+  await expect(themeToggle).not.toContainText(/dark mode|light mode/i);
+
+  await expect(page.getByTestId('trash-toggle-button')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-trash')).toBeVisible();
+  await page.getByTestId('sidebar-trash').click();
+  await expect(page.getByTestId('trash-retention-note')).toBeVisible();
+});
+
+test('sidebar uses concise labels and hides zero-count badges', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const notesButton = page.getByTestId('library-notes-center-toggle');
+  const highlightsButton = page.getByTestId('library-highlights-center-toggle');
+  const trashButton = page.getByTestId('sidebar-trash');
+
+  await expect(notesButton).toContainText(/^Notes$/);
+  await expect(notesButton).not.toContainText(/Notes Center/i);
+  await expect(highlightsButton).toContainText(/^Highlights$/);
+
+  await expect(notesButton.locator('span.rounded-full')).toHaveCount(0);
+  await expect(highlightsButton.locator('span.rounded-full')).toHaveCount(0);
+  await expect(trashButton.locator('span.rounded-full')).toHaveCount(0);
+});
+
 test('library cards remove quick action row and still open reader on click', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
@@ -1332,19 +1380,19 @@ test('trash icon supports move to trash, restore, and permanent delete', async (
   await page.getByTestId('book-move-trash').first().click();
   await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
 
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-trash').click();
   await expect(page.getByTestId('trash-retention-note')).toContainText('30 days');
-  await expect(page.getByTestId('trash-toggle-button')).toBeVisible();
+  await expect(page.getByTestId('sidebar-trash')).toBeVisible();
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
   await expect(page.getByTestId('book-restore').first()).toBeVisible();
 
   await page.getByTestId('book-restore').first().click();
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-my-library').click();
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByTestId('book-move-trash').first().click();
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-trash').click();
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
@@ -1375,7 +1423,7 @@ test('trash manual selection keeps checkboxes checked and toggles select-all lab
   await page.getByTestId('book-move-trash').first().click();
   await page.getByTestId('book-move-trash').first().click();
 
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-trash').click();
   await expect(page.getByTestId('trash-retention-note')).toBeVisible();
 
   const selectAllButton = page.getByTestId('trash-select-all');
@@ -1463,7 +1511,7 @@ test('trash items older than 30 days are auto-purged on load', async ({ page }) 
   await page.reload();
   await expect(page.getByText('No books found matching your criteria.')).toBeVisible();
 
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-trash').click();
   await expect(page.getByText('Trash is empty.')).toBeVisible();
 });
 
@@ -1881,7 +1929,7 @@ test('account section renders profile form even after opening trash view', async
   await fileInput.setInputFiles(fixturePath);
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 
-  await page.getByTestId('trash-toggle-button').click();
+  await page.getByTestId('sidebar-trash').click();
   await expect(page.getByTestId('trash-retention-note')).toBeVisible();
 
   await page.getByTestId('library-account-trigger').click();

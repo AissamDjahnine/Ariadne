@@ -2636,12 +2636,12 @@ export default function Home() {
           {showReadingSnapshot && (
             <aside
               data-testid="reading-snapshot-card"
-              className={`rounded-[24px] border p-5 shadow-[0_14px_30px_rgba(15,23,42,0.08)] ${
+              className={`rounded-[24px] border p-5 shadow-sm ${
                 isDarkLibraryTheme ? "border-slate-700 bg-slate-900/90" : "border-gray-200 bg-white"
               }`}
             >
-              <div className={`text-[12px] font-bold uppercase tracking-[0.16em] ${
-                isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"
+              <div className={`text-sm font-semibold ${
+                isDarkLibraryTheme ? "text-slate-200" : "text-[#1A1A2E]"
               }`}>
                 Reading Snapshot
               </div>
@@ -2666,7 +2666,7 @@ export default function Home() {
                   <div className="inline-flex items-center gap-2">
                     <Clock size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
                     <div className="leading-tight">
-                      <div className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>hours</div>
+                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Hours</div>
                       <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                         {formatRoundedHours(readingSnapshot.totalSeconds)}
                       </div>
@@ -2675,7 +2675,7 @@ export default function Home() {
                   <div className="inline-flex items-center gap-2">
                     <FileText size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
                     <div className="leading-tight">
-                      <div className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>pages done</div>
+                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Pages done</div>
                       <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                         {readingSnapshot.completedPages}
                       </div>
@@ -2699,7 +2699,7 @@ export default function Home() {
             highlightsCount={highlightsCenterEntries.length}
             trashCount={trashedBooksCount}
             onSelectSection={handleSidebarSectionSelect}
-            className={showReadingSnapshot ? "mt-3" : ""}
+            className={showReadingSnapshot ? "mt-4" : ""}
           />
         </div>
 
@@ -2802,7 +2802,7 @@ export default function Home() {
               type="button"
               data-testid="library-theme-toggle"
               onClick={() => setLibraryTheme((current) => (current === "dark" ? "light" : "dark"))}
-              className={`inline-flex h-12 min-w-[122px] items-center justify-center gap-2 rounded-full border px-4 text-sm font-semibold transition ${
+              className={`inline-flex h-12 w-12 items-center justify-center rounded-full border transition ${
                 isDarkLibraryTheme
                   ? "border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700"
                   : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
@@ -2811,33 +2811,6 @@ export default function Home() {
               aria-label={isDarkLibraryTheme ? "Switch to light mode" : "Switch to dark mode"}
             >
               {isDarkLibraryTheme ? <Sun size={16} /> : <Moon size={16} />}
-              <span>{isDarkLibraryTheme ? "Light mode" : "Dark mode"}</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="trash-toggle-button"
-              onClick={() => {
-                const nextSection = isTrashSection ? "library" : "trash";
-                setLibrarySection(nextSection);
-                setCollectionFilter("all");
-                setStatusFilter("all");
-                setSelectedTrashBookIds([]);
-              }}
-              className={`relative p-3 rounded-full border shadow-sm transition-all ${
-                isTrashSection
-                  ? "bg-amber-500 text-white border-amber-500"
-                  : "bg-white text-gray-600 border-gray-200 hover:text-amber-600 hover:border-amber-300"
-              }`}
-              title={isTrashSection ? "Back to library" : "Open Trash"}
-              aria-label={isTrashSection ? "Back to library" : "Open Trash"}
-            >
-              <Trash2 size={20} />
-              {trashedBooksCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {trashedBooksCount}
-                </span>
-              )}
             </button>
 
           </div>
