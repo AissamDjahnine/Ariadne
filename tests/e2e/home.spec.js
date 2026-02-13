@@ -1163,6 +1163,52 @@ test('reading snapshot is visible only on My Library section', async ({ page }) 
   await expect(page.getByTestId('reading-snapshot-card')).toBeVisible();
 });
 
+test('reading statistics panel shows simplified metrics without removed cards', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('sidebar-reading-statistics').click();
+  const panel = page.getByTestId('library-reading-statistics-panel');
+  await expect(panel).toBeVisible();
+
+  await expect(panel.getByText('Reading Time', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Weekly challenge', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Year in review', { exact: true })).toBeVisible();
+
+  await expect(panel.getByText('Momentum', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Reading Velocity', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Consistency', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Completion', { exact: true })).toHaveCount(0);
+});
+
+test('reading statistics activity view keeps only bars and line options', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await page.getByTestId('sidebar-reading-statistics').click();
+  const activityView = page.getByTestId('reading-stats-activity-view');
+  await expect(activityView).toBeVisible();
+
+  const optionLabels = await activityView.locator('option').allTextContents();
+  expect(optionLabels).toEqual(['Bars', 'Line']);
+});
+
 test('header controls use icon-only theme toggle and trash navigation lives in sidebar', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
