@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Book as BookIcon,
+  BarChart3,
   FolderClosed,
   FileText,
   Highlighter,
@@ -48,6 +49,23 @@ export function LibraryWorkspaceSidebar({
           )}
           <BookIcon size={17} className={librarySection === "library" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
           <span>My Library</span>
+        </button>
+        <button
+          type="button"
+          data-testid="sidebar-reading-statistics"
+          onClick={() => onSelectSection("statistics")}
+          className={`${sidebarButtonBase} ${librarySection === "statistics" ? sidebarButtonActive : sidebarButtonIdle}`}
+        >
+          {librarySection === "statistics" && (
+            <span
+              aria-hidden="true"
+              className={`absolute left-0 top-2.5 h-6 w-1 rounded-r-full ${
+                isDarkLibraryTheme ? "bg-blue-400" : "bg-blue-500"
+              }`}
+            />
+          )}
+          <BarChart3 size={17} className={librarySection === "statistics" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
+          <span>Reading Stats</span>
         </button>
         <button
           type="button"
@@ -181,6 +199,18 @@ export function LibraryWorkspaceMobileNav({ librarySection, onSelectSection }) {
         >
           <BookIcon size={13} />
           <span>Library</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectSection("statistics")}
+          className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+            librarySection === "statistics"
+              ? "border-blue-200 bg-blue-50 text-blue-700"
+              : "border-gray-200 bg-white text-gray-700"
+          }`}
+        >
+          <BarChart3 size={13} />
+          <span>Stats</span>
         </button>
         <button
           type="button"

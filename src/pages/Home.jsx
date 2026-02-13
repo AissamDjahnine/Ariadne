@@ -70,6 +70,7 @@ import LibraryHighlightsCenterPanel from './library/LibraryHighlightsCenterPanel
 import LibraryCollectionsBoard from './library/LibraryCollectionsBoard';
 import LibraryGlobalSearchPanel from './library/LibraryGlobalSearchPanel';
 import LibraryToolbarSection from './library/LibraryToolbarSection';
+import LibraryReadingStatisticsSection from './library/LibraryReadingStatisticsSection';
 
 const STARTED_BOOK_IDS_KEY = 'library-started-book-ids';
 const TRASH_RETENTION_DAYS = 30;
@@ -1336,7 +1337,7 @@ export default function Home() {
       setSelectedTrashBookIds([]);
       return;
     }
-    if (section === "account") {
+    if (section === "account" || section === "statistics") {
       setStatusFilter("all");
       setCollectionFilter("all");
       setSelectedTrashBookIds([]);
@@ -2676,6 +2677,7 @@ const formatNotificationTimeAgo = (value) => {
   const canShowResetFilters = hasActiveLibraryFilters;
   const isDarkLibraryTheme = libraryTheme === "dark";
   const isAccountSection = librarySection === "account";
+  const isStatisticsSection = librarySection === "statistics";
   const isCollectionsPage = librarySection === "collections";
   const isTrashSection = librarySection === "trash";
   const shouldShowLibraryHomeContent = librarySection === "library";
@@ -3115,15 +3117,7 @@ const formatNotificationTimeAgo = (value) => {
       return;
     }
     if (actionKey === "reading-statistics") {
-      handleSidebarSectionSelect("library");
-      if (typeof window !== "undefined") {
-        window.requestAnimationFrame(() => {
-          const target = document.querySelector('[data-testid="reading-snapshot-card"]');
-          if (target && typeof target.scrollIntoView === "function") {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
-      }
+      handleSidebarSectionSelect("statistics");
       return;
     }
     if (actionKey === "faq") {
@@ -3225,6 +3219,15 @@ const formatNotificationTimeAgo = (value) => {
                 </h1>
                 <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
                   Manage your profile details and account preferences.
+                </p>
+              </>
+            ) : isStatisticsSection ? (
+              <>
+                <h1 className={`text-4xl font-extrabold tracking-tight ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                  Reading Statistics
+                </h1>
+                <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                  Track reading momentum, completion, and habits across your library.
                 </p>
               </>
             ) : (
@@ -3645,7 +3648,13 @@ const formatNotificationTimeAgo = (value) => {
           />
         )}
 
-        {!isAccountSection && (
+        {isStatisticsSection && (
+          <LibraryReadingStatisticsSection
+            isDarkLibraryTheme={isDarkLibraryTheme}
+          />
+        )}
+
+        {!isAccountSection && !isStatisticsSection && (
         <>
         {shouldShowContinueReading && (
           <section className="mb-8" data-testid="continue-reading-rail">
