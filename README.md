@@ -84,7 +84,8 @@ ariadne is built around real reading behavior:
   - Render culling with `content-visibility: auto` on large repeated rows/cards (library, notes, highlights, global search)
 - Manual `TO READ` tagging (create your personal "read next" queue)
 - Favorites with cleaner, less cluttered library cards
-- Notes Center in Library with cross-book note browsing, inline editing, and jump-to-reader
+- Dedicated Notes workspace with cross-book note browsing, inline editing, and jump-to-reader
+- Dedicated Highlights workspace with cross-book highlight browsing and jump-to-reader
 - Continue Reading rail redesigned with layered cover cards, progress ring, optional favorite marker, and estimated time-left hint
 - Dedicated Trash workspace (independent from library filters):
   - Trash-specific search and sort
@@ -195,8 +196,8 @@ Open the app at the local Vite URL (usually `http://localhost:5173`).
 - `src/pages/library/LibraryWorkspaceNav.jsx` - Sidebar and mobile workspace navigation
 - `src/pages/library/LibraryToolbarSection.jsx` - Library search/filter/sort toolbar + active chips + view toggle
 - `src/pages/library/LibraryCollectionsBoard.jsx` - Collections workspace (`Directory + Detail` default, optional balanced board toggle, add-books modal)
-- `src/pages/library/LibraryNotesCenterPanel.jsx` - Notes Center panel
-- `src/pages/library/LibraryHighlightsCenterPanel.jsx` - Highlights Center panel
+- `src/pages/library/LibraryNotesCenterPanel.jsx` - Notes workspace page
+- `src/pages/library/LibraryHighlightsCenterPanel.jsx` - Highlights workspace page
 - `src/pages/library/LibraryGlobalSearchPanel.jsx` - Global search result panel
 - `src/pages/library/LibraryAccountSection.jsx` - Settings section form
 - `src/pages/Reader.jsx` - Reading experience, contextual tools, highlights, bookmarks, export, and search handoff
