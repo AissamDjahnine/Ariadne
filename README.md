@@ -88,7 +88,16 @@ Smart Reader is built around real reading behavior:
 - Top-right header controls now include:
   - Notifications bell with unread badge
   - Profile avatar menu (`Profile`, `Reading Statistics`, `Settings`, `FAQ`, `Sign out`)
-  - Finish-soon notifications for books that can be completed in under 30 minutes
+  - Notification Center with `All` / `Unread` tabs
+  - Notification actions menu (`...`) per item: `Open in Reader`, `Mark as read/unread`, `Archive`, `Delete`
+  - Notification card click focuses/highlights the related book in `Continue Reading`
+  - Reading nudges and activity alerts:
+    - Finish-soon (`<= 30 min`)
+    - Streak risk
+    - Resume abandoned in-progress books
+    - Daily micro-goal
+    - Milestone reached (25/50/75/90%)
+    - To-read reminder
 - Optional performance debug traces for heavy libraries:
   - Set `localStorage.setItem("library-perf-debug", "1")` to log `load/upload` timings in DevTools
   - Read session timings from `window.__smartReaderPerfHistory`
