@@ -346,8 +346,8 @@ export default function LibraryReadingStatisticsSection({
   return (
     <section
       data-testid="library-reading-statistics-panel"
-      className={`mb-4 rounded-2xl border p-5 md:p-7 ${
-        isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-white"
+      className={`workspace-surface mb-4 p-5 md:p-7 ${
+        isDarkLibraryTheme ? "workspace-surface-dark" : "workspace-surface-light"
       }`}
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -440,7 +440,7 @@ export default function LibraryReadingStatisticsSection({
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between">
             <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
               Reading time
@@ -452,7 +452,7 @@ export default function LibraryReadingStatisticsSection({
           </div>
         </div>
 
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between">
             <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
               Estimated pages
@@ -464,7 +464,7 @@ export default function LibraryReadingStatisticsSection({
           </div>
         </div>
 
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between">
             <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
               Current streak
@@ -476,7 +476,7 @@ export default function LibraryReadingStatisticsSection({
           </div>
         </div>
 
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between">
             <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
               Reading days
@@ -490,7 +490,7 @@ export default function LibraryReadingStatisticsSection({
         </div>
       </div>
 
-      <div className={`mt-4 rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+      <div className={`mt-4 ${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
@@ -587,7 +587,7 @@ export default function LibraryReadingStatisticsSection({
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between gap-2">
             <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>Top books</h3>
             <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
@@ -629,7 +629,7 @@ export default function LibraryReadingStatisticsSection({
           )}
         </div>
 
-        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className={`${isDarkLibraryTheme ? "workspace-card-dark" : "workspace-card"} p-4`}>
           <div className="flex items-center justify-between gap-2">
             <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>Status distribution</h3>
             <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />

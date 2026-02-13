@@ -3339,8 +3339,8 @@ const formatNotificationTimeAgo = (value) => {
           {showReadingSnapshot && (
             <aside
               data-testid="reading-snapshot-card"
-              className={`rounded-[24px] border p-5 shadow-sm ${
-                isDarkLibraryTheme ? "border-slate-700 bg-slate-900/90" : "border-gray-200 bg-white"
+              className={`workspace-surface p-5 ${
+                isDarkLibraryTheme ? "workspace-surface-dark" : "workspace-surface-light"
               }`}
             >
               <div className={`text-sm font-semibold ${
@@ -4090,6 +4090,7 @@ const formatNotificationTimeAgo = (value) => {
         )}
         {isNotesSection && !isTrashSection && (
           <LibraryNotesCenterPanel
+            isDarkLibraryTheme={isDarkLibraryTheme}
             notesCenterFilteredEntries={notesCenterDisplayEntries}
             notesCenterPairs={notesCenterPairs}
             searchQuery={searchQuery}
@@ -4113,6 +4114,7 @@ const formatNotificationTimeAgo = (value) => {
 
         {isHighlightsSection && !isTrashSection && (
           <LibraryHighlightsCenterPanel
+            isDarkLibraryTheme={isDarkLibraryTheme}
             highlightsCenterFilteredEntries={highlightsCenterDisplayEntries}
             highlightsCenterPairs={highlightsCenterPairs}
             searchQuery={searchQuery}
