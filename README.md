@@ -44,6 +44,12 @@ Smart Reader is built around real reading behavior:
   - Total hours spent across all books
   - Total pages from completed books only
   - Reading time for today
+- Dedicated Reading Statistics workspace with focused, customizable metrics:
+  - Reading Time (range-based)
+  - Weekly Challenge progress
+  - Year in Review summary
+  - Reading Activity chart (Bars/Line)
+  - Status distribution, top books, and best sessions
 - Sidebar + snapshot visuals aligned with the same card language as Continue Reading (rounded cards, stronger hierarchy, cleaner iconography)
 - Search, filter, and sort to find the right book fast
 - Custom shelves (collections): create, rename, delete, and color-code your own reading buckets
