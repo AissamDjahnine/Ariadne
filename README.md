@@ -2,14 +2,14 @@
 
 ariadne is a modern EPUB reading app designed for people who read deeply.
 
-Its core promise is simple: open any book and continue exactly where you stopped.
-On top of that, ariadne adds AI summarization and AI context understanding, so you can remember what happened and why it matters before you keep reading.
+Its main feature is this: open any book and return exactly to where you left off.
+Then ariadne gives you AI summarization and AI context understanding of what you have already read, so you restart with clarity instead of confusion.
 
 ## Why the name "ariadne"?
 
 In the old myth, Ariadne gives a thread so you can always find your way back out.
 In this app, that thread is your reading position and your reading memory:
-close a book at page 47, come back a week later, and ariadne takes you to the exact line where you paused, with AI summaries and context ready so the story clicks again instantly.
+close a book at page 47, come back a week later, and ariadne takes you to the exact line where you paused, then reminds you with AI summaries and context of what came before.
 
 ## Why ariadne
 
