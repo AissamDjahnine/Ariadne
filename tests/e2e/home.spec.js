@@ -1179,17 +1179,19 @@ test('reading statistics panel shows simplified metrics without removed cards', 
   const panel = page.getByTestId('library-reading-statistics-panel');
   await expect(panel).toBeVisible();
 
-  await expect(panel.getByText('Reading Time', { exact: true })).toBeVisible();
-  await expect(panel.getByText('Weekly challenge', { exact: true })).toBeVisible();
-  await expect(panel.getByText('Year in review', { exact: true })).toBeVisible();
+  await expect(panel.getByText(/reading time/i)).toBeVisible();
+  await expect(panel.getByText(/estimated pages/i)).toBeVisible();
+  await expect(panel.getByText(/current streak/i)).toBeVisible();
+  await expect(panel.getByText(/monthly heatmap/i)).toBeVisible();
+  await expect(page.getByTestId('reading-stats-monthly-heatmap')).toBeVisible();
+  await expect(page.getByTestId('reading-stats-heatmap-metric')).toBeVisible();
 
-  await expect(panel.getByText('Momentum', { exact: true })).toHaveCount(0);
-  await expect(panel.getByText('Reading Velocity', { exact: true })).toHaveCount(0);
-  await expect(panel.getByText('Consistency', { exact: true })).toHaveCount(0);
-  await expect(panel.getByText('Completion', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Weekly challenge', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Year in review', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Reading activity', { exact: true })).toHaveCount(0);
 });
 
-test('reading statistics activity view keeps only bars and line options', async ({ page }) => {
+test('reading statistics monthly heatmap uses stronger intensity for heavier reading days', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
@@ -1201,12 +1203,106 @@ test('reading statistics activity view keeps only bars and line options', async 
   await fileInput.setInputFiles(fixturePath);
   await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
 
-  await page.getByTestId('sidebar-reading-statistics').click();
-  const activityView = page.getByTestId('reading-stats-activity-view');
-  await expect(activityView).toBeVisible();
+  const seeded = await page.evaluate(async () => {
+    const toLocalDateKey = (dateLike) => {
+      const date = new Date(dateLike);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
 
-  const optionLabels = await activityView.locator('option').allTextContents();
-  expect(optionLabels).toEqual(['Bars', 'Line']);
+    const now = new Date();
+    const lightDay = now.getDate() >= 3
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2, 12, 0, 0)
+      : new Date(now.getFullYear(), now.getMonth(), 1, 12, 0, 0);
+    const heavyDay = now.getDate() >= 3
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0)
+      : new Date(now.getFullYear(), now.getMonth(), 2, 12, 0, 0);
+
+    const lightSession = {
+      startAt: lightDay.toISOString(),
+      endAt: new Date(lightDay.getTime() + (30 * 60 * 1000)).toISOString(),
+      seconds: 30 * 60
+    };
+    const heavySession = {
+      startAt: heavyDay.toISOString(),
+      endAt: new Date(heavyDay.getTime() + (2 * 60 * 60 * 1000)).toISOString(),
+      seconds: 2 * 60 * 60
+    };
+
+    const result = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          if (!didSeed && payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+            const nextPayload = {
+              ...payload,
+              readingSessions: [lightSession, heavySession],
+              readingTime: lightSession.seconds + heavySession.seconds,
+              progress: Math.max(Number(payload.progress) || 0, 25),
+              lastRead: heavySession.endAt
+            };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+
+    return {
+      seeded: Boolean(result),
+      lightKey: toLocalDateKey(lightDay),
+      heavyKey: toLocalDateKey(heavyDay)
+    };
+  });
+  expect(seeded.seeded).toBeTruthy();
+
+  await page.reload();
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await page.getByTestId('sidebar-reading-statistics').click();
+  const heatmap = page.getByTestId('reading-stats-monthly-heatmap');
+  await expect(heatmap).toBeVisible();
+  await expect(page.getByTestId('reading-stats-heatmap-month')).toBeVisible();
+
+  const lightCell = page.locator(`[data-testid="reading-heatmap-cell"][data-date-key="${seeded.lightKey}"]`);
+  const heavyCell = page.locator(`[data-testid="reading-heatmap-cell"][data-date-key="${seeded.heavyKey}"]`);
+  await expect(lightCell).toBeVisible();
+  await expect(heavyCell).toBeVisible();
+
+  const lightIntensity = Number(await lightCell.getAttribute('data-intensity'));
+  const heavyIntensity = Number(await heavyCell.getAttribute('data-intensity'));
+  expect(heavyIntensity).toBeGreaterThan(lightIntensity);
+
+  const metricSelect = page.getByTestId('reading-stats-heatmap-metric');
+  await metricSelect.selectOption('pages');
+  await expect(metricSelect).toHaveValue('pages');
 });
 
 test('header controls use icon-only theme toggle and trash navigation lives in sidebar', async ({ page }) => {

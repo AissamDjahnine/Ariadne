@@ -1,19 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  BookOpen,
-  CircleHelp,
-  Clock3,
-  FileText,
-  Flame,
-  Sparkles,
-  Target,
-  Timer,
-} from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Clock3, Flame, FileText } from "lucide-react";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const READING_STATS_PREFS_KEY = "library-reading-statistics-preferences";
-const DEFAULT_WEEKLY_CHALLENGE_SECONDS = 5 * 3600;
 
 const TIME_RANGE_OPTIONS = [
   { value: "7d", label: "Last 7 days" },
@@ -22,15 +12,9 @@ const TIME_RANGE_OPTIONS = [
   { value: "all", label: "All time" }
 ];
 
-const LAYOUT_OPTIONS = [
-  { value: "dashboard", label: "Dashboard" },
-  { value: "books", label: "Books focus" },
-  { value: "habits", label: "Habits focus" }
-];
-
-const ACTIVITY_VIEWS = [
-  { value: "bars", label: "Bars" },
-  { value: "line", label: "Line" }
+const HEATMAP_METRIC_OPTIONS = [
+  { value: "hours", label: "Hours" },
+  { value: "pages", label: "Pages" }
 ];
 
 const statusColorClasses = {
@@ -46,6 +30,8 @@ const statusToneClasses = {
   "Finished": "border-emerald-200 bg-emerald-50 text-emerald-700",
   "Not started": "border-gray-200 bg-gray-100 text-gray-700"
 };
+
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const normalizeNumber = (value) => {
   const parsed = Number(value);
@@ -81,40 +67,6 @@ const getTimeRangeStartMs = (range) => {
   const now = Date.now();
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
   return now - (days * DAY_MS);
-};
-
-const getRangeDays = (range) => {
-  if (range === "7d") return 7;
-  if (range === "30d") return 30;
-  if (range === "90d") return 90;
-  return null;
-};
-
-const getChartDayCount = (range) => {
-  if (range === "7d") return 7;
-  if (range === "30d") return 30;
-  if (range === "90d") return 45;
-  return 14;
-};
-
-const buildLastNDays = (count) => {
-  const days = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (let index = count - 1; index >= 0; index -= 1) {
-    const day = new Date(today.getTime() - (index * DAY_MS));
-    days.push({
-      key: toLocalDateKey(day),
-      dayLabel: day.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
-      fullLabel: day.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-      seconds: 0,
-      pages: 0,
-      bookTitles: []
-    });
-  }
-
-  return days;
 };
 
 const getBookStatus = (book) => {
@@ -154,8 +106,7 @@ const formatHours = (seconds) => {
 const readStoredPreferences = () => {
   const fallback = {
     timeRange: "30d",
-    layoutMode: "dashboard",
-    activityView: "bars"
+    heatmapMetric: "hours"
   };
   if (typeof window === "undefined") return fallback;
 
@@ -164,54 +115,25 @@ const readStoredPreferences = () => {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     const timeRange = TIME_RANGE_OPTIONS.some((option) => option.value === parsed?.timeRange) ? parsed.timeRange : fallback.timeRange;
-    const layoutMode = LAYOUT_OPTIONS.some((option) => option.value === parsed?.layoutMode) ? parsed.layoutMode : fallback.layoutMode;
-    const activityView = ACTIVITY_VIEWS.some((option) => option.value === parsed?.activityView) ? parsed.activityView : fallback.activityView;
-    return { timeRange, layoutMode, activityView };
+    const heatmapMetric = HEATMAP_METRIC_OPTIONS.some((option) => option.value === parsed?.heatmapMetric) ? parsed.heatmapMetric : fallback.heatmapMetric;
+    return { timeRange, heatmapMetric };
   } catch {
     return fallback;
   }
 };
 
-const getWeekStart = () => {
-  const now = new Date();
-  const day = (now.getDay() + 6) % 7;
-  const monday = new Date(now);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - day);
-  return monday.getTime();
-};
-
-const getBarFillStyle = (isDarkLibraryTheme, intensity) => {
-  if (intensity <= 0) {
-    return {
-      background: isDarkLibraryTheme
-        ? "linear-gradient(180deg, rgba(51,65,85,0.9) 0%, rgba(30,41,59,0.9) 100%)"
-        : "linear-gradient(180deg, rgba(226,232,240,0.9) 0%, rgba(226,232,240,0.9) 100%)"
-    };
+const getHeatmapCellStyle = (isDarkLibraryTheme, intensity, hasReading) => {
+  if (!hasReading) {
+    return isDarkLibraryTheme
+      ? { backgroundColor: "rgba(30,41,59,0.55)", color: "rgb(148 163 184)" }
+      : { backgroundColor: "rgb(243 244 246)", color: "rgb(107 114 128)" };
   }
-  const topAlpha = 0.38 + (intensity * 0.46);
-  const bottomAlpha = 0.56 + (intensity * 0.36);
+  const alpha = 0.18 + (Math.min(1, Math.max(0, intensity)) * 0.72);
   return {
-    background: `linear-gradient(180deg, rgba(96,165,250,${topAlpha}) 0%, rgba(37,99,235,${bottomAlpha}) 100%)`
+    backgroundColor: `rgba(37, 99, 235, ${alpha})`,
+    color: intensity >= 0.58 ? "white" : (isDarkLibraryTheme ? "rgb(219 234 254)" : "rgb(30 58 138)")
   };
 };
-
-const MetricTitle = ({ text, tooltip, isDarkLibraryTheme }) => (
-  <div className="flex items-center gap-1.5">
-    <span className={`text-xs font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-      {text}
-    </span>
-    {tooltip ? (
-      <span title={tooltip} className={`inline-flex ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>
-        <CircleHelp size={12} />
-      </span>
-    ) : null}
-  </div>
-);
-
-const SkeletonCard = ({ className = "" }) => (
-  <div className={`animate-pulse rounded-2xl border border-gray-200 bg-white/70 ${className}`} />
-);
 
 export default function LibraryReadingStatisticsSection({
   isDarkLibraryTheme,
@@ -220,19 +142,16 @@ export default function LibraryReadingStatisticsSection({
   onOpenBook,
   onBrowseLibrary
 }) {
-  const safeBooks = Array.isArray(books) ? books : [];
+  const safeBooks = useMemo(() => (Array.isArray(books) ? books : []), [books]);
   const [preferences, setPreferences] = useState(() => readStoredPreferences());
-  const [isCalculating, setIsCalculating] = useState(true);
-  const { timeRange, layoutMode, activityView } = preferences;
+  const [monthOffset, setMonthOffset] = useState(0);
+  const { timeRange, heatmapMetric } = preferences;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(READING_STATS_PREFS_KEY, JSON.stringify(preferences));
     }
-    setIsCalculating(true);
-    const timer = setTimeout(() => setIsCalculating(false), 280);
-    return () => clearTimeout(timer);
-  }, [preferences, safeBooks.length]);
+  }, [preferences]);
 
   const sessionRows = useMemo(() => (
     safeBooks.flatMap((book) => {
@@ -263,8 +182,6 @@ export default function LibraryReadingStatisticsSection({
   ), [safeBooks]);
 
   const rangeStartMs = useMemo(() => getTimeRangeStartMs(timeRange), [timeRange]);
-  const rangeDays = useMemo(() => getRangeDays(timeRange), [timeRange]);
-
   const sessionsInRange = useMemo(
     () => sessionRows.filter((session) => !rangeStartMs || session.endMs >= rangeStartMs),
     [sessionRows, rangeStartMs]
@@ -281,33 +198,6 @@ export default function LibraryReadingStatisticsSection({
     });
     return map;
   }, [sessionRows]);
-
-  const chartDays = useMemo(() => {
-    const days = buildLastNDays(getChartDayCount(timeRange));
-    const dayMap = new Map(days.map((day) => [day.key, day]));
-    sessionsInRange.forEach((session) => {
-      const target = dayMap.get(session.endKey);
-      if (!target) return;
-      target.seconds += session.seconds;
-      target.pages += session.pagesEstimate;
-      if (!target.bookTitles.includes(session.title)) {
-        target.bookTitles.push(session.title);
-      }
-    });
-    return days;
-  }, [sessionsInRange, timeRange]);
-
-  const maxDaySeconds = chartDays.reduce((max, day) => Math.max(max, day.seconds), 0);
-
-  const totalSecondsForRange = useMemo(
-    () => sessionsInRange.reduce((sum, session) => sum + session.seconds, 0),
-    [sessionsInRange]
-  );
-
-  const totalPagesForRange = useMemo(
-    () => sessionsInRange.reduce((sum, session) => sum + session.pagesEstimate, 0),
-    [sessionsInRange]
-  );
 
   const streakStats = useMemo(() => {
     const keys = Array.from(dailyAllMap.keys())
@@ -335,6 +225,7 @@ export default function LibraryReadingStatisticsSection({
     const todayKey = toLocalDateKey(today);
     const yesterdayKey = toLocalDateKey(yesterday);
     const startKey = dailyAllMap.has(todayKey) ? todayKey : (dailyAllMap.has(yesterdayKey) ? yesterdayKey : "");
+
     let currentStreak = 0;
     if (startKey) {
       let cursor = fromLocalDateKey(startKey);
@@ -347,43 +238,27 @@ export default function LibraryReadingStatisticsSection({
     return { currentStreak, bestStreak };
   }, [dailyAllMap]);
 
-  const weeklyChallenge = useMemo(() => {
-    const weekStartMs = getWeekStart();
-    const weekSeconds = sessionRows
-      .filter((session) => session.endMs >= weekStartMs)
-      .reduce((sum, session) => sum + session.seconds, 0);
-    const percent = Math.max(0, Math.min(100, Math.round((weekSeconds / DEFAULT_WEEKLY_CHALLENGE_SECONDS) * 100)));
-    const remaining = Math.max(0, DEFAULT_WEEKLY_CHALLENGE_SECONDS - weekSeconds);
-    return { weekSeconds, percent, remaining };
-  }, [sessionRows]);
+  const totalSecondsForRange = useMemo(
+    () => sessionsInRange.reduce((sum, session) => sum + session.seconds, 0),
+    [sessionsInRange]
+  );
+  const totalPagesForRange = useMemo(
+    () => sessionsInRange.reduce((sum, session) => sum + session.pagesEstimate, 0),
+    [sessionsInRange]
+  );
 
-  const personalRecords = useMemo(() => {
-    const longestSession = [...sessionRows].sort((a, b) => b.seconds - a.seconds)[0] || null;
-    const bestDay = [...dailyAllMap.entries()]
-      .map(([key, value]) => ({ key, seconds: value.seconds, pages: value.pages }))
-      .sort((a, b) => b.pages - a.pages)[0] || null;
-    return { longestSession, bestDay };
-  }, [sessionRows, dailyAllMap]);
-
-  const yearSummary = useMemo(() => {
-    const now = new Date();
-    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
-    const sessionsThisYear = sessionRows.filter((session) => session.endMs >= yearStart);
-    const yearSeconds = sessionsThisYear.reduce((sum, session) => sum + session.seconds, 0);
-    const yearPages = sessionsThisYear.reduce((sum, session) => sum + session.pagesEstimate, 0);
-    const finishedThisYear = safeBooks.filter((book) => {
-      if (clampProgress(book?.progress) < 100) return false;
-      const lastReadMs = new Date(book?.lastRead || 0).getTime();
-      return Number.isFinite(lastReadMs) && lastReadMs >= yearStart;
-    }).length;
-    return {
-      year: now.getFullYear(),
-      yearSeconds,
-      yearPages,
-      finishedThisYear,
-      sessionsCount: sessionsThisYear.length
-    };
-  }, [safeBooks, sessionRows]);
+  const topBooks = useMemo(() => {
+    const byBook = new Map();
+    sessionsInRange.forEach((session) => {
+      const current = byBook.get(session.bookId) || 0;
+      byBook.set(session.bookId, current + session.seconds);
+    });
+    return [...safeBooks]
+      .map((book) => ({ ...book, trackedSeconds: byBook.get(book.id) || 0 }))
+      .filter((book) => book.trackedSeconds > 0)
+      .sort((left, right) => right.trackedSeconds - left.trackedSeconds)
+      .slice(0, 5);
+  }, [safeBooks, sessionsInRange]);
 
   const statusBreakdown = useMemo(() => {
     const statusCounts = new Map([
@@ -404,80 +279,69 @@ export default function LibraryReadingStatisticsSection({
     }));
   }, [safeBooks]);
 
-  const topBooks = useMemo(() => {
-    const byBook = new Map();
-    sessionsInRange.forEach((session) => {
-      const current = byBook.get(session.bookId) || 0;
-      byBook.set(session.bookId, current + session.seconds);
+  const activeMonth = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  }, [monthOffset]);
+
+  const monthLabel = useMemo(
+    () => activeMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+    [activeMonth]
+  );
+
+  const monthHeatmap = useMemo(() => {
+    const year = activeMonth.getFullYear();
+    const month = activeMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+    const days = [];
+    let maxValue = 0;
+    let readingDays = 0;
+
+    for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber += 1) {
+      const date = new Date(year, month, dayNumber);
+      const key = toLocalDateKey(date);
+      const dayData = dailyAllMap.get(key);
+      const seconds = dayData?.seconds || 0;
+      const pages = dayData?.pages || 0;
+      const value = heatmapMetric === "pages" ? pages : (seconds / 3600);
+      if (value > 0) readingDays += 1;
+      maxValue = Math.max(maxValue, value);
+      days.push({
+        key,
+        dayNumber,
+        seconds,
+        pages,
+        value
+      });
+    }
+
+    const cells = [];
+    for (let i = 0; i < firstWeekday; i += 1) {
+      cells.push({ id: `empty-start-${i}`, empty: true });
+    }
+    days.forEach((day) => {
+      const intensity = maxValue > 0 ? day.value / maxValue : 0;
+      cells.push({ ...day, empty: false, intensity });
     });
+    while (cells.length % 7 !== 0) {
+      cells.push({ id: `empty-end-${cells.length}`, empty: true });
+    }
 
-    return [...safeBooks]
-      .map((book) => ({
-        ...book,
-        trackedSeconds: byBook.get(book.id) || 0
-      }))
-      .filter((book) => book.trackedSeconds > 0)
-      .sort((left, right) => right.trackedSeconds - left.trackedSeconds)
-      .slice(0, 6);
-  }, [safeBooks, sessionsInRange]);
-
-  const topSessions = useMemo(() => (
-    [...sessionsInRange]
-      .sort((left, right) => right.seconds - left.seconds)
-      .slice(0, 5)
-  ), [sessionsInRange]);
-
-  const showActivityPanel = layoutMode !== "books";
-  const showStatusPanel = true;
-  const showTopBooksPanel = layoutMode !== "habits";
-  const showSessionsPanel = layoutMode !== "books";
+    return {
+      cells,
+      maxValue,
+      readingDays
+    };
+  }, [activeMonth, dailyAllMap, heatmapMetric]);
 
   const hasAnyBooks = safeBooks.length > 0;
   const hasAnyReadingData = sessionRows.length > 0;
-
-  const yearSummaryText = `${yearSummary.finishedThisYear} books finished · ${formatHours(yearSummary.yearSeconds)} · ${Math.round(yearSummary.yearPages)} pages`;
+  const canGoToNextMonth = monthOffset < 0;
 
   const updatePreference = (key, value) => {
     setPreferences((current) => ({ ...current, [key]: value }));
   };
-
-  const resetPreferences = () => {
-    setPreferences({
-      timeRange: "30d",
-      layoutMode: "dashboard",
-      activityView: "bars"
-    });
-  };
-
-  if (isCalculating) {
-    return (
-      <section
-        data-testid="library-reading-statistics-panel"
-        className={`mb-4 rounded-2xl border p-5 md:p-7 ${
-          isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-white"
-        }`}
-      >
-        <div className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px_170px]">
-            <SkeletonCard className="h-[78px]" />
-            <SkeletonCard className="h-[78px]" />
-            <SkeletonCard className="h-[78px]" />
-            <SkeletonCard className="h-[78px]" />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <SkeletonCard className="h-[118px]" />
-            <SkeletonCard className="h-[118px]" />
-            <SkeletonCard className="h-[118px]" />
-            <SkeletonCard className="h-[118px]" />
-          </div>
-          <div className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
-            <SkeletonCard className="h-[290px]" />
-            <SkeletonCard className="h-[290px]" />
-          </div>
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section
@@ -486,93 +350,56 @@ export default function LibraryReadingStatisticsSection({
         isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-white"
       }`}
     >
-      <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px_170px]">
-        <div className={`rounded-2xl border px-4 py-3 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-          <div className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            Customize View
-          </div>
-          <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            Range, layout, and activity style.
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+            Reading statistics
+          </h2>
+          <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+            Simple overview with a monthly reading heatmap.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={`rounded-xl border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+            <span className={`mr-2 text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Range
+            </span>
+            <select
+              data-testid="reading-stats-range"
+              value={timeRange}
+              onChange={(event) => updatePreference("timeRange", event.target.value)}
+              className={`rounded-lg border px-2 py-1 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${
+                isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-700"
+              }`}
+            >
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className={`rounded-2xl border px-3 py-2.5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-          <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            Range
-          </span>
-          <select
-            data-testid="reading-stats-range"
-            value={timeRange}
-            onChange={(event) => updatePreference("timeRange", event.target.value)}
-            className={`mt-1 h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${
-              isDarkLibraryTheme
-                ? "border-slate-600 bg-slate-800 text-slate-100"
-                : "border-gray-200 bg-white text-slate-700"
-            }`}
-          >
-            {TIME_RANGE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className={`rounded-2xl border px-3 py-2.5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-          <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            Layout
-          </span>
-          <select
-            data-testid="reading-stats-layout"
-            value={layoutMode}
-            onChange={(event) => updatePreference("layoutMode", event.target.value)}
-            className={`mt-1 h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${
-              isDarkLibraryTheme
-                ? "border-slate-600 bg-slate-800 text-slate-100"
-                : "border-gray-200 bg-white text-slate-700"
-            }`}
-          >
-            {LAYOUT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className={`rounded-2xl border px-3 py-2.5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-          <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            Activity view
-          </span>
-          <select
-            data-testid="reading-stats-activity-view"
-            value={activityView}
-            onChange={(event) => updatePreference("activityView", event.target.value)}
-            className={`mt-1 h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${
-              isDarkLibraryTheme
-                ? "border-slate-600 bg-slate-800 text-slate-100"
-                : "border-gray-200 bg-white text-slate-700"
-            }`}
-          >
-            {ACTIVITY_VIEWS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            data-testid="reading-stats-reset-view"
-            onClick={resetPreferences}
-            className={`mt-2 h-8 w-full rounded-lg border text-xs font-semibold transition ${
-              isDarkLibraryTheme
-                ? "border-slate-600 text-slate-200 hover:bg-slate-800"
-                : "border-gray-200 text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            Reset view
-          </button>
-        </label>
+          <label className={`rounded-xl border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+            <span className={`mr-2 text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Heatmap
+            </span>
+            <select
+              data-testid="reading-stats-heatmap-metric"
+              value={heatmapMetric}
+              onChange={(event) => updatePreference("heatmapMetric", event.target.value)}
+              className={`rounded-lg border px-2 py-1 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${
+                isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-700"
+              }`}
+            >
+              {HEATMAP_METRIC_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {!hasAnyReadingData && (
@@ -585,10 +412,10 @@ export default function LibraryReadingStatisticsSection({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className={`text-base font-bold ${isDarkLibraryTheme ? "text-blue-100" : "text-blue-900"}`}>
-                Your journey begins here.
+                No reading data yet.
               </h3>
               <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-blue-200/90" : "text-blue-700"}`}>
-                Start your first reading session to unlock trends, records, and yearly insights.
+                Start a session and this page will show trends, streaks, and heatmap activity.
               </p>
             </div>
             {hasAnyBooks ? (
@@ -609,289 +436,223 @@ export default function LibraryReadingStatisticsSection({
               </button>
             )}
           </div>
-          <div className={`mt-3 rounded-xl border border-dashed p-3 text-xs ${isDarkLibraryTheme ? "border-slate-700 text-slate-300" : "border-blue-200 text-blue-800"}`}>
-            Preview: weekly challenge progress, reading velocity, and personal records will appear here as soon as sessions are tracked.
-          </div>
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-1 xl:grid-cols-1">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
           <div className="flex items-center justify-between">
-            <MetricTitle
-              text="Reading Time"
-              tooltip="Total tracked reading time in the selected range."
-              isDarkLibraryTheme={isDarkLibraryTheme}
-            />
+            <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Reading time
+            </span>
             <Clock3 size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
           </div>
-          <div className={`mt-2 text-3xl font-extrabold tracking-tight ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
             {formatHours(totalSecondsForRange)}
           </div>
-          <div className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            {TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}
+        </div>
+
+        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Estimated pages
+            </span>
+            <FileText size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
           </div>
+          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+            {Math.round(totalPagesForRange)}
+          </div>
+        </div>
+
+        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Current streak
+            </span>
+            <Flame size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+          </div>
+          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+            {streakStats.currentStreak} day{streakStats.currentStreak === 1 ? "" : "s"}
+          </div>
+        </div>
+
+        <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Reading days
+            </span>
+            <BookOpen size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+          </div>
+          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+            {monthHeatmap.readingDays}
+          </div>
+          <div className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>in {monthLabel}</div>
+        </div>
+      </div>
+
+      <div className={`mt-4 rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+              Monthly heatmap
+            </h3>
+            <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+              Darker cells mean more {heatmapMetric === "pages" ? "pages read" : "hours read"} on that day.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() => setMonthOffset((current) => current - 1)}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border ${
+                isDarkLibraryTheme ? "border-slate-600 text-slate-200 hover:bg-slate-800" : "border-gray-200 text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className={`min-w-[130px] text-center text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-gray-800"}`}>
+              <span data-testid="reading-stats-heatmap-month">{monthLabel}</span>
+            </div>
+            <button
+              type="button"
+              aria-label="Next month"
+              disabled={!canGoToNextMonth}
+              onClick={() => setMonthOffset((current) => Math.min(0, current + 1))}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border ${
+                canGoToNextMonth
+                  ? (isDarkLibraryTheme ? "border-slate-600 text-slate-200 hover:bg-slate-800" : "border-gray-200 text-gray-700 hover:bg-gray-50")
+                  : "cursor-not-allowed border-gray-200 text-gray-300"
+              }`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div data-testid="reading-stats-monthly-heatmap" className="grid grid-cols-7 gap-2">
+          {WEEKDAY_LABELS.map((label) => (
+            <div
+              key={label}
+              className={`pb-1 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"
+              }`}
+            >
+              {label}
+            </div>
+          ))}
+          {monthHeatmap.cells.map((cell) => {
+            if (cell.empty) {
+              return <div key={cell.id} className="h-11 rounded-lg" aria-hidden="true" />;
+            }
+            const hasReading = cell.value > 0;
+            const style = getHeatmapCellStyle(isDarkLibraryTheme, cell.intensity, hasReading);
+            const dayDate = fromLocalDateKey(cell.key);
+            const tooltipDate = dayDate
+              ? dayDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+              : cell.key;
+            const metricValue = heatmapMetric === "pages"
+              ? `${Math.round(cell.pages)} pages`
+              : `${formatDuration(cell.seconds, { short: true })}`;
+            return (
+              <div
+                key={cell.key}
+                data-testid="reading-heatmap-cell"
+                data-date-key={cell.key}
+                data-intensity={String(cell.intensity)}
+                data-value={String(cell.value)}
+                title={`${tooltipDate}: ${metricValue}`}
+                className="flex h-11 items-center justify-center rounded-lg border border-transparent text-sm font-semibold transition-transform hover:scale-[1.03]"
+                style={style}
+              >
+                {cell.dayNumber}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <span className={`text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Less</span>
+          {[0.2, 0.4, 0.6, 0.8, 1].map((sample) => (
+            <span
+              key={`legend-${sample}`}
+              className="h-3 w-6 rounded-sm"
+              style={{ backgroundColor: `rgba(37, 99, 235, ${sample})` }}
+              aria-hidden="true"
+            />
+          ))}
+          <span className={`text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>More</span>
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
           <div className="flex items-center justify-between gap-2">
-            <MetricTitle
-              text="Weekly challenge"
-              tooltip="Goal: read 5 hours this week."
-              isDarkLibraryTheme={isDarkLibraryTheme}
-            />
-            <Target size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+            <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>Top books</h3>
+            <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
           </div>
-          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-            {formatHours(weeklyChallenge.weekSeconds)}
-          </div>
-          <div className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            {weeklyChallenge.remaining > 0 ? `${formatDuration(weeklyChallenge.remaining)} to complete goal` : "Challenge complete"}
-          </div>
-          <div className={`mt-3 h-2 rounded-full ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
-            <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${weeklyChallenge.percent}%` }} />
-          </div>
+          {topBooks.length === 0 ? (
+            <div className={`mt-3 rounded-xl border border-dashed p-4 text-sm ${isDarkLibraryTheme ? "border-slate-700 text-slate-400" : "border-gray-200 text-gray-500"}`}>
+              No books tracked in this range.
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2.5">
+              {topBooks.map((book) => (
+                <Link
+                  key={`stats-book-${book.id}`}
+                  to={buildReaderPath(book.id)}
+                  onClick={() => onOpenBook?.(book.id)}
+                  className={`group flex items-center gap-3 rounded-xl border p-2.5 transition ${
+                    isDarkLibraryTheme ? "border-slate-700 bg-slate-900/80 hover:border-blue-500" : "border-gray-200 bg-white hover:border-blue-200"
+                  }`}
+                >
+                  <div className={`h-12 w-10 shrink-0 overflow-hidden rounded-lg ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
+                    {book.cover ? (
+                      <img src={book.cover} alt={book.title} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className={`flex h-full w-full items-center justify-center ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>
+                        <BookOpen size={14} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={`truncate text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>{book.title}</div>
+                    <div className={`mt-0.5 truncate text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>{book.author}</div>
+                    <div className={`mt-1 text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300" : "text-blue-600"}`}>
+                      {formatDuration(book.trackedSeconds, { short: true })} • {clampProgress(book?.progress)}%
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
           <div className="flex items-center justify-between gap-2">
-            <MetricTitle
-              text="Year in review"
-              tooltip="Summary of reading progress for the current year."
-              isDarkLibraryTheme={isDarkLibraryTheme}
-            />
-            <Sparkles size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
+            <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>Status distribution</h3>
+            <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
           </div>
-          <div className={`mt-2 text-2xl font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-            {yearSummary.year}
-          </div>
-          <div className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-            {yearSummaryText}
+          <div className="mt-4 space-y-3">
+            {statusBreakdown.map((status) => (
+              <div key={status.label}>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusToneClasses[status.label]}`}>
+                    {status.label}
+                  </span>
+                  <span className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
+                    {status.count} ({status.percent}%)
+                  </span>
+                </div>
+                <div className={`h-2 rounded-full ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
+                  <div className={`h-full rounded-full ${statusColorClasses[status.label]}`} style={{ width: `${status.percent}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
-
-      {(showActivityPanel || showStatusPanel) && (
-        <div className={`mt-4 grid gap-4 ${showActivityPanel && showStatusPanel ? "xl:grid-cols-[1.45fr_1fr]" : "grid-cols-1"}`}>
-          {showActivityPanel && (
-            <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                    Reading activity
-                  </h3>
-                  <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                    Hover points for exact duration + books read
-                  </p>
-                </div>
-                <Flame size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-              </div>
-
-              {activityView === "line" ? (
-                <div className={`mt-4 rounded-xl border p-3 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-950/60" : "border-gray-200 bg-gray-50/70"}`}>
-                  <svg
-                    viewBox={`0 0 ${Math.max(220, chartDays.length * 18)} 100`}
-                    preserveAspectRatio="none"
-                    className="h-36 w-full"
-                    aria-hidden="true"
-                  >
-                    <polyline
-                      fill="none"
-                      stroke={isDarkLibraryTheme ? "#60a5fa" : "#2563eb"}
-                      strokeWidth="2.5"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      points={chartDays.map((day, index) => {
-                        const width = Math.max(220, chartDays.length * 18);
-                        const stepX = chartDays.length > 1 ? width / (chartDays.length - 1) : width;
-                        const ratio = maxDaySeconds > 0 ? day.seconds / maxDaySeconds : 0;
-                        const x = Number((index * stepX).toFixed(2));
-                        const y = Number((90 - (ratio * 72)).toFixed(2));
-                        return `${x},${y}`;
-                      }).join(" ")}
-                    />
-                  </svg>
-                  <div className={`mt-2 flex items-center justify-between text-[10px] font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                    <span>{chartDays[0]?.fullLabel || ""}</span>
-                    <span>{chartDays[Math.floor(chartDays.length / 2)]?.fullLabel || ""}</span>
-                    <span>{chartDays[chartDays.length - 1]?.fullLabel || ""}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-5 grid grid-cols-7 sm:grid-cols-10 md:grid-cols-12 lg:grid-cols-15 gap-2">
-                  {chartDays.map((day) => {
-                    const intensity = maxDaySeconds > 0 ? day.seconds / maxDaySeconds : 0;
-                    const heightPercent = maxDaySeconds > 0 ? Math.max(4, Math.round(intensity * 100)) : 0;
-                    const tooltip = `${day.fullLabel}: ${formatDuration(day.seconds)}${day.bookTitles.length ? `\nBooks: ${day.bookTitles.join(", ")}` : ""}`;
-                    return (
-                      <div key={`bar-${day.key}`} className="flex flex-col items-center gap-1">
-                        <div
-                          className={`relative h-24 w-full rounded-full ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}
-                          title={tooltip}
-                        >
-                          <div
-                            className="absolute inset-x-0 bottom-0 rounded-full transition-all"
-                            style={{
-                              height: `${heightPercent}%`,
-                              ...getBarFillStyle(isDarkLibraryTheme, intensity)
-                            }}
-                          />
-                        </div>
-                        <div className={`text-[10px] font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                          {day.dayLabel}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {showStatusPanel && (
-            <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                    Status distribution
-                  </h3>
-                  <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                    Reading pipeline health
-                  </p>
-                </div>
-                <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-              </div>
-              <div className="mt-4 space-y-3">
-                {statusBreakdown.map((status) => (
-                  <div key={status.label}>
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusToneClasses[status.label]}`}>
-                        {status.label}
-                      </span>
-                      <span className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
-                        {status.count} ({status.percent}%)
-                      </span>
-                    </div>
-                    <div className={`h-2 rounded-full ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
-                      <div
-                        className={`h-full rounded-full ${statusColorClasses[status.label]}`}
-                        style={{ width: `${status.percent}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {(showTopBooksPanel || showSessionsPanel) && (
-        <div className={`mt-4 grid gap-4 ${showTopBooksPanel && showSessionsPanel ? "xl:grid-cols-[1.3fr_1fr]" : "grid-cols-1"}`}>
-          {showTopBooksPanel && (
-            <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                    Top books
-                  </h3>
-                  <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                    Ranked by reading time in selected range
-                  </p>
-                </div>
-                <BookOpen size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-              </div>
-              {topBooks.length === 0 ? (
-                <div className={`mt-3 rounded-xl border border-dashed p-4 text-sm ${isDarkLibraryTheme ? "border-slate-700 text-slate-400" : "border-gray-200 text-gray-500"}`}>
-                  No books tracked in this range.
-                </div>
-              ) : (
-                <div className="mt-3 space-y-2.5">
-                  {topBooks.map((book) => (
-                    <Link
-                      key={`stats-book-${book.id}`}
-                      to={buildReaderPath(book.id)}
-                      onClick={() => onOpenBook?.(book.id)}
-                      className={`group flex items-center gap-3 rounded-xl border p-2.5 transition ${
-                        isDarkLibraryTheme
-                          ? "border-slate-700 bg-slate-900/80 hover:border-blue-500"
-                          : "border-gray-200 bg-white hover:border-blue-200"
-                      }`}
-                    >
-                      <div className={`h-12 w-10 shrink-0 overflow-hidden rounded-lg ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
-                        {book.cover ? (
-                          <img src={book.cover} alt={book.title} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className={`flex h-full w-full items-center justify-center ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>
-                            <BookOpen size={14} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className={`truncate text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                          {book.title}
-                        </div>
-                        <div className={`mt-0.5 truncate text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                          {book.author}
-                        </div>
-                        <div className={`mt-1 text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300" : "text-blue-600"}`}>
-                          {formatDuration(book.trackedSeconds, { short: true })} • {clampProgress(book?.progress)}%
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {showSessionsPanel && (
-            <div className={`rounded-2xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900" : "border-gray-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                    Best sessions
-                  </h3>
-                  <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                    Longest sessions in selected range
-                  </p>
-                </div>
-                <Timer size={15} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-              </div>
-              {topSessions.length === 0 ? (
-                <div className={`mt-3 rounded-xl border border-dashed p-4 text-sm ${isDarkLibraryTheme ? "border-slate-700 text-slate-400" : "border-gray-200 text-gray-500"}`}>
-                  No sessions tracked in this range.
-                </div>
-              ) : (
-                <ol className="mt-3 space-y-2.5">
-                  {topSessions.map((session, index) => (
-                    <li
-                      key={session.id}
-                      className={`rounded-xl border px-3 py-2.5 ${
-                        isDarkLibraryTheme ? "border-slate-700 bg-slate-900/80" : "border-gray-200 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                          #{index + 1}
-                        </span>
-                        <span className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-emerald-300" : "text-emerald-700"}`}>
-                          {formatDuration(session.seconds, { short: true })}
-                        </span>
-                      </div>
-                      <div className={`mt-1 truncate text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {session.title}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </section>
   );
 }
