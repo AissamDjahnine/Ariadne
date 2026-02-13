@@ -1,13 +1,19 @@
-# Smart Reader
+# ariadne
 
-Smart Reader is a modern EPUB reading app designed for people who read deeply.
+ariadne is a modern EPUB reading app designed for people who read deeply.
 
 It helps you organize your library, stay focused while reading, and quickly return to important passages with highlights, notes, bookmarks, and export.
 
-## Why Smart Reader
+## Why the name "ariadne"?
+
+In the old myth, Ariadne gives a thread so you can always find your way back out.
+In this app, that thread is your reading position:
+close a book at page 47, return days later, and ariadne leads you straight back to the exact line where you paused.
+
+## Why ariadne
 
 Most reading apps are either too basic or overloaded.
-Smart Reader is built around real reading behavior:
+ariadne is built around real reading behavior:
 
 - Find your place fast
 - Understand what matters on the page
@@ -170,7 +176,7 @@ Smart Reader is built around real reading behavior:
 
 ## Current Status
 
-Smart Reader is fully usable for everyday reading workflows.
+ariadne is fully usable for everyday reading workflows.
 
 AI buttons are visible in the UI, but AI features are currently marked as unavailable.
 
@@ -202,4 +208,4 @@ Open the app at the local Vite URL (usually `http://localhost:5173`).
 
 ---
 
-If you want a reader that feels practical on day one and scalable for serious reading habits, Smart Reader is built for that.
+If you want a reader that feels practical on day one and scalable for serious reading habits, ariadne is built for that.
