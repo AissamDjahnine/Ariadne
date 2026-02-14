@@ -1293,6 +1293,107 @@ test('continue reading card shows estimated time left under continue action', as
   await expect(timeLeft).toContainText(/left/i);
 });
 
+test('continue reading prioritizes recent near-finish books and applies time-left tone scale', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByText('Duplicate book detected')).toBeVisible();
+  await page.getByTestId('duplicate-keep-both').click();
+  await expect(page.getByRole('link', { name: /Test Book \(Duplicate 1\)/i }).first()).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve({ seeded: false, highTitle: '', lowTitle: '' });
+          return;
+        }
+
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let seededCount = 0;
+        let highTitle = '';
+        let lowTitle = '';
+
+        const now = Date.now();
+        const recentIso = new Date(now - (25 * 60 * 1000)).toISOString();
+        const olderIso = new Date(now - (5 * 24 * 60 * 60 * 1000)).toISOString();
+
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isBookRecord = payload && Object.prototype.hasOwnProperty.call(payload, 'data') && typeof payload.title === 'string';
+          if (isBookRecord && seededCount < 2) {
+            const nextPayload = seededCount === 0
+              ? {
+                  ...payload,
+                  hasStarted: true,
+                  progress: 92,
+                  readingTime: 2 * 60 * 60,
+                  lastRead: recentIso
+                }
+              : {
+                  ...payload,
+                  title: 'Priority Companion',
+                  hasStarted: true,
+                  progress: 35,
+                  readingTime: 90 * 60,
+                  lastRead: olderIso
+                };
+            if (seededCount === 0) highTitle = nextPayload.title;
+            if (seededCount === 1) lowTitle = nextPayload.title;
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            seededCount += 1;
+          }
+          cursor.continue();
+        };
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve({
+            seeded: seededCount >= 2,
+            highTitle,
+            lowTitle
+          });
+        };
+      };
+    });
+  });
+  expect(seeded.seeded).toBeTruthy();
+
+  await page.reload();
+  const cards = page.getByTestId('continue-reading-card');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toContainText(seeded.highTitle);
+  await expect(cards.nth(1)).toContainText(seeded.lowTitle);
+
+  const firstTone = cards.first().getByTestId('continue-reading-time-left');
+  const secondTone = cards.nth(1).getByTestId('continue-reading-time-left');
+  await expect(firstTone).toHaveAttribute('data-tone', 'success');
+  await expect(secondTone).toHaveAttribute('data-tone', 'warning');
+});
+
 test('continue reading card shows favorite badge for favorite books', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
@@ -1317,6 +1418,80 @@ test('continue reading card shows favorite badge for favorite books', async ({ p
   await expect.poll(async () => page.getByTestId('continue-reading-rail').count()).toBeGreaterThan(0);
   await expect(page.getByTestId('continue-reading-card')).toHaveCount(1);
   await expect(page.getByTestId('continue-reading-favorite-badge').first()).toBeVisible();
+});
+
+test('continue reading hides books with duplicate title suffix', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByText('Duplicate book detected')).toBeVisible();
+  await page.getByTestId('duplicate-keep-both').click();
+  await expect(page.getByRole('link', { name: /Test Book \(Duplicate 1\)/i }).first()).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let updatedCount = 0;
+        const nowIso = new Date().toISOString();
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTarget = payload && Object.prototype.hasOwnProperty.call(payload, 'data') && /Test Book/i.test(payload.title || '');
+          if (isTarget) {
+            const nextPayload = {
+              ...payload,
+              hasStarted: true,
+              progress: 45,
+              readingTime: 2200,
+              lastRead: nowIso
+            };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            updatedCount += 1;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(updatedCount >= 2);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await page.reload();
+  await expect.poll(async () => page.getByTestId('continue-reading-rail').count()).toBeGreaterThan(0);
+  await expect(page.getByTestId('continue-reading-card')).toHaveCount(1);
+  await expect(page.getByTestId('continue-reading-card').first()).toContainText(/Test Book/i);
+  await expect(page.getByTestId('continue-reading-card').filter({ hasText: /Duplicate 1/i })).toHaveCount(0);
 });
 
 test('reading snapshot renders in left column above workspace sidebar', async ({ page }) => {
@@ -1637,6 +1812,32 @@ test('header shows bell notifications for books finishable in under 30 minutes',
   await expect(page.getByTestId('notification-item-finish-soon')).toHaveCount(1);
   await expect(page.getByTestId('notification-item-finish-soon').first()).toContainText(/can be finished in/i);
   await expect(page.getByTestId('notification-item-finish-soon').first()).toContainText(/ago|just now/i);
+});
+
+test('notifications include duplicate cleanup reminder when duplicate copies exist', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.reload();
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByText('Duplicate book detected')).toBeVisible();
+  await page.getByTestId('duplicate-keep-both').click();
+  await expect(page.getByRole('link', { name: /Test Book \(Duplicate 1\)/i }).first()).toBeVisible();
+
+  const bellButton = page.getByTestId('library-notifications-toggle');
+  await expect(bellButton).toBeVisible();
+  await bellButton.click();
+  await expect(page.getByTestId('library-notifications-panel')).toBeVisible();
+  const duplicateItem = page.getByTestId('notification-item-duplicate-cleanup').first();
+  await expect(duplicateItem).toBeVisible();
+  await expect(duplicateItem).toContainText(/duplicate cleanup recommended/i);
+  await expect(duplicateItem).toContainText(/add no value and should be deleted/i);
 });
 
 test('notifications support mark read and unread actions', async ({ page }) => {

@@ -86,6 +86,7 @@ const LANGUAGE_DISPLAY_NAMES =
   typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function"
     ? new Intl.DisplayNames(["en"], { type: "language" })
     : null;
+const DUPLICATE_TITLE_SUFFIX_REGEX = /\s*\(duplicate\s+\d+\)\s*$/i;
 
 const getPerfNow = () => {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -1539,6 +1540,10 @@ export default function Home() {
   };
 
   const normalizeDuplicateValue = (value) => (value || "").toString().trim().toLowerCase();
+  const stripDuplicateTitleSuffix = (title) =>
+    (title || "").toString().replace(DUPLICATE_TITLE_SUFFIX_REGEX, "").trim();
+  const isDuplicateTitleBook = (book) =>
+    DUPLICATE_TITLE_SUFFIX_REGEX.test((book?.title || "").toString());
   const getDuplicateKey = (title, author) =>
     `${normalizeDuplicateValue(title)}::${normalizeDuplicateValue(author)}`;
 
@@ -2476,11 +2481,36 @@ export default function Home() {
     () => [...books]
       .filter((book) => {
         if (book.isDeleted) return false;
+        if (isDuplicateTitleBook(book)) return false;
         const progress = normalizeNumber(book.progress);
         const hasStarted = isBookStarted(book);
         return hasStarted && progress < 100;
       })
-      .sort((left, right) => normalizeTime(right.lastRead) - normalizeTime(left.lastRead))
+      .map((book) => {
+        const progress = Math.max(0, Math.min(100, normalizeNumber(book?.progress)));
+        const spentSeconds = Math.max(0, Number(book?.readingTime) || 0);
+        const estimatedRemainingSeconds =
+          progress > 0 && progress < 100 && spentSeconds > 0
+            ? Math.round((spentSeconds * (100 - progress)) / progress)
+            : 0;
+        const lastReadMs = normalizeTime(book?.lastRead);
+        const ageDays = lastReadMs > 0 ? Math.max(0, (Date.now() - lastReadMs) / (1000 * 60 * 60 * 24)) : Number.POSITIVE_INFINITY;
+        const recencyScore = Number.isFinite(ageDays) ? 1 / (1 + ageDays) : 0;
+        const nearFinishScore = progress / 100;
+        const continuePriorityScore = (recencyScore * 0.68) + (nearFinishScore * 0.32);
+        return {
+          ...book,
+          __estimatedRemainingSeconds: estimatedRemainingSeconds,
+          __continuePriorityScore: continuePriorityScore
+        };
+      })
+      .sort((left, right) => {
+        const priorityDiff = (right.__continuePriorityScore || 0) - (left.__continuePriorityScore || 0);
+        if (Math.abs(priorityDiff) > 0.0001) return priorityDiff;
+        const recencyDiff = normalizeTime(right.lastRead) - normalizeTime(left.lastRead);
+        if (recencyDiff !== 0) return recencyDiff;
+        return normalizeNumber(right.progress) - normalizeNumber(left.progress);
+      })
       .slice(0, 8),
     [books]
   );
@@ -2648,6 +2678,38 @@ const formatNotificationTimeAgo = (value) => {
     const spentSeconds = Math.max(0, Number(book?.readingTime) || 0);
     if (progress <= 0 || progress >= 100 || spentSeconds <= 0) return 0;
     return Math.round((spentSeconds * (100 - progress)) / progress);
+  };
+
+  const getContinueReadingTimeLeftTone = (seconds) => {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    if (!safeSeconds) {
+      return {
+        tone: "neutral",
+        className: isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"
+      };
+    }
+    if (safeSeconds <= 30 * 60) {
+      return {
+        tone: "success",
+        className: isDarkLibraryTheme ? "text-emerald-300" : "text-emerald-600"
+      };
+    }
+    if (safeSeconds <= 2 * 60 * 60) {
+      return {
+        tone: "info",
+        className: isDarkLibraryTheme ? "text-blue-300" : "text-blue-600"
+      };
+    }
+    if (safeSeconds <= 6 * 60 * 60) {
+      return {
+        tone: "warning",
+        className: isDarkLibraryTheme ? "text-amber-300" : "text-amber-600"
+      };
+    }
+    return {
+      tone: "neutral",
+      className: isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"
+    };
   };
 
   const getCalendarDayDiff = (dateString) => {
@@ -2945,7 +3007,9 @@ const formatNotificationTimeAgo = (value) => {
   const libraryNotifications = useMemo(() => {
     const nowIso = new Date().toISOString();
     const todayKey = toLocalDateKey(new Date());
+    const duplicateReminderWeekKey = Math.floor(Date.now() / (1000 * 60 * 60 * 24 * 7));
     const items = [];
+    const duplicateTitleBooks = activeBooks.filter((book) => isDuplicateTitleBook(book));
     const inProgressBooks = activeBooks
       .filter((book) => {
         const progress = Math.max(0, Math.min(100, normalizeNumber(book?.progress)));
@@ -3059,6 +3123,28 @@ const formatNotificationTimeAgo = (value) => {
       });
     }
 
+    if (duplicateTitleBooks.length > 0) {
+      const duplicateBaseTitleSet = new Set(
+        duplicateTitleBooks
+          .map((book) => stripDuplicateTitleSuffix(book.title))
+          .filter(Boolean)
+      );
+      const sampleTitles = Array.from(duplicateBaseTitleSet).slice(0, 2);
+      const sampleLabel = sampleTitles.length
+        ? ` (${sampleTitles.join(", ")}${duplicateBaseTitleSet.size > 2 ? ", ..." : ""})`
+        : "";
+      items.push({
+        id: `duplicate-cleanup-${duplicateReminderWeekKey}`,
+        kind: "duplicate-cleanup",
+        title: "Duplicate cleanup recommended",
+        message: `${duplicateTitleBooks.length} duplicate copy${duplicateTitleBooks.length === 1 ? "" : "ies"} detected${sampleLabel}. They add no value and should be deleted.`,
+        createdAt: nowIso,
+        priority: 4,
+        actionType: "open-library-duplicates",
+        actionLabel: "Review duplicates"
+      });
+    }
+
     return items
       .sort((left, right) => {
         if (left.priority !== right.priority) return left.priority - right.priority;
@@ -3159,7 +3245,8 @@ const formatNotificationTimeAgo = (value) => {
     "resume-abandoned": { label: "Resume", Icon: History, tone: "blue" },
     "daily-goal": { label: "Daily goal", Icon: Target, tone: "indigo" },
     milestone: { label: "Milestone", Icon: Trophy, tone: "violet" },
-    "to-read-nudge": { label: "To Read", Icon: Tag, tone: "pink" }
+    "to-read-nudge": { label: "To Read", Icon: Tag, tone: "pink" },
+    "duplicate-cleanup": { label: "Duplicates", Icon: Trash2, tone: "rose" }
   };
   const notificationToneClasses = {
     amber: isDarkLibraryTheme ? "bg-amber-900/30 text-amber-300" : "bg-amber-100 text-amber-700",
@@ -3167,7 +3254,8 @@ const formatNotificationTimeAgo = (value) => {
     blue: isDarkLibraryTheme ? "bg-blue-900/30 text-blue-300" : "bg-blue-100 text-blue-700",
     indigo: isDarkLibraryTheme ? "bg-indigo-900/30 text-indigo-300" : "bg-indigo-100 text-indigo-700",
     violet: isDarkLibraryTheme ? "bg-violet-900/30 text-violet-300" : "bg-violet-100 text-violet-700",
-    pink: isDarkLibraryTheme ? "bg-pink-900/30 text-pink-300" : "bg-pink-100 text-pink-700"
+    pink: isDarkLibraryTheme ? "bg-pink-900/30 text-pink-300" : "bg-pink-100 text-pink-700",
+    rose: isDarkLibraryTheme ? "bg-rose-900/30 text-rose-300" : "bg-rose-100 text-rose-700"
   };
 
   const handleNotificationReadState = (id, read) => {
@@ -3287,6 +3375,14 @@ const formatNotificationTimeAgo = (value) => {
       setStatusFilter("in-progress");
       setCollectionFilter("all");
       setSearchQuery("");
+      return;
+    }
+
+    if (item.actionType === "open-library-duplicates") {
+      handleSidebarSectionSelect("library");
+      setStatusFilter("all");
+      setCollectionFilter("all");
+      setSearchQuery("Duplicate");
       return;
     }
 
@@ -3874,8 +3970,11 @@ const formatNotificationTimeAgo = (value) => {
             <div className="grid [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))] gap-x-4 gap-y-10 pb-3 pr-2">
               {continueReadingBooks.map((book) => {
                 const progress = Math.max(0, Math.min(100, normalizeNumber(book.progress)));
-                const estimatedRemainingSeconds = getEstimatedRemainingSeconds(book);
+                const estimatedRemainingSeconds = Number.isFinite(book?.__estimatedRemainingSeconds)
+                  ? book.__estimatedRemainingSeconds
+                  : getEstimatedRemainingSeconds(book);
                 const estimatedTimeLeft = formatEstimatedTimeLeft(estimatedRemainingSeconds);
+                const timeLeftTone = getContinueReadingTimeLeftTone(estimatedRemainingSeconds);
                 return (
                   <div key={`continue-${book.id}`} className="pl-[88px] sm:pl-[100px] py-1">
                     <Link
@@ -3947,7 +4046,8 @@ const formatNotificationTimeAgo = (value) => {
                         {estimatedTimeLeft && (
                           <div
                             data-testid="continue-reading-time-left"
-                            className={`mt-2 inline-flex items-center gap-1.5 text-xs font-medium ${isDarkLibraryTheme ? "text-amber-300" : "text-amber-600"}`}
+                            data-tone={timeLeftTone.tone}
+                            className={`mt-2 inline-flex items-center gap-1.5 text-xs font-medium ${timeLeftTone.className}`}
                           >
                             <Clock size={12} />
                             <span>{estimatedTimeLeft}</span>
