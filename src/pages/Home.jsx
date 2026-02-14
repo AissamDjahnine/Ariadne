@@ -79,6 +79,8 @@ import {
   stripDuplicateTitleSuffix
 } from './library/duplicateBooks';
 import { buildLibraryNotifications } from './library/libraryNotifications';
+import { buildContinueReadingBooks } from './library/continueReading';
+import { areAllVisibleIdsSelected, pruneSelectionByAllowedIds } from './library/selectionState';
 import FeedbackToast from '../components/FeedbackToast';
 
 const STARTED_BOOK_IDS_KEY = 'library-started-book-ids';
@@ -2534,40 +2536,14 @@ export default function Home() {
   const showGlobalSearchSplitColumns = showGlobalSearchBooksColumn && globalMatchedBookPairs.length === 0;
 
   const continueReadingBooks = useMemo(
-    () => [...books]
-      .filter((book) => {
-        if (book.isDeleted) return false;
-        if (isDuplicateTitleBook(book)) return false;
-        const progress = normalizeNumber(book.progress);
-        const hasStarted = isBookStarted(book);
-        return hasStarted && progress < 100;
-      })
-      .map((book) => {
-        const progress = Math.max(0, Math.min(100, normalizeNumber(book?.progress)));
-        const spentSeconds = Math.max(0, Number(book?.readingTime) || 0);
-        const estimatedRemainingSeconds =
-          progress > 0 && progress < 100 && spentSeconds > 0
-            ? Math.round((spentSeconds * (100 - progress)) / progress)
-            : 0;
-        const lastReadMs = normalizeTime(book?.lastRead);
-        const ageDays = lastReadMs > 0 ? Math.max(0, (Date.now() - lastReadMs) / (1000 * 60 * 60 * 24)) : Number.POSITIVE_INFINITY;
-        const recencyScore = Number.isFinite(ageDays) ? 1 / (1 + ageDays) : 0;
-        const nearFinishScore = progress / 100;
-        const continuePriorityScore = (recencyScore * 0.68) + (nearFinishScore * 0.32);
-        return {
-          ...book,
-          __estimatedRemainingSeconds: estimatedRemainingSeconds,
-          __continuePriorityScore: continuePriorityScore
-        };
-      })
-      .sort((left, right) => {
-        const priorityDiff = (right.__continuePriorityScore || 0) - (left.__continuePriorityScore || 0);
-        if (Math.abs(priorityDiff) > 0.0001) return priorityDiff;
-        const recencyDiff = normalizeTime(right.lastRead) - normalizeTime(left.lastRead);
-        if (recencyDiff !== 0) return recencyDiff;
-        return normalizeNumber(right.progress) - normalizeNumber(left.progress);
-      })
-      .slice(0, 8),
+    () =>
+      buildContinueReadingBooks({
+        books,
+        isDuplicateTitleBook,
+        isBookStarted,
+        normalizeNumber,
+        normalizeTime
+      }),
     [books]
   );
 
@@ -3030,12 +3006,8 @@ const formatNotificationTimeAgo = (value) => {
   const visibleLibraryIds = Array.from(new Set(sortedBooks.map((book) => book.id)));
   const trashSelectedCount = selectedTrashBookIds.length;
   const librarySelectedCount = selectedLibraryBookIds.length;
-  const allVisibleTrashSelected =
-    visibleTrashIds.length > 0 &&
-    visibleTrashIds.every((id) => selectedTrashBookIds.includes(id));
-  const allVisibleLibrarySelected =
-    visibleLibraryIds.length > 0 &&
-    visibleLibraryIds.every((id) => selectedLibraryBookIds.includes(id));
+  const allVisibleTrashSelected = areAllVisibleIdsSelected(visibleTrashIds, selectedTrashBookIds);
+  const allVisibleLibrarySelected = areAllVisibleIdsSelected(visibleLibraryIds, selectedLibraryBookIds);
   useEffect(() => {
     if (librarySection !== "library") {
       setSelectedLibraryBookIds([]);
@@ -3044,8 +3016,7 @@ const formatNotificationTimeAgo = (value) => {
     }
     setSelectedLibraryBookIds((current) => {
       if (!current.length) return current;
-      const allowed = new Set(sortedBooks.map((book) => book.id));
-      const next = current.filter((id) => allowed.has(id));
+      const next = pruneSelectionByAllowedIds(current, sortedBooks.map((book) => book.id));
       return next.length === current.length ? current : next;
     });
     if (!sortedBooks.length) {
