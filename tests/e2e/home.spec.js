@@ -49,7 +49,6 @@ test('library sort and filter controls work with favorites', async ({ page }) =>
   await expect(bookLink).toBeVisible();
 
   const sortSelect = page.getByTestId('library-sort');
-  const filterSelect = page.getByTestId('library-filter');
 
   await sortSelect.selectOption('title-asc');
   await expect(sortSelect).toHaveValue('title-asc');
@@ -380,7 +379,7 @@ test('upload metadata parsing falls back when worker is unavailable', async ({ p
         value: undefined,
         configurable: true,
       });
-    } catch (err) {
+    } catch {
       window.Worker = undefined;
     }
   });
@@ -1283,7 +1282,6 @@ test('continue reading rail appears for started books and hides in filtered mode
 
   await page.goto('/');
   await expect.poll(async () => page.getByTestId('continue-reading-rail').count()).toBeGreaterThan(0);
-  const rail = page.getByTestId('continue-reading-rail');
   await expect(page.getByTestId('continue-reading-card')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'View in-progress' }).click();

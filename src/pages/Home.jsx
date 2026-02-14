@@ -305,7 +305,11 @@ const formatMetadataValue = (rawValue, key = "") => {
 const toSafeFilename = (value, fallback = "book") => {
   const normalized = compactWhitespace(value || "");
   if (!normalized) return fallback;
-  return normalized.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_").slice(0, 120) || fallback;
+  const unsafeChars = new Set(["<", ">", ":", "\"", "/", "\\", "|", "?", "*"]);
+  const safe = Array.from(normalized)
+    .map((char) => (unsafeChars.has(char) || char.charCodeAt(0) < 32 ? "_" : char))
+    .join("");
+  return safe.slice(0, 120) || fallback;
 };
 
 const triggerBlobDownload = (blob, filename) => {
@@ -2076,7 +2080,6 @@ export default function Home() {
     ],
     [activeBooks]
   );
-  const normalizedDebouncedSearchQuery = normalizeString(debouncedSearchQuery.trim());
   const normalizedDebouncedNotesSearchQuery = normalizeString(debouncedNotesSearchQuery.trim());
   const normalizedDebouncedHighlightsSearchQuery = normalizeString(debouncedHighlightsSearchQuery.trim());
   const notesCenterEntries = useMemo(
@@ -3226,23 +3229,6 @@ const formatNotificationTimeAgo = (value) => {
           snoozedUntil: prev.snoozedUntil || null,
           archivedAt: prev.archivedAt || null,
           deletedAt: prev.deletedAt || null
-        }
-      };
-    });
-  };
-
-  const handleNotificationSnooze = (id, hours = 24) => {
-    const snoozedUntil = new Date(Date.now() + (hours * 60 * 60 * 1000)).toISOString();
-    setNotificationStateById((current) => {
-      const previous = current[id] || {};
-      return {
-        ...current,
-        [id]: {
-          firstSeenAt: previous.firstSeenAt || new Date().toISOString(),
-          readAt: previous.readAt || null,
-          snoozedUntil,
-          archivedAt: previous.archivedAt || null,
-          deletedAt: previous.deletedAt || null
         }
       };
     });
