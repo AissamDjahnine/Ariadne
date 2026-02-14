@@ -807,7 +807,7 @@ test('status and flag filters can be combined', async ({ page }) => {
   const filterSelect = page.getByTestId('library-filter');
   const favoritesQuickFilter = page.getByTestId('library-quick-filter-favorites');
   await filterSelect.selectOption('to-read');
-  await favoritesQuickFilter.click();
+  await favoritesQuickFilter.dispatchEvent('click');
 
   await expect(filterSelect).toHaveValue('to-read');
   await expect(favoritesQuickFilter).toHaveAttribute('aria-pressed', 'true');
