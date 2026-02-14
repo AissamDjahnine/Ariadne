@@ -23,7 +23,48 @@ const DEFAULT_READER_SETTINGS = {
   fontSize: 100,
   theme: 'light',
   flow: 'paginated',
-  fontFamily: 'publisher'
+  fontFamily: 'publisher',
+  colorPalette: 'standard'
+};
+const STANDARD_HIGHLIGHT_COLORS = [
+  { name: 'Amber', value: '#fcd34d' },
+  { name: 'Rose', value: '#f9a8d4' },
+  { name: 'Sky', value: '#7dd3fc' },
+  { name: 'Lime', value: '#bef264' },
+  { name: 'Violet', value: '#c4b5fd' },
+  { name: 'Teal', value: '#5eead4' },
+  { name: 'Orange', value: '#fdba74' }
+];
+const DALTONIAN_HIGHLIGHT_COLORS = [
+  { name: 'Blue', value: '#0072B2' },
+  { name: 'Orange', value: '#E69F00' },
+  { name: 'Green', value: '#009E73' },
+  { name: 'Vermillion', value: '#D55E00' },
+  { name: 'Purple', value: '#CC79A7' },
+  { name: 'Sky', value: '#56B4E9' },
+  { name: 'Yellow', value: '#F0E442' }
+];
+const STANDARD_TO_DALTONIAN = new Map(
+  STANDARD_HIGHLIGHT_COLORS.map((entry, index) => [entry.value.toLowerCase(), DALTONIAN_HIGHLIGHT_COLORS[index].value])
+);
+const DALTONIAN_TO_STANDARD = new Map(
+  DALTONIAN_HIGHLIGHT_COLORS.map((entry, index) => [entry.value.toLowerCase(), STANDARD_HIGHLIGHT_COLORS[index].value])
+);
+
+const toStandardHighlightColor = (color) => {
+  const normalized = (color || '').toString().trim().toLowerCase();
+  if (!normalized) return color;
+  return DALTONIAN_TO_STANDARD.get(normalized) || color;
+};
+
+const toPaletteHighlightColor = (color, paletteMode) => {
+  const normalized = (color || '').toString().trim().toLowerCase();
+  if (!normalized) return color;
+  const standardColor = DALTONIAN_TO_STANDARD.get(normalized) || color;
+  if (paletteMode === 'daltonian') {
+    return STANDARD_TO_DALTONIAN.get(standardColor.toLowerCase()) || standardColor;
+  }
+  return standardColor;
 };
 const READER_SEARCH_HISTORY_KEY = 'reader-search-history-v1';
 const READER_ANNOTATION_HISTORY_KEY = 'reader-annotation-search-history-v1';
@@ -84,6 +125,27 @@ function OwlIcon({ size = 18, className = '' }) {
       <path d="m7 6-2 2" />
       <path d="m17 6 2 2" />
       <path d="M4 18h16" />
+    </svg>
+  );
+}
+
+function DaltonIcon({ size = 18, className = '' }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="12" r="4" />
+      <circle cx="14.5" cy="9" r="4" />
+      <circle cx="15.5" cy="15" r="4" />
     </svg>
   );
 }
@@ -665,15 +727,10 @@ export default function Reader() {
     return '';
   };
 
-  const highlightColors = [
-    { name: 'Amber', value: '#fcd34d' },
-    { name: 'Rose', value: '#f9a8d4' },
-    { name: 'Sky', value: '#7dd3fc' },
-    { name: 'Lime', value: '#bef264' },
-    { name: 'Violet', value: '#c4b5fd' },
-    { name: 'Teal', value: '#5eead4' },
-    { name: 'Orange', value: '#fdba74' }
-  ];
+  const highlightColors = useMemo(
+    () => (settings.colorPalette === 'daltonian' ? DALTONIAN_HIGHLIGHT_COLORS : STANDARD_HIGHLIGHT_COLORS),
+    [settings.colorPalette]
+  );
 
   const languageOptions = [
     { code: 'en', label: 'English' },
@@ -861,7 +918,7 @@ export default function Reader() {
         if (target) {
           const spanMatch = document.createElement('span');
           spanMatch.textContent = target;
-          spanMatch.style.background = hexToRgba(h.color, 0.55);
+          spanMatch.style.background = hexToRgba(toPaletteHighlightColor(h.color, settings.colorPalette), 0.55);
           spanMatch.style.color = '#0b1220';
           spanMatch.style.padding = '2px 6px 5px';
           spanMatch.style.borderRadius = '6px';
@@ -1633,7 +1690,7 @@ export default function Reader() {
     const newHighlight = {
       cfiRange: selection.cfiRange,
       text: selection.text,
-      color,
+      color: toStandardHighlightColor(color),
       createdAt: new Date().toISOString()
     };
 
@@ -1678,7 +1735,7 @@ export default function Reader() {
 
     const nextHighlight = {
       ...existing,
-      color
+      color: toStandardHighlightColor(color)
     };
 
     try {
@@ -2572,6 +2629,20 @@ export default function Reader() {
   const toggleSepiaTheme = () => {
     setSettings((s) => ({ ...s, theme: s.theme === 'sepia' ? 'light' : 'sepia' }));
   };
+  const toggleDaltonianPalette = () => {
+    setSettings((s) => ({
+      ...s,
+      colorPalette: s.colorPalette === 'daltonian' ? 'standard' : 'daltonian'
+    }));
+  };
+  const isDaltonianPalette = settings.colorPalette === 'daltonian';
+  const displayHighlights = useMemo(
+    () => highlights.map((item) => ({ ...item, color: toPaletteHighlightColor(item?.color, settings.colorPalette) })),
+    [highlights, settings.colorPalette]
+  );
+  const aiDisabledToneClass = isDaltonianPalette
+    ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-300'
+    : 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300';
   const readerThemeClass = isReaderDark
     ? 'bg-gray-900 text-white'
     : isReaderSepia
@@ -2607,6 +2678,9 @@ export default function Reader() {
       </span>
       <span className="sr-only" data-testid="reader-last-arrow-scroll-step">
         {String(lastArrowScrollStep)}
+      </span>
+      <span className="sr-only" data-testid="reader-color-palette-mode">
+        {isDaltonianPalette ? 'daltonian' : 'standard'}
       </span>
       
       <style>{`
@@ -3481,7 +3555,7 @@ export default function Reader() {
               {highlights.length === 0 && (
                 <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No highlights yet.</div>
               )}
-              {highlights.map((h, idx) => (
+              {displayHighlights.map((h, idx) => (
                 <div
                   key={`${h.cfiRange}-${idx}`}
                   className={`p-3 rounded-2xl border border-transparent transition ${
@@ -3540,7 +3614,7 @@ export default function Reader() {
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <div className="h-1.5 rounded-full flex-1" style={{ background: h.color }} />
+                    <div data-testid="highlight-item-color-bar" className="h-1.5 rounded-full flex-1" style={{ background: h.color }} />
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => openNoteEditor(h)}
@@ -3727,7 +3801,7 @@ export default function Reader() {
           }`}>
             {selectionMode === 'colors' ? (
               <>
-                {highlightColors.map((c) => (
+                {highlightColors.map((c, index) => (
                   <button
                     key={c.name}
                     onClick={() => {
@@ -3739,6 +3813,7 @@ export default function Reader() {
                     }}
                     className="w-5 h-5 rounded-full border border-white/40 shadow"
                     title={`${selection.isExisting ? 'Recolor' : 'Highlight'} ${c.name}`}
+                    data-testid={`highlight-color-${index}`}
                     style={{ background: c.value }}
                   />
                 ))}
@@ -4063,7 +4138,7 @@ export default function Reader() {
             disabled
             data-testid="ai-explain-disabled"
             title="AI feature not available yet"
-            className="flex cursor-not-allowed items-center gap-2 rounded-full border border-orange-200 bg-orange-50 p-2 px-3 text-orange-700 opacity-90 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300"
+            className={`flex cursor-not-allowed items-center gap-2 rounded-full border p-2 px-3 opacity-90 ${aiDisabledToneClass}`}
           >
             <Wand2 size={18} />
             <span className="text-[10px] font-black uppercase hidden lg:inline">Explain Page</span>
@@ -4073,7 +4148,7 @@ export default function Reader() {
             disabled
             data-testid="ai-story-disabled"
             title="AI feature not available yet"
-            className="flex cursor-not-allowed items-center gap-2 rounded-full border border-orange-200 bg-orange-50 p-2 px-3 text-orange-700 opacity-90 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300"
+            className={`flex cursor-not-allowed items-center gap-2 rounded-full border p-2 px-3 opacity-90 ${aiDisabledToneClass}`}
           >
             <Sparkles size={20} />
             <span className="hidden md:inline text-xs font-black uppercase">Story</span>
@@ -4136,6 +4211,17 @@ export default function Reader() {
           >
             <OwlIcon size={20} />
           </button>
+          <button
+            onClick={toggleDaltonianPalette}
+            className={`p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700 ${
+              isDaltonianPalette ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30' : ''
+            }`}
+            data-testid="colorblind-palette-toggle"
+            title={isDaltonianPalette ? 'Disable colorblind palette' : 'Enable colorblind palette'}
+            aria-label="Toggle colorblind palette"
+          >
+            <DaltonIcon size={20} />
+          </button>
           <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
           <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
         </div>
@@ -4157,7 +4243,7 @@ export default function Reader() {
           flashingHighlightPulse={flashingHighlightPulse}
           onSearchResultActivate={handleSearchResultActivate}
           onSearchFocusDismiss={dismissFocusedSearch}
-          highlights={highlights}
+          highlights={displayHighlights}
           onSelection={handleSelection}
           onInlineNoteMarkerActivate={handleInlineNoteMarkerActivate}
           onFootnotePreview={handleFootnotePreview}

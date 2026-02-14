@@ -1081,6 +1081,103 @@ test('sepia mode toggles warm reading background', async ({ page }) => {
   await expect.poll(getBodyBg).toBe(initialBg);
 });
 
+test('colorblind palette toggle remaps highlight colors and AI action tone', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = Array.isArray(payload.highlights) ? [...payload.highlights] : [];
+            highlights.push({
+              cfiRange: 'epubcfi(/6/2[seed-daltonian]!/4/2/2,/4/2/10)',
+              text: 'Seeded highlight for color mode remap',
+              color: '#fcd34d'
+            });
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+  await page.getByTestId('reader-highlights-toggle').click();
+  await expect(page.getByTestId('highlight-item')).toHaveCount(1);
+  const panel = page.getByTestId('highlights-panel');
+  const colorBar = panel.getByTestId('highlight-item-color-bar').first();
+  await expect(colorBar).toBeVisible();
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('standard');
+
+  const readAiToneColor = async () =>
+    page.getByTestId('ai-explain-disabled').evaluate((el) => window.getComputedStyle(el).color);
+  const readColorBar = async () =>
+    colorBar.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+
+  const standardAiColor = await readAiToneColor();
+  const standardBarColor = await readColorBar();
+
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="colorblind-palette-toggle"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+  });
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('daltonian');
+  await expect.poll(readColorBar).not.toBe(standardBarColor);
+  await expect.poll(readAiToneColor).not.toBe(standardAiColor);
+
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="colorblind-palette-toggle"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+  });
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('standard');
+  await expect.poll(readColorBar).toBe(standardBarColor);
+  await expect.poll(readAiToneColor).toBe(standardAiColor);
+});
+
 test('menu button opens chapter contents and chapter selection closes panel', async ({ page }) => {
   await openFixtureBook(page);
 
