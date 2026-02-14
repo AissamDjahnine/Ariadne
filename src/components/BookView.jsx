@@ -730,9 +730,23 @@ export default function BookView({
         }`}
       />
       {settings.flow === 'paginated' && (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-2">
-          <button onClick={prevPage} className="pointer-events-auto bg-black/20 hover:bg-black/50 text-white p-2 rounded-full">‹</button>
-          <button onClick={nextPage} className="pointer-events-auto bg-black/20 hover:bg-black/50 text-white p-2 rounded-full">›</button>
+        <div className="absolute inset-0 pointer-events-none">
+          <button
+            type="button"
+            onClick={prevPage}
+            data-testid="reader-page-prev-zone"
+            aria-label="Previous page"
+            title="Previous page"
+            className="pointer-events-auto absolute inset-y-0 left-0 w-[10vw] min-w-[40px] max-w-[72px] cursor-w-resize bg-transparent"
+          />
+          <button
+            type="button"
+            onClick={nextPage}
+            data-testid="reader-page-next-zone"
+            aria-label="Next page"
+            title="Next page"
+            className="pointer-events-auto absolute inset-y-0 right-0 w-[10vw] min-w-[40px] max-w-[72px] cursor-e-resize bg-transparent"
+          />
         </div>
       )}
     </div>
