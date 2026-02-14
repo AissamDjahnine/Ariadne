@@ -2774,7 +2774,7 @@ const formatNotificationTimeAgo = (value) => {
         key={`global-card-${book.id}`}
         data-testid="global-search-found-book-card"
         onClick={() => handleOpenBook(book.id)}
-        className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 block relative ${coverHeightClass}`}
+        className={`group workspace-interactive-card workspace-interactive-card-light rounded-2xl overflow-hidden block relative ${coverHeightClass}`}
       >
         <div data-testid="global-search-found-book-cover" className={`h-full bg-gray-100 ${FOUND_BOOK_COVER_PADDING_CLASS}`}>
           <div className="relative h-full w-full rounded-xl overflow-hidden bg-white border border-gray-100">
@@ -3883,10 +3883,10 @@ const formatNotificationTimeAgo = (value) => {
                       to={buildReaderPath(book.id)}
                       data-testid="continue-reading-card"
                       onClick={() => handleOpenBook(book.id)}
-                      className={`group relative block w-full min-h-[190px] sm:min-h-[196px] rounded-[24px] border transition-all hover:-translate-y-0.5 ${
-                        isDarkLibraryTheme
-                          ? "border-slate-700 bg-slate-800 shadow-[0_14px_34px_rgba(2,8,23,0.35)]"
-                          : "border-gray-200 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.10)]"
+                      className={`group workspace-interactive-card relative block w-full min-h-[190px] sm:min-h-[196px] rounded-[24px] ${
+                        isDarkLibraryTheme ? "workspace-interactive-card-dark" : "workspace-interactive-card-light"
+                      } ${
+                        !isDarkLibraryTheme ? "shadow-[0_14px_34px_rgba(15,23,42,0.10)]" : ""
                       } ${
                         notificationFocusedBookId === book.id
                           ? (isDarkLibraryTheme
@@ -4227,7 +4227,7 @@ const formatNotificationTimeAgo = (value) => {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 flex flex-col relative ${
+                  className={`group workspace-interactive-card workspace-interactive-card-light rounded-2xl overflow-hidden flex flex-col relative ${
                     isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
                   }`}
                   style={VIRTUAL_GRID_CARD_STYLE}
@@ -4470,7 +4470,7 @@ const formatNotificationTimeAgo = (value) => {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className={`group bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100 flex ${
+                  className={`group workspace-interactive-card workspace-interactive-card-light rounded-2xl overflow-hidden flex ${
                     isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
                   }`}
                   style={VIRTUAL_LIST_CARD_STYLE}

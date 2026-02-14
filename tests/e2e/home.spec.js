@@ -210,6 +210,37 @@ test('collections and assignments persist after reload', async ({ page }) => {
   await expect(page.getByTestId('book-collection-chip').filter({ hasText: 'Persistent Shelf' }).first()).toBeVisible();
 });
 
+test('library cards share consistent hover and focus interaction classes', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  await expect(page.getByRole('link', { name: /Test Book/i }).first()).toBeVisible();
+
+  const gridCard = page.locator('[data-testid="library-books-grid"] a').first();
+  await expect(gridCard).toHaveClass(/workspace-interactive-card/);
+  await expect(gridCard).toHaveClass(/workspace-interactive-card-light/);
+
+  await page.getByTestId('library-view-list').click();
+  await expect(page.getByTestId('library-books-list')).toBeVisible();
+  const listCard = page.locator('[data-testid="library-books-list"] a').first();
+  await expect(listCard).toHaveClass(/workspace-interactive-card/);
+  await expect(listCard).toHaveClass(/workspace-interactive-card-light/);
+
+  await createShelf(page, 'Interaction Shelf');
+  await openLibraryPage(page);
+  await assignFirstBookToShelf(page, 'Interaction Shelf');
+  await openCollectionsPage(page);
+
+  const collectionCard = page.getByTestId('collection-column-book').first();
+  await expect(collectionCard).toHaveClass(/workspace-interactive-card/);
+  await expect(collectionCard).toHaveClass(/workspace-interactive-card-light/);
+});
+
 test('newly added book shows a temporary yellow halo highlight', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');

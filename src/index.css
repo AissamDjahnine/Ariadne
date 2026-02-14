@@ -38,4 +38,17 @@
     border-color: var(--workspace-border-dark);
     background-color: rgba(15, 23, 42, 0.9);
   }
+
+  .workspace-interactive-card {
+    @apply transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2;
+  }
+
+  .workspace-interactive-card-light {
+    @apply border border-gray-100 bg-white shadow-sm hover:border-blue-200 hover:shadow-xl;
+  }
+
+  .workspace-interactive-card-dark {
+    @apply border border-slate-700 bg-slate-800 hover:border-blue-500;
+    box-shadow: 0 14px 34px rgba(2, 8, 23, 0.35);
+  }
 }
