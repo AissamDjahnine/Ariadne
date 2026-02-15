@@ -9,7 +9,8 @@ import {
   Moon, Sun, BookOpen, Scroll, Type, 
   ChevronLeft, Menu, X,
   Search as SearchIcon, Sparkles, Wand2, User,
-  BookOpenText, Highlighter, Languages, Bookmark, BookText
+  BookOpenText, Highlighter, Languages, Bookmark, BookText,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, List
 } from 'lucide-react';
 
 const DEFAULT_TRANSLATE_PROVIDER = 'mymemory';
@@ -24,8 +25,27 @@ const DEFAULT_READER_SETTINGS = {
   theme: 'light',
   flow: 'paginated',
   fontFamily: 'publisher',
-  colorPalette: 'standard'
+  colorPalette: 'standard',
+  lineSpacing: 1.6,
+  textMargin: 32,
+  textAlign: 'left'
 };
+const LINE_SPACING_OPTIONS = [
+  { label: 'Tight', value: 1.4, short: '1.4x' },
+  { label: 'Comfort', value: 1.6, short: '1.6x' },
+  { label: 'Loose', value: 1.8, short: '1.8x' }
+];
+const TEXT_MARGIN_OPTIONS = [
+  { label: 'Narrow', value: 16 },
+  { label: 'Balanced', value: 32 },
+  { label: 'Wide', value: 48 }
+];
+const TEXT_ALIGN_OPTIONS = [
+  { label: 'Left', value: 'left', icon: AlignLeft },
+  { label: 'Middle', value: 'center', icon: AlignCenter },
+  { label: 'Right', value: 'right', icon: AlignRight },
+  { label: 'Justified', value: 'justify', icon: AlignJustify }
+];
 const STANDARD_HIGHLIGHT_COLORS = [
   { name: 'Amber', value: '#fcd34d' },
   { name: 'Rose', value: '#f9a8d4' },
@@ -2764,6 +2784,15 @@ export default function Reader() {
       <span className="sr-only" data-testid="reader-last-arrow-scroll-step">
         {String(lastArrowScrollStep)}
       </span>
+      <span className="sr-only" data-testid="reader-setting-line-spacing">
+        {String(settings.lineSpacing)}
+      </span>
+      <span className="sr-only" data-testid="reader-setting-text-margin">
+        {String(settings.textMargin)}
+      </span>
+      <span className="sr-only" data-testid="reader-setting-text-align">
+        {settings.textAlign}
+      </span>
       <span className="sr-only" data-testid="reader-color-palette-mode">
         {isDaltonianPalette ? 'daltonian' : 'standard'}
       </span>
@@ -2974,6 +3003,7 @@ export default function Reader() {
                   Font
                 </div>
                 <select
+                  data-testid="reader-font-family-select"
                   value={settings.fontFamily}
                   onChange={(e) => setSettings(s => ({ ...s, fontFamily: e.target.value }))}
                   className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
@@ -2984,6 +3014,82 @@ export default function Reader() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Line spacing
+                </div>
+                <div className="grid grid-cols-3 gap-2" data-testid="reader-line-spacing-group">
+                  {LINE_SPACING_OPTIONS.map((item) => {
+                    const isActive = Number(settings.lineSpacing) === item.value;
+                    return (
+                      <button
+                        key={item.value}
+                        type="button"
+                        title={item.label}
+                        aria-label={`Line spacing ${item.label}`}
+                        data-testid={`reader-line-spacing-option-${String(item.value).replace('.', '-')}`}
+                        onClick={() => setSettings((s) => ({ ...s, lineSpacing: item.value }))}
+                        className={`rounded-xl border px-2 py-2 text-[11px] font-bold transition flex items-center justify-center gap-1.5 ${
+                          isActive
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-600'
+                        }`}
+                      >
+                        <List size={13} />
+                        <span>{item.short}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Margins
+                </div>
+                <select
+                  data-testid="reader-text-margin-select"
+                  value={String(settings.textMargin)}
+                  onChange={(e) => setSettings((s) => ({ ...s, textMargin: Number(e.target.value) }))}
+                  className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                >
+                  {TEXT_MARGIN_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Text alignment
+                </div>
+                <div className="grid grid-cols-4 gap-2" data-testid="reader-text-align-group">
+                  {TEXT_ALIGN_OPTIONS.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = settings.textAlign === item.value;
+                    return (
+                      <button
+                        key={item.value}
+                        type="button"
+                        title={item.label}
+                        aria-label={`Text align ${item.label}`}
+                        data-testid={`reader-text-align-${item.value}`}
+                        onClick={() => setSettings((s) => ({ ...s, textAlign: item.value }))}
+                        className={`rounded-xl border p-2 transition flex items-center justify-center ${
+                          isActive
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-600'
+                        }`}
+                      >
+                        <Icon size={15} />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -4330,6 +4436,7 @@ export default function Reader() {
           <button
             onClick={() => setShowFontMenu(!showFontMenu)}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+            data-testid="reader-text-settings-toggle"
             title={showFontMenu ? 'Close text settings' : 'Open text settings'}
             aria-label={showFontMenu ? 'Close text settings' : 'Open text settings'}
           >

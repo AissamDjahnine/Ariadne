@@ -820,6 +820,20 @@ test('theme toggle works repeatedly in reader', async ({ page }) => {
   expect(revertedBg).toBe(initialBg);
 });
 
+test('text settings controls update line spacing, margins, and alignment', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTestId('reader-text-settings-toggle').click();
+  await page.getByTestId('reader-line-spacing-option-1-8').click();
+  await page.getByTestId('reader-text-margin-select').selectOption('48');
+  await page.getByTestId('reader-text-align-justify').click();
+  await expect(page.getByTestId('reader-line-spacing-option-1-8')).toHaveClass(/bg-blue-600/);
+  await expect(page.getByTestId('reader-setting-line-spacing')).toHaveText('1.8');
+  await expect(page.getByTestId('reader-setting-text-margin')).toHaveText('48');
+  await expect(page.getByTestId('reader-setting-text-align')).toHaveText('justify');
+
+});
+
 test('reader utility icon colors match theme controls when idle', async ({ page }) => {
   await openFixtureBook(page);
 

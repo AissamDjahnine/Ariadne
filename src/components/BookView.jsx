@@ -174,6 +174,15 @@ export default function BookView({
     const isScrolled = settings.flow === 'scrolled';
     const isDark = theme === 'dark';
     const isSepia = theme === 'sepia';
+    const lineHeight = Number.isFinite(Number(settings.lineSpacing))
+      ? Math.min(2.4, Math.max(1.2, Number(settings.lineSpacing)))
+      : 1.6;
+    const textMargin = Number.isFinite(Number(settings.textMargin))
+      ? Math.min(64, Math.max(8, Number(settings.textMargin)))
+      : 32;
+    const allowedTextAlign = new Set(['left', 'center', 'right', 'justify']);
+    const textAlign = allowedTextAlign.has(settings.textAlign) ? settings.textAlign : 'left';
+    const scrolledViewportPadding = Math.max(48, textMargin * 2 + 24);
     const textColor = isDark ? '#e5e7eb' : isSepia ? '#3f2f1f' : '#111827';
     const paginatedBackground = isDark ? '#111827' : isSepia ? '#f8efd2' : '#ffffff';
     const scrolledOuterBackground = isDark ? '#0b1220' : isSepia ? '#eadfbd' : '#f3f4f6';
@@ -185,17 +194,23 @@ export default function BookView({
       'body': {
         'color': `${textColor} !important`,
         'background': `${scrolledPageBackground} !important`,
-        'max-width': isScrolled ? 'min(940px, calc(100vw - 88px)) !important' : 'none !important',
+        'max-width': isScrolled ? `min(940px, calc(100vw - ${scrolledViewportPadding}px)) !important` : 'none !important',
         'width': '100% !important',
         'margin': isScrolled ? '20px auto 28px auto !important' : '0 !important',
-        'padding-left': isScrolled ? '32px !important' : '0 !important',
-        'padding-right': isScrolled ? '32px !important' : '0 !important',
+        'padding-left': `${textMargin}px !important`,
+        'padding-right': `${textMargin}px !important`,
         'padding-top': '0 !important',
         'padding-bottom': '0 !important',
+        'line-height': `${lineHeight} !important`,
+        'text-align': `${textAlign} !important`,
         'box-sizing': 'border-box !important',
         'position': 'relative !important'
       },
-      'p, span, div, li, h1, h2, h3, h4, h5, h6': { 'color': `${textColor} !important` },
+      'p, span, div, li, blockquote, h1, h2, h3, h4, h5, h6': {
+        'color': `${textColor} !important`,
+        'line-height': `${lineHeight} !important`,
+        'text-align': `${textAlign} !important`
+      },
       '.search-hl': {
         'background': 'rgba(250, 204, 21, 0.28) !important',
         'border-radius': '2px !important'
@@ -440,7 +455,7 @@ export default function BookView({
 
   useEffect(() => {
     if (renditionRef.current) applyTheme(renditionRef.current, settings.theme);
-  }, [settings.theme, settings.fontSize]);
+  }, [settings.theme, settings.fontSize, settings.lineSpacing, settings.textMargin, settings.textAlign]);
 
   useEffect(() => {
     if (!renditionRef.current) return;
@@ -454,6 +469,21 @@ export default function BookView({
       console.error('Font override failed', err);
     }
   }, [settings.fontFamily]);
+
+  useEffect(() => {
+    if (!renditionRef.current) return;
+    const lineHeight = Number.isFinite(Number(settings.lineSpacing))
+      ? Math.min(2.4, Math.max(1.2, Number(settings.lineSpacing)))
+      : 1.6;
+    const allowedTextAlign = new Set(['left', 'center', 'right', 'justify']);
+    const textAlign = allowedTextAlign.has(settings.textAlign) ? settings.textAlign : 'left';
+    try {
+      renditionRef.current.themes.override('line-height', `${lineHeight}`);
+      renditionRef.current.themes.override('text-align', textAlign);
+    } catch (err) {
+      console.error('Typography override failed', err);
+    }
+  }, [settings.lineSpacing, settings.textAlign]);
 
   useEffect(() => {
     if (!renditionRef.current) return;
@@ -518,7 +548,7 @@ export default function BookView({
         onSearchHighlightCountChangeRef.current(0);
       }
     };
-  }, [bookData, searchResults, activeSearchCfi, focusedSearchCfi, showSearchHighlights, settings.fontSize, settings.fontFamily, settings.flow, settings.theme]);
+  }, [bookData, searchResults, activeSearchCfi, focusedSearchCfi, showSearchHighlights, settings.fontSize, settings.fontFamily, settings.flow, settings.theme, settings.lineSpacing, settings.textMargin, settings.textAlign]);
 
   useEffect(() => {
     if (!renditionRef.current) return;
@@ -711,7 +741,7 @@ export default function BookView({
       clearTimeout(timer);
       clearInlineNoteMarkers();
     };
-  }, [bookData, highlights, flashingHighlightCfi, flashingHighlightPulse, settings.fontSize, settings.fontFamily, settings.flow, settings.theme, relocationTick]);
+  }, [bookData, highlights, flashingHighlightCfi, flashingHighlightPulse, settings.fontSize, settings.fontFamily, settings.flow, settings.theme, settings.lineSpacing, settings.textMargin, settings.textAlign, relocationTick]);
 
 
   const prevPage = () => renditionRef.current?.prev();
