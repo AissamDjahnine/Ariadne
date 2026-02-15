@@ -1203,8 +1203,18 @@ test('menu button opens chapter contents and chapter selection closes panel', as
     .poll(async () => panel.getByTestId('toc-item').count(), { timeout: 30000 })
     .toBeGreaterThan(0);
 
-  await panel.getByTestId('toc-item').first().click();
+  const chapterBadge = page.getByTestId('reader-current-chapter');
+  await expect(chapterBadge).toBeVisible();
+
+  const tocCount = await panel.getByTestId('toc-item').count();
+  const targetIndex = tocCount > 1 ? 1 : 0;
+  const targetItem = panel.getByTestId('toc-item').nth(targetIndex);
+  const targetLabel = ((await targetItem.textContent()) || '').trim();
+  const targetLabelPattern = new RegExp(targetLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+  await targetItem.click();
   await expect(page.getByTestId('chapters-panel')).toHaveCount(0);
+  await expect(chapterBadge).toHaveText(targetLabelPattern);
 });
 
 test('highlights selection controls drive export availability', async ({ page }) => {

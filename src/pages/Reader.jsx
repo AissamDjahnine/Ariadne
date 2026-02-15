@@ -90,6 +90,7 @@ const READER_SEARCH_HISTORY_KEY = 'reader-search-history-v1';
 const READER_ANNOTATION_HISTORY_KEY = 'reader-annotation-search-history-v1';
 const READER_HIGHLIGHT_COLOR_ORDER_KEY = 'reader-highlight-color-order-v1';
 const MAX_RECENT_QUERIES = 8;
+const normalizeHref = (href = '') => href.split('#')[0];
 
 const parseStoredQueryHistory = (raw) => {
   if (!raw) return [];
@@ -2121,15 +2122,34 @@ export default function Reader() {
     return acc;
   };
 
-  const tocItems = flattenTocItems(toc);
-
-  const normalizeHref = (href = '') => href.split('#')[0];
+  const tocItems = useMemo(() => flattenTocItems(toc), [toc]);
   const isTocItemActive = (href) => {
     const active = normalizeHref(currentHref);
     const target = normalizeHref(href);
     if (!active || !target) return false;
     return active.includes(target) || target.includes(active);
   };
+  const currentChapterLabel = useMemo(() => {
+    if (!tocItems.length) return '';
+
+    const active = normalizeHref(currentHref);
+    if (!active) return tocItems[0]?.label || '';
+
+    const directMatch = tocItems.find((item) => {
+      const target = normalizeHref(item.href);
+      if (!target) return false;
+      return active.includes(target) || target.includes(active);
+    });
+    if (directMatch?.label) return directMatch.label;
+
+    const activeLeaf = active.split('/').pop();
+    if (activeLeaf) {
+      const leafMatch = tocItems.find((item) => normalizeHref(item.href).split('/').pop() === activeLeaf);
+      if (leafMatch?.label) return leafMatch.label;
+    }
+
+    return '';
+  }, [tocItems, currentHref]);
 
   const handleTocSelect = (href) => {
     if (!href) return;
@@ -4310,7 +4330,7 @@ export default function Reader() {
       )}
 
       {/* TOP BAR */}
-      <div className={`flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
+      <div className={`relative flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSidebar(true)}
@@ -4327,6 +4347,19 @@ export default function Reader() {
             </div>
           </div>
         </div>
+
+        {currentChapterLabel && (
+          <div className="pointer-events-none absolute left-1/2 top-1/2 hidden max-w-[40vw] -translate-x-1/2 -translate-y-1/2 md:block">
+            <div
+              data-testid="reader-current-chapter"
+              className={`truncate text-center text-[11px] font-bold uppercase tracking-[0.22em] ${
+                settings.theme === 'dark' ? 'text-gray-300' : 'text-gray-500'
+              }`}
+            >
+              {currentChapterLabel}
+            </div>
+          </div>
+        )}
         
         <div className="flex items-center gap-1 sm:gap-2">
           <button
