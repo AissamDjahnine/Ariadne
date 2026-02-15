@@ -254,6 +254,7 @@ export default function Reader() {
   const lastActiveRef = useRef(Date.now());
   const isUpdatingStatsRef = useRef(false);
   const [highlights, setHighlights] = useState([]);
+  const highlightsRef = useRef([]);
   const [selectedHighlights, setSelectedHighlights] = useState([]);
   const [editingHighlight, setEditingHighlight] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -419,6 +420,10 @@ export default function Reader() {
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  useEffect(() => {
+    highlightsRef.current = highlights;
+  }, [highlights]);
 
   useEffect(() => {
     pendingHighlightDeleteRef.current = pendingHighlightDelete;
@@ -1675,6 +1680,17 @@ export default function Reader() {
     }) || null;
   }, [highlights]);
 
+  const highlightListContainsCfi = useCallback((items, cfiRange) => {
+    const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
+    const target = normalizeCfi(cfiRange);
+    if (!target || !Array.isArray(items)) return false;
+    return items.some((item) => {
+      const source = normalizeCfi(item?.cfiRange);
+      if (!source) return false;
+      return source === target || source.includes(target) || target.includes(source);
+    });
+  }, []);
+
   const handleSelection = useCallback((text, cfiRange, pos, isExisting = false) => {
     closeFootnotePreview();
     closePostHighlightPrompt();
@@ -1926,6 +1942,14 @@ export default function Reader() {
     setNoteDraft(highlight?.note || '');
   };
 
+  const openNoteEditorForExistingSelection = () => {
+    if (!selection?.isExisting || !selection?.cfiRange) return;
+    const target = findHighlightByCfi(selection.cfiRange);
+    if (!target?.cfiRange) return;
+    openNoteEditor(target);
+    clearSelection();
+  };
+
   const applyHighlightNoteLocally = useCallback((cfiRange, note) => {
     const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
     const target = normalizeCfi(cfiRange);
@@ -1980,10 +2004,14 @@ export default function Reader() {
     const currentBook = bookRef.current;
     if (!currentBook || !editingHighlight?.cfiRange) return;
     const nextNote = noteDraft.trim();
+    const fallbackHighlights = highlightsRef.current;
     applyHighlightNoteLocally(editingHighlight.cfiRange, nextNote);
     try {
       const updated = await updateHighlightNote(currentBook.id, editingHighlight.cfiRange, nextNote);
-      if (updated) {
+      const shouldAcceptUpdated = Array.isArray(updated)
+        && (!Array.isArray(fallbackHighlights) || fallbackHighlights.length === 0
+          || highlightListContainsCfi(updated, editingHighlight.cfiRange));
+      if (shouldAcceptUpdated) {
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
       }
@@ -2014,11 +2042,15 @@ export default function Reader() {
       return;
     }
     applyHighlightNoteLocally(target.cfiRange, nextNote);
+    const fallbackHighlights = highlightsRef.current;
     setIsSavingPostHighlightNote(true);
     setPostHighlightNoteError('');
     try {
       const updated = await updateHighlightNote(currentBook.id, target.cfiRange, nextNote);
-      if (updated) {
+      const shouldAcceptUpdated = Array.isArray(updated)
+        && (!Array.isArray(fallbackHighlights) || fallbackHighlights.length === 0
+          || highlightListContainsCfi(updated, target.cfiRange));
+      if (shouldAcceptUpdated) {
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
       }
@@ -3895,19 +3927,18 @@ export default function Reader() {
                 >
                   Delete highlight
                 </button>
-                <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
-                <button
-                  onClick={applyPrimaryHighlightChoice}
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
-                >
-                  <Highlighter size={12} />
-                  Highlight
-                </button>
                 <button
                   onClick={() => setSelectionMode('colors')}
-                  className="text-[11px] font-semibold text-blue-500 hover:text-blue-600"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
                 >
-                  Colors
+                  Change color
+                </button>
+                <button
+                  onClick={openNoteEditorForExistingSelection}
+                  data-testid="selection-existing-note-action"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
+                >
+                  {(findHighlightByCfi(selection.cfiRange)?.note || '').trim() ? 'Edit Note' : 'Add note'}
                 </button>
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
@@ -3937,17 +3968,11 @@ export default function Reader() {
                 </button>
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
-                  onClick={applyPrimaryHighlightChoice}
+                  onClick={() => setSelectionMode('colors')}
                   className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
                 >
                   <Highlighter size={12} />
                   Highlight
-                </button>
-                <button
-                  onClick={() => setSelectionMode('colors')}
-                  className="text-[11px] font-semibold text-blue-500 hover:text-blue-600"
-                >
-                  Colors
                 </button>
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button

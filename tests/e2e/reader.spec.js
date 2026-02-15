@@ -1450,6 +1450,7 @@ test('post-highlight note prompt supports direct note entry and save', async ({ 
 
   const toolbar = page.getByTestId('selection-toolbar');
   await toolbar.getByRole('button', { name: 'Highlight' }).click();
+  await toolbar.locator('button[title^="Highlight "]').first().click();
 
   const notePrompt = page.getByTestId('post-highlight-note-prompt');
   await expect(notePrompt).toBeVisible();
@@ -1469,6 +1470,7 @@ test('post-highlight note prompt can be dismissed with Later', async ({ page }) 
 
   const toolbar = page.getByTestId('selection-toolbar');
   await toolbar.getByRole('button', { name: 'Highlight' }).click();
+  await toolbar.locator('button[title^="Highlight "]').first().click();
 
   const notePrompt = page.getByTestId('post-highlight-note-prompt');
   await expect(notePrompt).toBeVisible();
@@ -1480,17 +1482,112 @@ test('highlight color options are ordered by last used first', async ({ page }) 
   await openFixtureBook(page);
   await selectTextInBook(page);
 
-  const toolbar = page.getByTestId('selection-toolbar');
-  await toolbar.getByRole('button', { name: 'Colors' }).click();
-  await toolbar.getByTitle('Highlight Lime').click();
+  await page.getByTestId('selection-toolbar').getByRole('button', { name: 'Highlight' }).click();
+  await expect(page.getByTestId('selection-toolbar').getByTitle('Highlight Lime')).toBeVisible();
+  await page.getByTestId('selection-toolbar').getByTitle('Highlight Lime').click();
   await expect(page.getByTestId('post-highlight-note-prompt')).toBeVisible();
   await page.getByRole('button', { name: 'Later' }).click();
 
   await selectTextInBook(page);
-  await page.getByTestId('selection-toolbar').getByRole('button', { name: 'Colors' }).click();
+  await page.getByTestId('selection-toolbar').getByRole('button', { name: 'Highlight' }).click();
   await expect(
-    page.getByTestId('selection-toolbar').locator('button[title^="Highlight "]').first()
+    page.getByTestId('selection-toolbar').locator('button[title]').first()
   ).toHaveAttribute('title', 'Highlight Lime');
+});
+
+test('note can be added back after deletion via existing-highlight quick actions', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = [
+              {
+                cfiRange: 'epubcfi(/6/2[seed-note-readd]!/4/2/2,/4/2/14)',
+                text: 'Seeded note restore highlight',
+                color: '#fcd34d',
+                note: 'Initial highlight note'
+              }
+            ];
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('highlight-item')).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Edit note' }).first().click();
+
+  const editor = page.getByTestId('highlight-note-editor');
+  await expect(editor).toBeVisible();
+  await editor.getByTestId('highlight-note-editor-input').fill('');
+  await editor.getByTestId('highlight-note-editor-save').click();
+  await expect(page.getByTestId('highlight-note-editor')).toHaveCount(0);
+  await expect(panel.getByTestId('highlight-item-note')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Add note' }).first()).toBeVisible();
+
+  await panel.locator(':scope > div').first().click();
+  await expect(page.getByTestId('highlights-panel')).toHaveCount(0);
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  await expect(page.getByTestId('highlights-panel')).toBeVisible();
+  await page.getByTestId('highlights-panel').getByRole('button', { name: 'Add note' }).first().click();
+
+  await expect(page.getByTestId('highlight-note-editor')).toBeVisible();
+  await page.getByTestId('highlight-note-editor-input').fill('Note added back');
+  await page.getByTestId('highlight-note-editor-save').click();
+  await expect(page.getByTestId('highlight-note-editor')).toHaveCount(0);
+
+  await expect(panel.getByTestId('highlight-item-note').first()).toContainText('Note added back');
 });
 
 test('bookmarks panel supports jump-close and delete flow', async ({ page }) => {
