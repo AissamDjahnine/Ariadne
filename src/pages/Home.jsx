@@ -479,6 +479,7 @@ const searchBookContentFromIndex = async (book, query, manifestEntry, maxMatches
 const CONTENT_SCROLL_HEIGHT_CLASS = "h-[42vh]";
 const CONTENT_PANEL_HEIGHT_CLASS = "h-[calc(42vh+3rem)]";
 const FOUND_BOOK_COVER_PADDING_CLASS = "p-4";
+const LIBRARY_DENSITY_MODE_KEY = "library-density-mode";
 const LIBRARY_RENDER_BATCH_SIZE = 48;
 const VIRTUAL_GRID_CARD_STYLE = { contentVisibility: "auto", containIntrinsicSize: "620px" };
 const VIRTUAL_LIST_CARD_STYLE = { contentVisibility: "auto", containIntrinsicSize: "220px" };
@@ -527,6 +528,10 @@ export default function Home() {
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window === "undefined") return "grid";
     return window.localStorage.getItem("library-view-mode") === "list" ? "list" : "grid";
+  });
+  const [densityMode, setDensityMode] = useState(() => {
+    if (typeof window === "undefined") return "comfortable";
+    return window.localStorage.getItem(LIBRARY_DENSITY_MODE_KEY) === "compact" ? "compact" : "comfortable";
   });
   const [libraryTheme, setLibraryTheme] = useState(() => {
     if (typeof window === "undefined") return "light";
@@ -614,6 +619,10 @@ export default function Home() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("library-view-mode", viewMode);
   }, [viewMode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LIBRARY_DENSITY_MODE_KEY, densityMode);
+  }, [densityMode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LIBRARY_THEME_KEY, libraryTheme);
@@ -2066,7 +2075,7 @@ export default function Home() {
         label: "In progress",
         count: activeBooks.filter((book) => {
           const progress = normalizeNumber(book.progress);
-          return progress > 0 && progress < 100;
+          return isBookStarted(book) && progress < 100;
         }).length
       },
       {
@@ -2235,7 +2244,7 @@ export default function Home() {
       const matchesStatus =
         statusFilter === "all" ? true
         : statusFilter === "to-read" ? isBookToRead(book)
-        : statusFilter === "in-progress" ? progress > 0 && progress < 100
+        : statusFilter === "in-progress" ? isBookStarted(book) && progress < 100
         : statusFilter === "finished" ? progress >= 100
         : true;
 
@@ -2272,6 +2281,7 @@ export default function Home() {
       flagFilters,
       collectionFilter,
       sortBy,
+      isBookStarted,
       contentSearchMatches,
       searchIndexByBook
     ]
@@ -2919,6 +2929,12 @@ const formatNotificationTimeAgo = (value) => {
     collectionFilter !== "all" ||
     flagFilters.length > 0 ||
     sortBy !== "last-read-desc";
+  const activeFilterCount =
+    (searchQuery.trim() ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0) +
+    (collectionFilter !== "all" ? 1 : 0) +
+    flagFilters.length +
+    (sortBy !== "last-read-desc" ? 1 : 0);
   const canShowResetFilters = hasActiveLibraryFilters;
   const isDarkLibraryTheme = libraryTheme === "dark";
   const isAccountSection = librarySection === "account";
@@ -3363,12 +3379,27 @@ const formatNotificationTimeAgo = (value) => {
   return (
     <div className={`min-h-screen p-6 md:p-12 font-sans ${isDarkLibraryTheme ? "bg-slate-950 text-slate-100" : "bg-gray-50 text-gray-900"}`}>
       <div className="mx-auto max-w-[1480px] md:grid md:grid-cols-[240px_minmax(0,1fr)] md:gap-8">
-        <div className="hidden md:flex md:flex-col">
+        <div className="hidden md:flex md:flex-col pt-3">
+          <div
+            data-testid="library-logo-slot"
+            className={`mb-5 mt-1 flex items-center justify-start border-b px-2 pb-4 ${
+              isDarkLibraryTheme ? "border-slate-700/70" : "border-gray-200/80"
+            }`}
+          >
+            <img
+              src="/brand/logo.png"
+              alt="Ariadne logo"
+              className="h-14 w-auto max-w-[200px] origin-left scale-110 object-contain"
+              onError={(event) => {
+                event.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
           {showReadingSnapshot && (
             <aside
               data-testid="reading-snapshot-card"
               className={`workspace-surface p-5 ${
-                isDarkLibraryTheme ? "workspace-surface-dark" : "workspace-surface-light"
+                isDarkLibraryTheme ? "workspace-surface-dark" : "workspace-surface-light library-zone-sidebar-light"
               }`}
             >
               <div className={`text-sm font-semibold ${
@@ -3865,7 +3896,12 @@ const formatNotificationTimeAgo = (value) => {
         {!isAccountSection && !isStatisticsSection && (
         <>
         {shouldShowContinueReading && (
-          <section className="mb-8" data-testid="continue-reading-rail">
+          <section
+            className={`mb-8 rounded-3xl border p-4 sm:p-5 ${
+              isDarkLibraryTheme ? "border-slate-700 bg-transparent" : "library-zone-continue-light"
+            }`}
+            data-testid="continue-reading-rail"
+          >
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Continue Reading</h2>
@@ -3976,6 +4012,7 @@ const formatNotificationTimeAgo = (value) => {
 
         {shouldShowLibraryHomeContent && (
           <LibraryToolbarSection
+            isDarkLibraryTheme={isDarkLibraryTheme}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder="Search library (title, author, notes, highlights, bookmarks)..."
@@ -3992,13 +4029,28 @@ const formatNotificationTimeAgo = (value) => {
             onToggleFlagFilter={toggleFlagFilter}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            densityMode={densityMode}
+            onDensityModeChange={setDensityMode}
+            isStatusFilterActive={statusFilter !== "all"}
+            isCollectionFilterActive={collectionFilter !== "all"}
+            isSortActive={sortBy !== "last-read-desc"}
+            activeFilterCount={activeFilterCount}
+            onClearSearch={() => setSearchQuery("")}
+            onClearStatusFilter={() => setStatusFilter("all")}
+            onClearCollectionFilter={() => setCollectionFilter("all")}
+            onClearSort={() => setSortBy("last-read-desc")}
             canShowResetFilters={canShowResetFilters}
             onResetFilters={resetLibraryFilters}
           />
         )}
         {shouldShowLibraryHomeContent && sortedBooks.length > 0 && (
           isLibrarySelectionMode ? (
-            <div data-testid="library-bulk-actions" className="mb-6 flex flex-wrap items-center gap-2">
+            <div
+              data-testid="library-bulk-actions"
+              className={`mb-6 flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 ${
+                isDarkLibraryTheme ? "border-slate-700 bg-slate-900/40" : "library-zone-catalog-light"
+              }`}
+            >
               <button
                 type="button"
                 data-testid="library-select-all"
@@ -4056,7 +4108,10 @@ const formatNotificationTimeAgo = (value) => {
               </button>
             </div>
           ) : (
-            <div data-testid="library-bulk-select-entry" className="mb-6 flex items-center gap-2">
+            <div
+              data-testid="library-bulk-select-entry"
+              className="mb-6 flex items-center gap-2"
+            >
               <button
                 type="button"
                 data-testid="library-enter-select-mode"
@@ -4296,7 +4351,17 @@ const formatNotificationTimeAgo = (value) => {
             )}
           </div>
         ) : viewMode === "grid" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 animate-in fade-in duration-500" data-testid="library-books-grid">
+          <div
+            className={`grid animate-in fade-in duration-500 rounded-3xl border p-4 ${
+              densityMode === "compact"
+                ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4"
+                : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
+            } ${
+              isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "library-zone-catalog-light"
+            }`}
+            data-testid="library-books-grid"
+            data-density={densityMode}
+          >
             {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
@@ -4316,7 +4381,7 @@ const formatNotificationTimeAgo = (value) => {
                   }`}
                   style={VIRTUAL_GRID_CARD_STYLE}
                 >
-                  <div className="aspect-[3/4] bg-gray-200 overflow-hidden relative">
+                  <div className={`${densityMode === "compact" ? "aspect-[5/6]" : "aspect-[3/4]"} bg-gray-200 overflow-hidden relative`}>
                     {book.cover ? (
                       <img src={book.cover} alt={book.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                     ) : (
@@ -4468,9 +4533,11 @@ const formatNotificationTimeAgo = (value) => {
                       </label>
                     )}
                     
-                    <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg">
-                      {book.progress}%
-                    </div>
+                    {densityMode !== "compact" ? (
+                      <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg">
+                        {book.progress}%
+                      </div>
+                    ) : null}
 
                     {collectionPickerBookId === book.id && !inTrash && (
                       <div
@@ -4532,29 +4599,33 @@ const formatNotificationTimeAgo = (value) => {
                     )}
                   </div>
 
-                  <div className="p-5 flex-1 flex flex-col">
-                    <h3 className="font-semibold text-[#1A1A2E] text-[22px] leading-[1.12] mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">
+                  <div className={`${densityMode === "compact" ? "p-3" : "p-5"} flex-1 flex flex-col`}>
+                    <h3 className={`font-semibold text-[#1A1A2E] leading-[1.12] mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors ${
+                      densityMode === "compact" ? "text-[17px]" : "text-[22px]"
+                    }`}>
                       {book.title}
                     </h3>
                     
-                    <div className="flex items-center gap-2 text-[#666666] text-[15px] mb-1">
+                    <div className={`flex items-center gap-2 text-[#666666] mb-1 ${densityMode === "compact" ? "text-[14px]" : "text-[15px]"}`}>
                       <User size={14} />
                       <span className="truncate">{book.author}</span>
                     </div>
 
-                    {renderMetadataBadges(book)}
-                    {renderCollectionChips(book)}
-
-                    {renderReadingStateBadge(book, "mt-1.5")}
-                    {renderSessionTimeline(book)}
-                    <div className="mt-1.5 min-h-[26px] flex flex-wrap items-center gap-1.5">
-                      {renderGenreChip(book)}
-                      {renderToReadTag(book)}
-                    </div>
-
-                    <div className="mt-auto pt-4 text-[11px] text-gray-400 font-medium text-right">
-                      <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
-                    </div>
+                    {densityMode !== "compact" ? (
+                      <>
+                        {renderMetadataBadges(book)}
+                        {renderCollectionChips(book)}
+                        {renderReadingStateBadge(book, "mt-1.5")}
+                        {renderSessionTimeline(book)}
+                        <div className="mt-1.5 min-h-[26px] flex flex-wrap items-center gap-1.5">
+                          {renderGenreChip(book)}
+                          {renderToReadTag(book)}
+                        </div>
+                        <div className="mt-auto pt-4 text-[11px] text-gray-400 font-medium text-right">
+                          <span>{inTrash ? formatDeletedAt(book.deletedAt) : formatLastRead(book.lastRead)}</span>
+                        </div>
+                      </>
+                    ) : null}
 
                   </div>
                 </Link>
@@ -4562,7 +4633,13 @@ const formatNotificationTimeAgo = (value) => {
             })}
           </div>
         ) : (
-          <div className="space-y-4 animate-in fade-in duration-500" data-testid="library-books-list">
+          <div
+            className={`space-y-4 animate-in fade-in duration-500 rounded-3xl border p-4 ${
+              isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "library-zone-catalog-light"
+            }`}
+            data-testid="library-books-list"
+            data-density="comfortable"
+          >
             {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
