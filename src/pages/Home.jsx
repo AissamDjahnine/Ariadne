@@ -3599,14 +3599,23 @@ const formatNotificationTimeAgo = (value) => {
               isDarkLibraryTheme ? "border-slate-700/70" : "border-gray-200/80"
             }`}
           >
-            <img
-              src="/brand/logo.png"
-              alt="Ariadne logo"
-              className="h-14 w-auto max-w-[200px] origin-left scale-110 object-contain"
-              onError={(event) => {
-                event.currentTarget.style.display = "none";
-              }}
-            />
+            <button
+              type="button"
+              data-testid="library-logo-home-link"
+              onClick={() => handleSidebarSectionSelect("library")}
+              className="inline-flex items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              title="Go to My Library"
+              aria-label="Go to My Library"
+            >
+              <img
+                src="/brand/logo.png"
+                alt="Ariadne logo"
+                className="h-14 w-auto max-w-[200px] origin-left scale-110 object-contain"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+            </button>
           </div>
           {showReadingSnapshot && (
             <aside
