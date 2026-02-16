@@ -2229,6 +2229,9 @@ export default function Reader() {
   const pendingFlowModeLabel = pendingFlowTarget === 'paginated' ? 'Book view' : 'Infinite scrolling';
   const hasFlowChoice = Boolean(settings.flowChosenAt || settings.flowLocked);
   const isFlowLockActive = hasFlowChoice && (progressPct < 100);
+  const flowIndicatorTitle = isFlowLockActive
+    ? `Current reading mode: ${flowModeLabel}. Switching is locked while this book is in progress. Use Change reading mode to restart the book or choose a chapter.`
+    : `Current reading mode: ${flowModeLabel}`;
 
   const scheduleFlowNavigation = useCallback((targetFlow, targetCfi = '') => {
     pendingFlowNavigationRef.current = { targetFlow, targetCfi };
@@ -2239,6 +2242,15 @@ export default function Reader() {
       flowChosenAt: prev.flowChosenAt || new Date().toISOString()
     }));
   }, []);
+
+  const showFlowModeToast = useCallback((targetFlow, message) => {
+    const label = targetFlow === 'paginated' ? 'Book view' : 'Infinite scrolling';
+    showReaderToast({
+      tone: 'success',
+      title: `${label} selected`,
+      message
+    });
+  }, [showReaderToast]);
 
   const applyInitialFlowChoice = useCallback((targetFlow) => {
     setSettings((prev) => ({
@@ -2251,7 +2263,8 @@ export default function Reader() {
     setShowFlowChoiceModal(false);
     setFlowChoiceMode('change');
     setPendingFlowTarget(targetFlow === 'paginated' ? 'scrolled' : 'paginated');
-  }, []);
+    showFlowModeToast(targetFlow, 'This mode is now locked for this in-progress book.');
+  }, [showFlowModeToast]);
 
   const openFlowChangeModal = useCallback(() => {
     setFlowChoiceError('');
@@ -2266,7 +2279,8 @@ export default function Reader() {
     setAwaitingFlowChapterPick(null);
     setFlowChoiceError('');
     setShowFlowChoiceModal(false);
-  }, [getBookStartHref, pendingFlowTarget, scheduleFlowNavigation]);
+    showFlowModeToast(pendingFlowTarget, 'Book restarted in selected mode.');
+  }, [getBookStartHref, pendingFlowTarget, scheduleFlowNavigation, showFlowModeToast]);
 
   const requestFlowChangeViaChapter = useCallback(() => {
     if (!tocItems.length) {
@@ -2303,6 +2317,7 @@ export default function Reader() {
       setFlowChoiceError('');
       setShowSidebar(false);
       scheduleFlowNavigation(targetFlow, href);
+      showFlowModeToast(targetFlow, 'Chapter jump applied in selected mode.');
       return;
     }
     setShowSidebar(false);
@@ -4846,8 +4861,8 @@ export default function Reader() {
                 ? 'text-gray-400 cursor-default'
                 : 'text-gray-500'
             }`}
-            title={`Current reading mode: ${flowModeLabel}`}
-            aria-label={`Current reading mode: ${flowModeLabel}`}
+            title={flowIndicatorTitle}
+            aria-label={flowIndicatorTitle}
             data-testid="reader-flow-mode-indicator"
             onClick={() => {
               if (isFlowLockActive) return;
