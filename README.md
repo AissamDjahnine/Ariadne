@@ -37,7 +37,11 @@ ariadne is built around real reading behavior:
   - EPUB metadata extraction runs in a Web Worker to keep upload UI responsive on heavy files/batches
   - Automatic fallback to main-thread parsing if Worker is unavailable
 - Yellow success toast after upload and a 10-second halo on newly added book cards
-- Clean cover-based library (grid or list)
+- Clean cover-based library with a 3-mode view toggle:
+  - `Grid` (standard cards)
+  - `Compact Grid` (denser 3x3-style icon mode for large libraries)
+  - `List`
+- Compact Grid reduces cover/card footprint to fit more books on screen and keeps only essential card info (`title` + `author`)
 - Smart metadata (author, language, estimated pages, year, and genre when available)
 - Genre auto-detection improved from EPUB metadata (`subject`, `dc:subject`, `type`, `dc:type`, and related fields) with normalized labels
 - Book Info popover on each card (hover/click) with cleaned EPUB metadata:
