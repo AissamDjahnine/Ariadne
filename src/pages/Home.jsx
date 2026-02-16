@@ -3247,10 +3247,26 @@ const formatNotificationTimeAgo = (value) => {
   const readingSnapshot = useMemo(() => {
     const liveBooks = books.filter((book) => !book?.isDeleted);
     const totalBooks = liveBooks.length;
+    const startedBooks = liveBooks.filter((book) => {
+      const progress = normalizeNumber(book?.progress);
+      return progress > 0 || Boolean(book?.hasStarted);
+    }).length;
     const completedBooks = liveBooks.filter((book) => normalizeNumber(book.progress) >= 100);
     const finishedBooks = completedBooks.length;
-    const completedPages = completedBooks.reduce((sum, book) => sum + (toPositiveNumber(book?.estimatedPages) || 0), 0);
-    const totalSeconds = liveBooks.reduce((sum, book) => sum + Math.max(0, Number(book?.readingTime) || 0), 0);
+    const pagesDone = liveBooks.reduce((sum, book) => {
+      const estimatedPages = toPositiveNumber(book?.estimatedPages) || 0;
+      if (!estimatedPages) return sum;
+      const progressRatio = Math.max(0, Math.min(1, normalizeNumber(book?.progress) / 100));
+      return sum + Math.round(estimatedPages * progressRatio);
+    }, 0);
+    const totalProgressPercent = liveBooks.reduce((sum, book) => sum + Math.max(0, Math.min(100, normalizeNumber(book?.progress))), 0);
+    const overallProgressPercent = totalBooks > 0 ? Math.round(totalProgressPercent / totalBooks) : 0;
+    const totalSeconds = liveBooks.reduce((sum, book) => {
+      const readingTimeSeconds = Math.max(0, Number(book?.readingTime) || 0);
+      const sessions = Array.isArray(book?.readingSessions) ? book.readingSessions : [];
+      const sessionsSeconds = sessions.reduce((sessionSum, session) => sessionSum + Math.max(0, Number(session?.seconds) || 0), 0);
+      return sum + Math.max(readingTimeSeconds, sessionsSeconds);
+    }, 0);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todaySeconds = liveBooks.reduce((sum, book) => {
@@ -3263,16 +3279,16 @@ const formatNotificationTimeAgo = (value) => {
     }, 0);
     return {
       totalBooks,
+      startedBooks,
       finishedBooks,
-      completedPages,
+      pagesDone,
+      overallProgressPercent,
       totalSeconds,
       todaySeconds
     };
   }, [books]);
   const showReadingSnapshot = shouldShowLibraryHomeContent;
-  const readingSnapshotProgress = readingSnapshot.totalBooks > 0
-    ? Math.max(0, Math.min(100, Math.round((readingSnapshot.finishedBooks / readingSnapshot.totalBooks) * 100)))
-    : 0;
+  const readingSnapshotProgress = Math.max(0, Math.min(100, readingSnapshot.overallProgressPercent || 0));
   const libraryNotifications = useMemo(() => (
     buildLibraryNotifications({
       activeBooks,
@@ -3645,7 +3661,7 @@ const formatNotificationTimeAgo = (value) => {
                   <div className={`absolute inset-[7px] rounded-full ${isDarkLibraryTheme ? "bg-slate-900" : "bg-white"}`} />
                   <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
                     <span className={`text-[18px] font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                      {readingSnapshot.finishedBooks}
+                      {readingSnapshot.startedBooks}
                     </span>
                     <span className={`text-[10px] font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
                       / {readingSnapshot.totalBooks || 0}
@@ -3667,7 +3683,7 @@ const formatNotificationTimeAgo = (value) => {
                     <div className="leading-tight">
                       <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Pages done</div>
                       <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {readingSnapshot.completedPages}
+                        {readingSnapshot.pagesDone}
                       </div>
                     </div>
                   </div>
