@@ -3603,14 +3603,20 @@ const formatNotificationTimeAgo = (value) => {
               type="button"
               data-testid="library-logo-home-link"
               onClick={() => handleSidebarSectionSelect("library")}
-              className="inline-flex items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className={`inline-flex items-center rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                isDarkLibraryTheme
+                  ? "border border-slate-700/70 bg-slate-800/85 px-2.5 py-1.5 shadow-[0_8px_22px_rgba(2,8,23,0.45)]"
+                  : ""
+              }`}
               title="Go to My Library"
               aria-label="Go to My Library"
             >
               <img
                 src="/brand/logo.png"
                 alt="Ariadne logo"
-                className="h-14 w-auto max-w-[200px] origin-left scale-110 object-contain"
+                className={`h-14 w-auto max-w-[200px] origin-left scale-110 object-contain ${
+                  isDarkLibraryTheme ? "brightness-125 contrast-125" : ""
+                }`}
                 onError={(event) => {
                   event.currentTarget.style.display = "none";
                 }}
@@ -3714,12 +3720,23 @@ const formatNotificationTimeAgo = (value) => {
                   data-testid="library-streak-badge"
                   className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
                     streakCount > 0
-                      ? 'border-orange-200 bg-orange-50 text-orange-700'
-                      : 'border-gray-200 bg-white text-gray-500'
+                      ? (isDarkLibraryTheme
+                          ? "border-amber-800/70 bg-amber-900/35 text-amber-200"
+                          : "border-orange-200 bg-orange-50 text-orange-700")
+                      : (isDarkLibraryTheme
+                          ? "border-slate-700 bg-slate-800 text-slate-400"
+                          : "border-gray-200 bg-white text-gray-500")
                   }`}
                   title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
                 >
-                  <Flame size={14} className={streakCount > 0 ? 'text-orange-500' : 'text-gray-400'} />
+                  <Flame
+                    size={14}
+                    className={
+                      streakCount > 0
+                        ? (isDarkLibraryTheme ? "text-amber-300" : "text-orange-500")
+                        : (isDarkLibraryTheme ? "text-slate-500" : "text-gray-400")
+                    }
+                  />
                   <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
                 </div>
 
@@ -3744,8 +3761,12 @@ const formatNotificationTimeAgo = (value) => {
                       }}
                       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                         isQuickActive
-                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                          : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700"
+                          ? (isDarkLibraryTheme
+                              ? "border-blue-700 bg-blue-950/45 text-blue-200"
+                              : "border-blue-200 bg-blue-50 text-blue-700")
+                          : (isDarkLibraryTheme
+                              ? "border-slate-700 bg-slate-800 text-slate-300 hover:border-blue-600 hover:text-blue-300"
+                              : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700")
                       }`}
                       title={`Show ${stat.label.toLowerCase()} books`}
                     >
@@ -3753,7 +3774,9 @@ const formatNotificationTimeAgo = (value) => {
                       <span
                         data-testid={`library-quick-filter-${stat.key}-count`}
                         className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                          isQuickActive ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                          isQuickActive
+                            ? (isDarkLibraryTheme ? "bg-blue-900/70 text-blue-200" : "bg-blue-100 text-blue-700")
+                            : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-gray-100 text-gray-600")
                         }`}
                       >
                         {stat.count}
@@ -3768,6 +3791,13 @@ const formatNotificationTimeAgo = (value) => {
 
           {!isAccountSection && (
           <div className="relative flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end" ref={notificationsMenuRef}>
+            <div
+              className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 ${
+                isDarkLibraryTheme
+                  ? "border-slate-700 bg-slate-900/50 shadow-[0_10px_22px_rgba(2,8,23,0.35)]"
+                  : "border-gray-200 bg-white/90"
+              }`}
+            >
             <button
               type="button"
               data-testid="library-notifications-toggle"
@@ -3836,6 +3866,7 @@ const formatNotificationTimeAgo = (value) => {
                 profileInitials
               )}
             </button>
+            </div>
 
             {isProfileMenuOpen && (
               <div
