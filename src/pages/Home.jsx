@@ -4598,7 +4598,7 @@ const formatNotificationTimeAgo = (value) => {
                 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4"
                 : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
             } ${
-              isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "library-zone-catalog-light"
+              isDarkLibraryTheme ? "border-slate-700 bg-transparent" : "library-zone-catalog-light"
             }`}
             data-testid="library-books-grid"
             data-density={densityMode}
@@ -4617,12 +4617,14 @@ const formatNotificationTimeAgo = (value) => {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className={`group workspace-interactive-card workspace-interactive-card-light rounded-2xl overflow-hidden flex flex-col relative ${
+                  className={`group workspace-interactive-card rounded-2xl overflow-hidden flex flex-col relative ${
+                    isDarkLibraryTheme ? "workspace-interactive-card-dark" : "workspace-interactive-card-light"
+                  } ${
                     isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
                   }`}
                   style={VIRTUAL_GRID_CARD_STYLE}
                 >
-                  <div className={`${densityMode === "compact" ? "aspect-[5/6]" : "aspect-[3/4]"} bg-gray-200 overflow-hidden relative`}>
+                  <div className={`${densityMode === "compact" ? "aspect-[5/6]" : "aspect-[3/4]"} ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-200"} overflow-hidden relative`}>
                     {book.cover ? (
                       <img src={book.cover} alt={book.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                     ) : (
@@ -4851,13 +4853,15 @@ const formatNotificationTimeAgo = (value) => {
                   </div>
 
                   <div className={`${densityMode === "compact" ? "p-3" : "p-5"} flex-1 flex flex-col`}>
-                    <h3 className={`font-semibold text-[#1A1A2E] leading-[1.12] mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors ${
+                    <h3 className={`font-semibold leading-[1.12] mb-2 line-clamp-2 transition-colors ${
+                      isDarkLibraryTheme ? "text-slate-100 group-hover:text-blue-300" : "text-[#1A1A2E] group-hover:text-blue-600"
+                    } ${
                       densityMode === "compact" ? "text-[17px]" : "text-[22px]"
                     }`}>
                       {book.title}
                     </h3>
                     
-                    <div className={`flex items-center gap-2 text-[#666666] mb-1 ${densityMode === "compact" ? "text-[14px]" : "text-[15px]"}`}>
+                    <div className={`flex items-center gap-2 mb-1 ${isDarkLibraryTheme ? "text-slate-300" : "text-[#666666]"} ${densityMode === "compact" ? "text-[14px]" : "text-[15px]"}`}>
                       <User size={14} />
                       <span className="truncate">{book.author}</span>
                     </div>
@@ -4886,7 +4890,7 @@ const formatNotificationTimeAgo = (value) => {
         ) : (
           <div
             className={`space-y-4 animate-in fade-in duration-500 rounded-3xl border p-4 ${
-              isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "library-zone-catalog-light"
+              isDarkLibraryTheme ? "border-slate-700 bg-transparent" : "library-zone-catalog-light"
             }`}
             data-testid="library-books-list"
             data-density="comfortable"
@@ -4905,12 +4909,14 @@ const formatNotificationTimeAgo = (value) => {
                     }
                     handleOpenBook(book.id);
                   }}
-                  className={`group workspace-interactive-card workspace-interactive-card-light rounded-2xl overflow-hidden flex ${
+                  className={`group workspace-interactive-card rounded-2xl overflow-hidden flex ${
+                    isDarkLibraryTheme ? "workspace-interactive-card-dark" : "workspace-interactive-card-light"
+                  } ${
                     isRecent ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white shadow-[0_0_0_3px_rgba(251,191,36,0.2)]" : ""
                   }`}
                   style={VIRTUAL_LIST_CARD_STYLE}
                 >
-                  <div className="w-24 sm:w-28 md:w-32 bg-gray-200 overflow-hidden relative shrink-0">
+                  <div className={`w-24 sm:w-28 md:w-32 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-200"} overflow-hidden relative shrink-0`}>
                     {book.cover ? (
                       <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
                     ) : (
@@ -4926,11 +4932,13 @@ const formatNotificationTimeAgo = (value) => {
 
                   <div className="flex-1 p-4 flex flex-col md:flex-row md:items-center gap-4 min-w-0">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-[#1A1A2E] text-[22px] leading-[1.12] line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      <h3 className={`font-semibold text-[22px] leading-[1.12] line-clamp-1 transition-colors ${
+                        isDarkLibraryTheme ? "text-slate-100 group-hover:text-blue-300" : "text-[#1A1A2E] group-hover:text-blue-600"
+                      }`}>
                         {book.title}
                       </h3>
 
-                      <div className="mt-1 flex items-center gap-2 text-[#666666] text-[15px]">
+                      <div className={`mt-1 flex items-center gap-2 text-[15px] ${isDarkLibraryTheme ? "text-slate-300" : "text-[#666666]"}`}>
                         <User size={14} />
                         <span className="truncate">{book.author}</span>
                       </div>
