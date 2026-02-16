@@ -2910,12 +2910,12 @@ export default function Home() {
     return `${hours}h ${remainingMinutes} min`;
   };
 
-const formatHoursMinutes = (seconds) => {
+const formatSnapshotDuration = (seconds) => {
   const safeSeconds = Math.max(0, Number(seconds) || 0);
   const totalMinutes = Math.floor(safeSeconds / 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return `${hours} Hours ${minutes} minutes`;
+  return `${hours}h ${minutes}m`;
 };
 
 const formatNotificationTimeAgo = (value) => {
@@ -3316,8 +3316,6 @@ const formatNotificationTimeAgo = (value) => {
       const estimatedPages = toPositiveNumber(book?.estimatedPages) || fallbackEstimatedPages;
       return sum + Math.round(estimatedPages * progressRatio);
     }, 0);
-    const totalProgressPercent = liveBooks.reduce((sum, book) => sum + Math.max(0, Math.min(100, normalizeNumber(book?.progress))), 0);
-    const overallProgressPercent = totalBooks > 0 ? Math.round(totalProgressPercent / totalBooks) : 0;
     const totalSeconds = liveBooks.reduce((sum, book) => {
       const readingTimeSeconds = Math.max(0, Number(book?.readingTime) || 0);
       const sessions = Array.isArray(book?.readingSessions) ? book.readingSessions : [];
@@ -3339,13 +3337,14 @@ const formatNotificationTimeAgo = (value) => {
       startedBooks,
       finishedBooks,
       pagesDone,
-      overallProgressPercent,
       totalSeconds,
       todaySeconds
     };
   }, [books]);
   const showReadingSnapshot = shouldShowLibraryHomeContent;
-  const readingSnapshotProgress = Math.max(0, Math.min(100, readingSnapshot.overallProgressPercent || 0));
+  const readingSnapshotProgress = readingSnapshot.totalBooks > 0
+    ? Math.round((readingSnapshot.startedBooks / readingSnapshot.totalBooks) * 100)
+    : 0;
   const libraryNotifications = useMemo(() => (
     buildLibraryNotifications({
       activeBooks,
@@ -3708,12 +3707,12 @@ const formatNotificationTimeAgo = (value) => {
               </div>
               <div className="mt-4 flex items-center gap-4">
                 <div
-                  className="relative h-20 w-20 shrink-0 rounded-full"
+                  className="relative h-[86px] w-[86px] shrink-0 rounded-full"
                   style={{
                     background: `conic-gradient(${isDarkLibraryTheme ? "#60a5fa" : "#2563eb"} ${readingSnapshotProgress}%, ${isDarkLibraryTheme ? "#334155" : "#e5e7eb"} ${readingSnapshotProgress}% 100%)`
                   }}
                 >
-                  <div className={`absolute inset-[7px] rounded-full ${isDarkLibraryTheme ? "bg-slate-900" : "bg-white"}`} />
+                  <div className={`absolute inset-[8px] rounded-full ${isDarkLibraryTheme ? "bg-slate-900" : "bg-white"}`} />
                   <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
                     <span className={`text-[18px] font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                       {readingSnapshot.startedBooks}
@@ -3723,13 +3722,13 @@ const formatNotificationTimeAgo = (value) => {
                     </span>
                   </div>
                 </div>
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   <div className="inline-flex items-center gap-2">
                     <Clock size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
                     <div className="leading-tight">
-                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Hours</div>
-                      <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {formatHoursMinutes(readingSnapshot.totalSeconds)}
+                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Reading time</div>
+                      <div className={`text-[22px] font-bold tracking-tight tabular-nums whitespace-nowrap ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                        {formatSnapshotDuration(readingSnapshot.totalSeconds)}
                       </div>
                     </div>
                   </div>
@@ -3737,7 +3736,7 @@ const formatNotificationTimeAgo = (value) => {
                     <FileText size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
                     <div className="leading-tight">
                       <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Pages done</div>
-                      <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                      <div className={`text-[22px] font-bold tracking-tight tabular-nums ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                         {readingSnapshot.pagesDone}
                       </div>
                     </div>
