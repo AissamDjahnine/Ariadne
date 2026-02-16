@@ -1416,11 +1416,6 @@ export default function Home() {
     setIsLibrarySelectionMode(true);
   };
 
-  const handleExitLibrarySelectionMode = () => {
-    setSelectedLibraryBookIds([]);
-    setIsLibrarySelectionMode(false);
-  };
-
   const handleBulkMarkToRead = async () => {
     if (!selectedLibraryBookIds.length) return;
     const selectedBooks = activeBooks.filter((book) => selectedLibraryBookIds.includes(book.id));
@@ -4389,18 +4384,6 @@ const formatNotificationTimeAgo = (value) => {
                 }`}
               >
                 Clear selection
-              </button>
-              <button
-                type="button"
-                data-testid="library-exit-select-mode"
-                onClick={handleExitLibrarySelectionMode}
-                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  isDarkLibraryTheme
-                    ? "border-slate-700 bg-slate-800 text-slate-200 hover:border-blue-500 hover:text-blue-300"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
-                }`}
-              >
-                Done
               </button>
             </div>
           ) : (
