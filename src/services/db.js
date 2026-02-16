@@ -259,7 +259,10 @@ export const addBook = async (file, options = {}) => {
       fontSize: 100,
       theme: 'light',
       flow: 'paginated',
-      fontFamily: 'publisher'
+      fontFamily: 'publisher',
+      lineSpacing: 1.6,
+      textMargin: 32,
+      textAlign: 'left'
     },
     isFavorite: false,
     isToRead: false,

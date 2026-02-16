@@ -6,10 +6,11 @@ import { summarizeChapter } from '../services/ai';
 import FeedbackToast from '../components/FeedbackToast';
 
 import { 
-  Moon, Sun, BookOpen, Scroll, Type, 
+  Moon, Sun, BookOpen, Scroll, 
   ChevronLeft, Menu, X,
   Search as SearchIcon, Sparkles, Wand2, User,
-  BookOpenText, Highlighter, Languages, Bookmark, BookText
+  BookOpenText, Highlighter, Languages, Bookmark, BookText,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, List, RotateCcw, Info
 } from 'lucide-react';
 
 const DEFAULT_TRANSLATE_PROVIDER = 'mymemory';
@@ -23,11 +24,73 @@ const DEFAULT_READER_SETTINGS = {
   fontSize: 100,
   theme: 'light',
   flow: 'paginated',
-  fontFamily: 'publisher'
+  flowLocked: false,
+  flowChosenAt: '',
+  fontFamily: 'publisher',
+  colorPalette: 'standard',
+  lineSpacing: 1.6,
+  textMargin: 32,
+  textAlign: 'left'
+};
+const MIN_LINE_SPACING = 1.2;
+const MAX_LINE_SPACING = 2.4;
+const LINE_SPACING_STEP = 0.05;
+const TEXT_MARGIN_OPTIONS = [
+  { label: 'Narrow', value: 16 },
+  { label: 'Balanced', value: 32 },
+  { label: 'Wide', value: 48 }
+];
+const TEXT_ALIGN_OPTIONS = [
+  { label: 'Left', value: 'left', icon: AlignLeft },
+  { label: 'Middle', value: 'center', icon: AlignCenter },
+  { label: 'Right', value: 'right', icon: AlignRight },
+  { label: 'Justified', value: 'justify', icon: AlignJustify }
+];
+const STANDARD_HIGHLIGHT_COLORS = [
+  { name: 'Amber', value: '#fcd34d' },
+  { name: 'Rose', value: '#f9a8d4' },
+  { name: 'Sky', value: '#7dd3fc' },
+  { name: 'Lime', value: '#bef264' },
+  { name: 'Violet', value: '#c4b5fd' },
+  { name: 'Teal', value: '#5eead4' },
+  { name: 'Orange', value: '#fdba74' }
+];
+const DALTONIAN_HIGHLIGHT_COLORS = [
+  { name: 'Blue', value: '#0072B2' },
+  { name: 'Orange', value: '#E69F00' },
+  { name: 'Green', value: '#009E73' },
+  { name: 'Vermillion', value: '#D55E00' },
+  { name: 'Purple', value: '#CC79A7' },
+  { name: 'Sky', value: '#56B4E9' },
+  { name: 'Yellow', value: '#F0E442' }
+];
+const STANDARD_TO_DALTONIAN = new Map(
+  STANDARD_HIGHLIGHT_COLORS.map((entry, index) => [entry.value.toLowerCase(), DALTONIAN_HIGHLIGHT_COLORS[index].value])
+);
+const DALTONIAN_TO_STANDARD = new Map(
+  DALTONIAN_HIGHLIGHT_COLORS.map((entry, index) => [entry.value.toLowerCase(), STANDARD_HIGHLIGHT_COLORS[index].value])
+);
+
+const toStandardHighlightColor = (color) => {
+  const normalized = (color || '').toString().trim().toLowerCase();
+  if (!normalized) return color;
+  return DALTONIAN_TO_STANDARD.get(normalized) || color;
+};
+
+const toPaletteHighlightColor = (color, paletteMode) => {
+  const normalized = (color || '').toString().trim().toLowerCase();
+  if (!normalized) return color;
+  const standardColor = DALTONIAN_TO_STANDARD.get(normalized) || color;
+  if (paletteMode === 'daltonian') {
+    return STANDARD_TO_DALTONIAN.get(standardColor.toLowerCase()) || standardColor;
+  }
+  return standardColor;
 };
 const READER_SEARCH_HISTORY_KEY = 'reader-search-history-v1';
 const READER_ANNOTATION_HISTORY_KEY = 'reader-annotation-search-history-v1';
+const READER_HIGHLIGHT_COLOR_ORDER_KEY = 'reader-highlight-color-order-v1';
 const MAX_RECENT_QUERIES = 8;
+const normalizeHref = (href = '') => href.split('#')[0];
 
 const parseStoredQueryHistory = (raw) => {
   if (!raw) return [];
@@ -63,6 +126,27 @@ const appendRecentQuery = (history, query) => {
   return next.slice(0, MAX_RECENT_QUERIES);
 };
 
+const parseStoredColorOrder = (raw, allowedColors = []) => {
+  if (!raw) return [];
+  const allowed = new Set(allowedColors.map((value) => value.toLowerCase()));
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    const normalized = [];
+    parsed.forEach((value) => {
+      const color = (value || '').toString().trim().toLowerCase();
+      if (!color || seen.has(color) || (allowed.size > 0 && !allowed.has(color))) return;
+      seen.add(color);
+      normalized.push(color);
+    });
+    return normalized;
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+};
+
 function OwlIcon({ size = 18, className = '' }) {
   return (
     <svg
@@ -84,6 +168,27 @@ function OwlIcon({ size = 18, className = '' }) {
       <path d="m7 6-2 2" />
       <path d="m17 6 2 2" />
       <path d="M4 18h16" />
+    </svg>
+  );
+}
+
+function DaltonIcon({ size = 18, className = '' }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="12" r="4" />
+      <circle cx="14.5" cy="9" r="4" />
+      <circle cx="15.5" cy="15" r="4" />
     </svg>
   );
 }
@@ -170,6 +275,7 @@ export default function Reader() {
   const lastActiveRef = useRef(Date.now());
   const isUpdatingStatsRef = useRef(false);
   const [highlights, setHighlights] = useState([]);
+  const highlightsRef = useRef([]);
   const [selectedHighlights, setSelectedHighlights] = useState([]);
   const [editingHighlight, setEditingHighlight] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -214,6 +320,13 @@ export default function Reader() {
   });
   const settingsHydratedRef = useRef(false);
   const [settings, setSettings] = useState(DEFAULT_READER_SETTINGS);
+  const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
+  const [showFlowChoiceModal, setShowFlowChoiceModal] = useState(false);
+  const [flowChoiceMode, setFlowChoiceMode] = useState('initial');
+  const [pendingFlowTarget, setPendingFlowTarget] = useState('paginated');
+  const [flowChoiceError, setFlowChoiceError] = useState('');
+  const [awaitingFlowChapterPick, setAwaitingFlowChapterPick] = useState(null);
+  const pendingFlowNavigationRef = useRef(null);
   const initialPanelAppliedRef = useRef(false);
   const initialJumpAppliedRef = useRef(false);
   const initialSearchAppliedRef = useRef(false);
@@ -335,6 +448,10 @@ export default function Reader() {
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  useEffect(() => {
+    highlightsRef.current = highlights;
+  }, [highlights]);
 
   useEffect(() => {
     pendingHighlightDeleteRef.current = pendingHighlightDelete;
@@ -665,15 +782,39 @@ export default function Reader() {
     return '';
   };
 
-  const highlightColors = [
-    { name: 'Amber', value: '#fcd34d' },
-    { name: 'Rose', value: '#f9a8d4' },
-    { name: 'Sky', value: '#7dd3fc' },
-    { name: 'Lime', value: '#bef264' },
-    { name: 'Violet', value: '#c4b5fd' },
-    { name: 'Teal', value: '#5eead4' },
-    { name: 'Orange', value: '#fdba74' }
-  ];
+  const highlightColors = useMemo(
+    () => (settings.colorPalette === 'daltonian' ? DALTONIAN_HIGHLIGHT_COLORS : STANDARD_HIGHLIGHT_COLORS),
+    [settings.colorPalette]
+  );
+  const [highlightColorOrder, setHighlightColorOrder] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    const allowed = STANDARD_HIGHLIGHT_COLORS.map((entry) => entry.value);
+    return parseStoredColorOrder(window.localStorage.getItem(READER_HIGHLIGHT_COLOR_ORDER_KEY), allowed);
+  });
+  const orderedHighlightColors = useMemo(() => {
+    if (!highlightColorOrder.length) return highlightColors;
+    const rank = new Map(highlightColorOrder.map((value, index) => [value, index]));
+    return [...highlightColors].sort((a, b) => {
+      const aKey = toStandardHighlightColor(a.value).toString().toLowerCase();
+      const bKey = toStandardHighlightColor(b.value).toString().toLowerCase();
+      const aRank = rank.has(aKey) ? rank.get(aKey) : Number.POSITIVE_INFINITY;
+      const bRank = rank.has(bKey) ? rank.get(bKey) : Number.POSITIVE_INFINITY;
+      if (aRank !== bRank) return aRank - bRank;
+      return 0;
+    });
+  }, [highlightColors, highlightColorOrder]);
+
+  const rememberHighlightColor = useCallback((color) => {
+    const normalized = toStandardHighlightColor(color).toString().trim().toLowerCase();
+    if (!normalized) return;
+    setHighlightColorOrder((prev) => {
+      const next = [normalized, ...prev.filter((value) => value !== normalized)];
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(READER_HIGHLIGHT_COLOR_ORDER_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  }, []);
 
   const languageOptions = [
     { code: 'en', label: 'English' },
@@ -719,7 +860,11 @@ export default function Reader() {
         left.cfiRange !== right.cfiRange ||
         left.color !== right.color ||
         left.note !== right.note ||
-        left.text !== right.text
+        left.text !== right.text ||
+        left.textQuote !== right.textQuote ||
+        left.chapterHref !== right.chapterHref ||
+        left.contextPrefix !== right.contextPrefix ||
+        left.contextSuffix !== right.contextSuffix
       ) {
         return false;
       }
@@ -861,7 +1006,7 @@ export default function Reader() {
         if (target) {
           const spanMatch = document.createElement('span');
           spanMatch.textContent = target;
-          spanMatch.style.background = hexToRgba(h.color, 0.55);
+          spanMatch.style.background = hexToRgba(toPaletteHighlightColor(h.color, settings.colorPalette), 0.55);
           spanMatch.style.color = '#0b1220';
           spanMatch.style.padding = '2px 6px 5px';
           spanMatch.style.borderRadius = '6px';
@@ -1567,6 +1712,17 @@ export default function Reader() {
     }) || null;
   }, [highlights]);
 
+  const highlightListContainsCfi = useCallback((items, cfiRange) => {
+    const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
+    const target = normalizeCfi(cfiRange);
+    if (!target || !Array.isArray(items)) return false;
+    return items.some((item) => {
+      const source = normalizeCfi(item?.cfiRange);
+      if (!source) return false;
+      return source === target || source.includes(target) || target.includes(source);
+    });
+  }, []);
+
   const handleSelection = useCallback((text, cfiRange, pos, isExisting = false) => {
     closeFootnotePreview();
     closePostHighlightPrompt();
@@ -1630,16 +1786,75 @@ export default function Reader() {
     const currentBook = bookRef.current;
     if (!currentBook || !selection?.cfiRange) return;
     const selectionSnapshot = selection ? { ...selection } : null;
+    const buildHighlightAnchorMeta = async () => {
+      const chapterHref = normalizeHref(
+        currentHref || rendition?.currentLocation?.()?.start?.href || ''
+      );
+      const textQuote = (selectionSnapshot?.text || '').trim();
+      const context = { contextPrefix: '', contextSuffix: '' };
+      const cfi = selectionSnapshot?.cfiRange || '';
+      if (!rendition || !cfi) {
+        return { chapterHref, textQuote, ...context };
+      }
+
+      const extractContext = (range) => {
+        if (!range) return context;
+        const startContainer = range.startContainer;
+        const endContainer = range.endContainer;
+        const prefixSource = startContainer?.nodeType === Node.TEXT_NODE
+          ? startContainer.textContent || ''
+          : startContainer?.textContent || '';
+        const suffixSource = endContainer?.nodeType === Node.TEXT_NODE
+          ? endContainer.textContent || ''
+          : endContainer?.textContent || '';
+        const prefixRaw = (prefixSource || '').slice(Math.max(0, range.startOffset - 36), range.startOffset);
+        const suffixRaw = (suffixSource || '').slice(range.endOffset, Math.min((suffixSource || '').length, range.endOffset + 36));
+        return {
+          contextPrefix: prefixRaw.replace(/\s+/g, ' ').trim(),
+          contextSuffix: suffixRaw.replace(/\s+/g, ' ').trim()
+        };
+      };
+
+      try {
+        const contents = rendition.getContents?.() || [];
+        for (const content of contents) {
+          if (!content?.range) continue;
+          try {
+            const range = content.range(cfi);
+            if (range) return { chapterHref, textQuote, ...extractContext(range) };
+          } catch {
+            // Continue fallback attempts.
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      try {
+        const fallbackRange = await Promise.resolve(rendition.book?.getRange?.(cfi));
+        return { chapterHref, textQuote, ...extractContext(fallbackRange) };
+      } catch (err) {
+        console.error(err);
+      }
+      return { chapterHref, textQuote, ...context };
+    };
+
+    const anchorMeta = await buildHighlightAnchorMeta();
     const newHighlight = {
       cfiRange: selection.cfiRange,
       text: selection.text,
-      color,
+      color: toStandardHighlightColor(color),
+      chapterHref: anchorMeta.chapterHref || '',
+      textQuote: anchorMeta.textQuote || selection.text,
+      contextPrefix: anchorMeta.contextPrefix || '',
+      contextSuffix: anchorMeta.contextSuffix || '',
       createdAt: new Date().toISOString()
     };
 
     try {
       const updated = await saveHighlight(currentBook.id, newHighlight);
       if (updated) {
+        rememberHighlightColor(color);
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
         showReaderToast({
@@ -1678,12 +1893,13 @@ export default function Reader() {
 
     const nextHighlight = {
       ...existing,
-      color
+      color: toStandardHighlightColor(color)
     };
 
     try {
       const updated = await saveHighlight(currentBook.id, nextHighlight);
       if (updated) {
+        rememberHighlightColor(color);
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
         triggerHighlightFlash(nextHighlight.cfiRange);
@@ -1806,6 +2022,14 @@ export default function Reader() {
     setNoteDraft(highlight?.note || '');
   };
 
+  const openNoteEditorForExistingSelection = () => {
+    if (!selection?.isExisting || !selection?.cfiRange) return;
+    const target = findHighlightByCfi(selection.cfiRange);
+    if (!target?.cfiRange) return;
+    openNoteEditor(target);
+    clearSelection();
+  };
+
   const applyHighlightNoteLocally = useCallback((cfiRange, note) => {
     const normalizeCfi = (value) => (value || '').toString().replace(/\s+/g, '');
     const target = normalizeCfi(cfiRange);
@@ -1860,10 +2084,14 @@ export default function Reader() {
     const currentBook = bookRef.current;
     if (!currentBook || !editingHighlight?.cfiRange) return;
     const nextNote = noteDraft.trim();
+    const fallbackHighlights = highlightsRef.current;
     applyHighlightNoteLocally(editingHighlight.cfiRange, nextNote);
     try {
       const updated = await updateHighlightNote(currentBook.id, editingHighlight.cfiRange, nextNote);
-      if (updated) {
+      const shouldAcceptUpdated = Array.isArray(updated)
+        && (!Array.isArray(fallbackHighlights) || fallbackHighlights.length === 0
+          || highlightListContainsCfi(updated, editingHighlight.cfiRange));
+      if (shouldAcceptUpdated) {
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
       }
@@ -1894,11 +2122,15 @@ export default function Reader() {
       return;
     }
     applyHighlightNoteLocally(target.cfiRange, nextNote);
+    const fallbackHighlights = highlightsRef.current;
     setIsSavingPostHighlightNote(true);
     setPostHighlightNoteError('');
     try {
       const updated = await updateHighlightNote(currentBook.id, target.cfiRange, nextNote);
-      if (updated) {
+      const shouldAcceptUpdated = Array.isArray(updated)
+        && (!Array.isArray(fallbackHighlights) || fallbackHighlights.length === 0
+          || highlightListContainsCfi(updated, target.cfiRange));
+      if (shouldAcceptUpdated) {
         setHighlights(updated);
         setBook({ ...currentBook, highlights: updated });
       }
@@ -1959,18 +2191,135 @@ export default function Reader() {
     return acc;
   };
 
-  const tocItems = flattenTocItems(toc);
-
-  const normalizeHref = (href = '') => href.split('#')[0];
+  const tocItems = useMemo(() => flattenTocItems(toc), [toc]);
   const isTocItemActive = (href) => {
     const active = normalizeHref(currentHref);
     const target = normalizeHref(href);
     if (!active || !target) return false;
     return active.includes(target) || target.includes(active);
   };
+  const currentChapterLabel = useMemo(() => {
+    if (!tocItems.length) return '';
+
+    const active = normalizeHref(currentHref);
+    if (!active) return tocItems[0]?.label || '';
+
+    const directMatch = tocItems.find((item) => {
+      const target = normalizeHref(item.href);
+      if (!target) return false;
+      return active.includes(target) || target.includes(active);
+    });
+    if (directMatch?.label) return directMatch.label;
+
+    const activeLeaf = active.split('/').pop();
+    if (activeLeaf) {
+      const leafMatch = tocItems.find((item) => normalizeHref(item.href).split('/').pop() === activeLeaf);
+      if (leafMatch?.label) return leafMatch.label;
+    }
+
+    return '';
+  }, [tocItems, currentHref]);
+
+  const getBookStartHref = useCallback(() => {
+    return tocItems[0]?.href || '';
+  }, [tocItems]);
+
+  const flowModeLabel = settings.flow === 'paginated' ? 'Book view' : 'Infinite scrolling';
+  const alternateFlow = settings.flow === 'paginated' ? 'scrolled' : 'paginated';
+  const pendingFlowModeLabel = pendingFlowTarget === 'paginated' ? 'Book view' : 'Infinite scrolling';
+  const hasFlowChoice = Boolean(settings.flowChosenAt || settings.flowLocked);
+  const isFlowLockActive = hasFlowChoice && (progressPct < 100);
+  const flowIndicatorTitle = isFlowLockActive
+    ? `Current reading mode: ${flowModeLabel}. Switching is locked while this book is in progress. Use Change reading mode to restart the book or choose a chapter.`
+    : `Current reading mode: ${flowModeLabel}`;
+
+  const scheduleFlowNavigation = useCallback((targetFlow, targetCfi = '') => {
+    pendingFlowNavigationRef.current = { targetFlow, targetCfi };
+    setSettings((prev) => ({
+      ...prev,
+      flow: targetFlow,
+      flowLocked: true,
+      flowChosenAt: prev.flowChosenAt || new Date().toISOString()
+    }));
+  }, []);
+
+  const showFlowModeToast = useCallback((targetFlow, message) => {
+    const label = targetFlow === 'paginated' ? 'Book view' : 'Infinite scrolling';
+    showReaderToast({
+      tone: 'success',
+      title: `${label} selected`,
+      message
+    });
+  }, [showReaderToast]);
+
+  const applyInitialFlowChoice = useCallback((targetFlow) => {
+    setSettings((prev) => ({
+      ...prev,
+      flow: targetFlow,
+      flowLocked: true,
+      flowChosenAt: new Date().toISOString()
+    }));
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('change');
+    setPendingFlowTarget(targetFlow === 'paginated' ? 'scrolled' : 'paginated');
+    showFlowModeToast(targetFlow, 'This mode is now locked for this in-progress book.');
+  }, [showFlowModeToast]);
+
+  const openFlowChangeModal = useCallback(() => {
+    setFlowChoiceError('');
+    setPendingFlowTarget(alternateFlow);
+    setFlowChoiceMode('change');
+    setShowFlowChoiceModal(true);
+  }, [alternateFlow]);
+
+  const requestFlowChangeViaRestart = useCallback(() => {
+    const startHref = getBookStartHref();
+    scheduleFlowNavigation(pendingFlowTarget, startHref);
+    setAwaitingFlowChapterPick(null);
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+    showFlowModeToast(pendingFlowTarget, 'Book restarted in selected mode.');
+  }, [getBookStartHref, pendingFlowTarget, scheduleFlowNavigation, showFlowModeToast]);
+
+  const requestFlowChangeViaChapter = useCallback(() => {
+    if (!tocItems.length) {
+      setFlowChoiceError('No chapter found. Restart is required.');
+      return;
+    }
+    setFlowChoiceError('');
+    setAwaitingFlowChapterPick(pendingFlowTarget);
+    setShowFlowChoiceModal(false);
+    setShowSidebar(true);
+  }, [pendingFlowTarget, tocItems.length]);
+
+  const closeFlowChoiceModal = useCallback(() => {
+    if (flowChoiceMode === 'initial') return;
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+  }, [flowChoiceMode]);
+
+  const closeChaptersPanel = useCallback(() => {
+    if (awaitingFlowChapterPick) {
+      setShowSidebar(false);
+      setFlowChoiceMode('change');
+      setShowFlowChoiceModal(true);
+      return;
+    }
+    setShowSidebar(false);
+  }, [awaitingFlowChapterPick]);
 
   const handleTocSelect = (href) => {
     if (!href) return;
+    if (awaitingFlowChapterPick) {
+      const targetFlow = awaitingFlowChapterPick;
+      setAwaitingFlowChapterPick(null);
+      setFlowChoiceError('');
+      setShowSidebar(false);
+      scheduleFlowNavigation(targetFlow, href);
+      showFlowModeToast(targetFlow, 'Chapter jump applied in selected mode.');
+      return;
+    }
     setShowSidebar(false);
     jumpToCfi(href, { rememberReturnSpot: true, source: 'toc' });
   };
@@ -2134,6 +2483,13 @@ export default function Reader() {
       readerToastTimerRef.current = null;
     }
     setReaderToast(null);
+    setIsSettingsHydrated(false);
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('initial');
+    setPendingFlowTarget('paginated');
+    setFlowChoiceError('');
+    setAwaitingFlowChapterPick(null);
+    pendingFlowNavigationRef.current = null;
   }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
@@ -2196,7 +2552,37 @@ export default function Reader() {
       return prevJson === nextJson ? prev : merged;
     });
     settingsHydratedRef.current = true;
+    setIsSettingsHydrated(true);
   }, [book?.id, legacyReaderSettings]);
+
+  useEffect(() => {
+    if (!book?.id || !isSettingsHydrated) return;
+    if (isFlowLockActive) {
+      setFlowChoiceMode('change');
+      setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+      return;
+    }
+    if (!hasFlowChoice) {
+      setFlowChoiceMode('initial');
+      setPendingFlowTarget(settings.flow || 'paginated');
+      setShowFlowChoiceModal(true);
+      return;
+    }
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('change');
+    setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+  }, [book?.id, isSettingsHydrated, isFlowLockActive, hasFlowChoice, settings.flow]);
+
+  useEffect(() => {
+    const pending = pendingFlowNavigationRef.current;
+    if (!pending || !rendition) return;
+    const renditionFlow = rendition?.settings?.flow || settings.flow;
+    if (renditionFlow !== pending.targetFlow) return;
+
+    pendingFlowNavigationRef.current = null;
+    if (!pending.targetCfi) return;
+    jumpToCfi(pending.targetCfi, { rememberReturnSpot: false, source: 'flow-change' });
+  }, [rendition, settings.flow, jumpToCfi]);
 
   useEffect(() => {
     const incoming = Array.isArray(book?.highlights) ? book.highlights : [];
@@ -2572,6 +2958,20 @@ export default function Reader() {
   const toggleSepiaTheme = () => {
     setSettings((s) => ({ ...s, theme: s.theme === 'sepia' ? 'light' : 'sepia' }));
   };
+  const toggleDaltonianPalette = () => {
+    setSettings((s) => ({
+      ...s,
+      colorPalette: s.colorPalette === 'daltonian' ? 'standard' : 'daltonian'
+    }));
+  };
+  const isDaltonianPalette = settings.colorPalette === 'daltonian';
+  const displayHighlights = useMemo(
+    () => highlights.map((item) => ({ ...item, color: toPaletteHighlightColor(item?.color, settings.colorPalette) })),
+    [highlights, settings.colorPalette]
+  );
+  const aiDisabledToneClass = isDaltonianPalette
+    ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-300'
+    : 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300';
   const readerThemeClass = isReaderDark
     ? 'bg-gray-900 text-white'
     : isReaderSepia
@@ -2607,6 +3007,18 @@ export default function Reader() {
       </span>
       <span className="sr-only" data-testid="reader-last-arrow-scroll-step">
         {String(lastArrowScrollStep)}
+      </span>
+      <span className="sr-only" data-testid="reader-setting-line-spacing">
+        {String(settings.lineSpacing)}
+      </span>
+      <span className="sr-only" data-testid="reader-setting-text-margin">
+        {String(settings.textMargin)}
+      </span>
+      <span className="sr-only" data-testid="reader-setting-text-align">
+        {settings.textAlign}
+      </span>
+      <span className="sr-only" data-testid="reader-color-palette-mode">
+        {isDaltonianPalette ? 'daltonian' : 'standard'}
       </span>
       
       <style>{`
@@ -2768,7 +3180,7 @@ export default function Reader() {
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Type size={18} className="text-gray-400" />
+                <span className="text-sm font-semibold tracking-tight text-gray-400">Aa</span>
                 <div className="text-sm font-bold">Text Settings</div>
               </div>
               <button
@@ -2815,6 +3227,7 @@ export default function Reader() {
                   Font
                 </div>
                 <select
+                  data-testid="reader-font-family-select"
                   value={settings.fontFamily}
                   onChange={(e) => setSettings(s => ({ ...s, fontFamily: e.target.value }))}
                   className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
@@ -2825,6 +3238,112 @@ export default function Reader() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Line spacing
+                </div>
+                <div className="flex items-center gap-3" data-testid="reader-line-spacing-group">
+                  <button
+                    type="button"
+                    aria-label="Decrease line spacing"
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(
+                          Math.max(MIN_LINE_SPACING, Number(s.lineSpacing) - LINE_SPACING_STEP).toFixed(2)
+                        )
+                      }))
+                    }
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min={MIN_LINE_SPACING}
+                    max={MAX_LINE_SPACING}
+                    step={LINE_SPACING_STEP}
+                    value={Number(settings.lineSpacing)}
+                    data-testid="reader-line-spacing-slider"
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(Number(e.target.value).toFixed(2))
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Increase line spacing"
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(
+                          Math.min(MAX_LINE_SPACING, Number(s.lineSpacing) + LINE_SPACING_STEP).toFixed(2)
+                        )
+                      }))
+                    }
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    +
+                  </button>
+                  <div className="w-12 text-right text-xs font-bold flex items-center justify-end gap-1">
+                    <List size={12} />
+                    <span>{Number(settings.lineSpacing).toFixed(2)}x</span>
+                  </div>
+                </div>
+              </div>
+
+              {settings.flow === 'scrolled' && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                    Page width
+                  </div>
+                  <select
+                    data-testid="reader-text-margin-select"
+                    value={String(settings.textMargin)}
+                    onChange={(e) => setSettings((s) => ({ ...s, textMargin: Number(e.target.value) }))}
+                    className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                  >
+                    {TEXT_MARGIN_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                  Text alignment
+                </div>
+                <div className="grid grid-cols-4 gap-2" data-testid="reader-text-align-group">
+                  {TEXT_ALIGN_OPTIONS.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = settings.textAlign === item.value;
+                    return (
+                      <button
+                        key={item.value}
+                        type="button"
+                        title={item.label}
+                        aria-label={`Text align ${item.label}`}
+                        data-testid={`reader-text-align-${item.value}`}
+                        onClick={() => setSettings((s) => ({ ...s, textAlign: item.value }))}
+                        className={`rounded-xl border p-2 transition flex items-center justify-center ${
+                          isActive
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-600'
+                        }`}
+                      >
+                        <Icon size={15} />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -3481,7 +4000,7 @@ export default function Reader() {
               {highlights.length === 0 && (
                 <div className={`text-xs ${isReaderDark ? 'text-gray-400' : 'text-gray-700'}`}>No highlights yet.</div>
               )}
-              {highlights.map((h, idx) => (
+              {displayHighlights.map((h, idx) => (
                 <div
                   key={`${h.cfiRange}-${idx}`}
                   className={`p-3 rounded-2xl border border-transparent transition ${
@@ -3540,7 +4059,7 @@ export default function Reader() {
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <div className="h-1.5 rounded-full flex-1" style={{ background: h.color }} />
+                    <div data-testid="highlight-item-color-bar" className="h-1.5 rounded-full flex-1" style={{ background: h.color }} />
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => openNoteEditor(h)}
@@ -3727,7 +4246,7 @@ export default function Reader() {
           }`}>
             {selectionMode === 'colors' ? (
               <>
-                {highlightColors.map((c) => (
+                {orderedHighlightColors.map((c, index) => (
                   <button
                     key={c.name}
                     onClick={() => {
@@ -3739,6 +4258,7 @@ export default function Reader() {
                     }}
                     className="w-5 h-5 rounded-full border border-white/40 shadow"
                     title={`${selection.isExisting ? 'Recolor' : 'Highlight'} ${c.name}`}
+                    data-testid={`highlight-color-${index}`}
                     style={{ background: c.value }}
                   />
                 ))}
@@ -3757,13 +4277,18 @@ export default function Reader() {
                 >
                   Delete highlight
                 </button>
-                <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
                   onClick={() => setSelectionMode('colors')}
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
                 >
-                  <Highlighter size={12} />
-                  Color
+                  Change color
+                </button>
+                <button
+                  onClick={openNoteEditorForExistingSelection}
+                  data-testid="selection-existing-note-action"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400"
+                >
+                  {(findHighlightByCfi(selection.cfiRange)?.note || '').trim() ? 'Edit Note' : 'Add note'}
                 </button>
                 <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
                 <button
@@ -3979,10 +4504,159 @@ export default function Reader() {
         className="fixed bottom-20 left-1/2 z-[69] -translate-x-1/2"
       />
 
+      {showFlowChoiceModal && (
+        <div className="fixed inset-0 z-[74]" data-testid="reader-flow-choice-modal">
+          <div className="absolute inset-0 bg-slate-900/62 backdrop-blur-[2px]" />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className={`w-full max-w-lg rounded-3xl border shadow-[0_22px_70px_rgba(15,23,42,0.35)] ${
+              settings.theme === 'dark'
+                ? 'bg-gray-900 border-gray-700 text-gray-100'
+                : 'bg-white border-gray-200 text-gray-900'
+            }`}>
+              <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-3">
+                <div>
+                  <div className={`text-[10px] uppercase tracking-[0.22em] font-semibold ${settings.theme === 'dark' ? 'text-blue-300' : 'text-blue-600'}`}>
+                    Reading Mode
+                  </div>
+                  <div className="mt-1 flex items-start gap-2">
+                    <h3 className="text-[26px] leading-tight font-semibold tracking-tight">
+                      {flowChoiceMode === 'initial' ? 'Choose reading mode for this book' : 'Change reading mode'}
+                    </h3>
+                    <button
+                      type="button"
+                      className={`mt-[6px] shrink-0 rounded-full p-0.5 ${
+                        settings.theme === 'dark' ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'
+                      }`}
+                      title={
+                        flowChoiceMode === 'initial'
+                          ? 'Mode stays locked for this book to keep reading position and highlights stable. To change later, use restart or choose chapter.'
+                          : 'To keep progress stable, mode changes require a relocation step: restart the book or pick a chapter.'
+                      }
+                      aria-label={flowChoiceMode === 'initial' ? 'Why mode is locked' : 'Why relocation is required'}
+                      data-testid="reader-flow-choice-info"
+                    >
+                      <Info size={14} />
+                    </button>
+                  </div>
+                  {flowChoiceMode !== 'initial' && (
+                    <p className={`mt-2 text-[15px] leading-snug ${settings.theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
+                      Select target mode and continue.
+                    </p>
+                  )}
+                  {flowChoiceMode === 'initial' && (
+                    <div className="sr-only">
+                      First mode choice is mandatory.
+                    </div>
+                  )}
+                </div>
+                {flowChoiceMode !== 'initial' && (
+                  <button
+                    type="button"
+                    onClick={closeFlowChoiceModal}
+                    aria-label="Close mode chooser"
+                    className={`rounded-full p-1 ${settings.theme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-500 hover:text-red-500'}`}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="px-6 pb-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    data-testid="reader-flow-choice-paginated"
+                    onClick={() => (flowChoiceMode === 'initial' ? applyInitialFlowChoice('paginated') : setPendingFlowTarget('paginated'))}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      pendingFlowTarget === 'paginated'
+                        ? 'border-transparent ring-2 ring-blue-500 bg-blue-50 text-blue-700'
+                        : settings.theme === 'dark'
+                          ? 'border-gray-600 bg-gray-900/20 hover:border-gray-400 hover:bg-gray-800'
+                          : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-semibold text-[18px]">
+                      <BookOpen size={18} />
+                      Book view
+                    </div>
+                    <div className="mt-1 text-[13px] opacity-80">
+                      Classic paginated reading.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="reader-flow-choice-scrolled"
+                    onClick={() => (flowChoiceMode === 'initial' ? applyInitialFlowChoice('scrolled') : setPendingFlowTarget('scrolled'))}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      pendingFlowTarget === 'scrolled'
+                        ? 'border-transparent ring-2 ring-blue-500 bg-blue-50 text-blue-700'
+                        : settings.theme === 'dark'
+                          ? 'border-gray-600 bg-gray-900/20 hover:border-gray-400 hover:bg-gray-800'
+                          : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-semibold text-[18px]">
+                      <Scroll size={18} />
+                      Infinite scrolling
+                    </div>
+                    <div className="mt-1 text-[13px] opacity-80">
+                      Continuous vertical reading.
+                    </div>
+                  </button>
+                </div>
+
+                {flowChoiceMode === 'change' && (
+                  <div className={`rounded-2xl border px-4 py-3 ${
+                    settings.theme === 'dark' ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50'
+                  }`}>
+                    <div className="text-sm font-semibold">
+                      Move to {pendingFlowModeLabel}
+                    </div>
+                    <div className={`mt-1 text-[13px] ${settings.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                      Choose one mandatory relocation option.
+                    </div>
+                    {flowChoiceError && (
+                      <div
+                        data-testid="reader-flow-choice-error"
+                        className="mt-2 text-xs font-semibold text-red-500"
+                      >
+                        {flowChoiceError}
+                      </div>
+                    )}
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={requestFlowChangeViaRestart}
+                        data-testid="reader-flow-change-restart"
+                        className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        Restart book
+                      </button>
+                      <button
+                        type="button"
+                        onClick={requestFlowChangeViaChapter}
+                        data-testid="reader-flow-change-chapter"
+                        className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
+                          settings.theme === 'dark'
+                            ? 'border-gray-600 text-gray-100 hover:bg-gray-700'
+                            : 'border-gray-300 text-gray-800 hover:bg-gray-100'
+                        }`}
+                      >
+                        Choose chapter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSidebar && (
         <div className="fixed inset-0 z-[65]" data-testid="chapters-panel">
           <button
-            onClick={() => setShowSidebar(false)}
+            onClick={closeChaptersPanel}
             className="absolute inset-0 bg-black/40"
             aria-label="Close chapters"
           />
@@ -4000,13 +4674,26 @@ export default function Reader() {
                   <h3 className="text-sm font-bold">Contents</h3>
                 </div>
                 <button
-                  onClick={() => setShowSidebar(false)}
+                  onClick={closeChaptersPanel}
                   className={`p-1 rounded-full ${settings.theme === 'dark' ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
                   aria-label="Close contents"
                 >
                   <X size={16} />
                 </button>
               </div>
+
+              {awaitingFlowChapterPick && (
+                <div
+                  data-testid="flow-change-chapter-hint"
+                  className={`mx-3 mt-3 rounded-xl border px-3 py-2 text-xs ${
+                    settings.theme === 'dark'
+                      ? 'border-blue-700 bg-blue-950/40 text-blue-200'
+                      : 'border-blue-200 bg-blue-50 text-blue-700'
+                  }`}
+                >
+                  Choose a chapter to continue in {awaitingFlowChapterPick === 'paginated' ? 'Book view' : 'Infinite scrolling'}.
+                </div>
+              )}
 
               <div className="px-2 py-2 overflow-y-auto flex-1 space-y-1">
                 {tocItems.length === 0 ? (
@@ -4039,7 +4726,7 @@ export default function Reader() {
       )}
 
       {/* TOP BAR */}
-      <div className={`flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
+      <div className={`relative flex items-center justify-between p-3 border-b shadow-sm z-20 ${settings.theme === 'dark' ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSidebar(true)}
@@ -4056,6 +4743,19 @@ export default function Reader() {
             </div>
           </div>
         </div>
+
+        {currentChapterLabel && (
+          <div className="pointer-events-none absolute left-1/2 top-1/2 hidden max-w-[40vw] -translate-x-1/2 -translate-y-1/2 md:block">
+            <div
+              data-testid="reader-current-chapter"
+              className={`truncate text-center text-[11px] font-bold uppercase tracking-[0.22em] ${
+                settings.theme === 'dark' ? 'text-gray-300' : 'text-gray-500'
+              }`}
+            >
+              {currentChapterLabel}
+            </div>
+          </div>
+        )}
         
         <div className="flex items-center gap-1 sm:gap-2">
           <button
@@ -4063,7 +4763,7 @@ export default function Reader() {
             disabled
             data-testid="ai-explain-disabled"
             title="AI feature not available yet"
-            className="flex cursor-not-allowed items-center gap-2 rounded-full border border-orange-200 bg-orange-50 p-2 px-3 text-orange-700 opacity-90 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300"
+            className={`flex cursor-not-allowed items-center gap-2 rounded-full border p-2 px-3 opacity-90 ${aiDisabledToneClass}`}
           >
             <Wand2 size={18} />
             <span className="text-[10px] font-black uppercase hidden lg:inline">Explain Page</span>
@@ -4073,7 +4773,7 @@ export default function Reader() {
             disabled
             data-testid="ai-story-disabled"
             title="AI feature not available yet"
-            className="flex cursor-not-allowed items-center gap-2 rounded-full border border-orange-200 bg-orange-50 p-2 px-3 text-orange-700 opacity-90 dark:border-orange-800/40 dark:bg-orange-900/20 dark:text-orange-300"
+            className={`flex cursor-not-allowed items-center gap-2 rounded-full border p-2 px-3 opacity-90 ${aiDisabledToneClass}`}
           >
             <Sparkles size={20} />
             <span className="hidden md:inline text-xs font-black uppercase">Story</span>
@@ -4125,7 +4825,13 @@ export default function Reader() {
             <Bookmark size={18} />
           </button>
           <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
-          <button onClick={toggleDarkTheme} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" data-testid="theme-toggle">
+          <button
+            onClick={toggleDarkTheme}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+            data-testid="theme-toggle"
+            title={isReaderDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={isReaderDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
             {isReaderDark ? <Sun size={20} /> : <Moon size={20} />}
           </button>
           <button
@@ -4133,11 +4839,59 @@ export default function Reader() {
             className={`p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700 ${isReaderSepia ? 'text-amber-700 bg-amber-100 dark:bg-amber-900/30' : ''}`}
             data-testid="sepia-toggle"
             title={isReaderSepia ? 'Disable night reading mode' : 'Enable night reading mode'}
+            aria-label={isReaderSepia ? 'Disable night reading mode' : 'Enable night reading mode'}
           >
             <OwlIcon size={20} />
           </button>
-          <button onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">{settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}</button>
-          <button onClick={() => setShowFontMenu(!showFontMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"><Type size={20} /></button>
+          <button
+            onClick={toggleDaltonianPalette}
+            className={`p-2 rounded-full transition hover:bg-gray-100 dark:hover:bg-gray-700 ${
+              isDaltonianPalette ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30' : ''
+            }`}
+            data-testid="colorblind-palette-toggle"
+            title={isDaltonianPalette ? 'Disable colorblind palette' : 'Enable colorblind palette'}
+            aria-label="Toggle colorblind palette"
+          >
+            <DaltonIcon size={20} />
+          </button>
+          <button
+            type="button"
+            className={`p-2 rounded-full ${
+              isFlowLockActive
+                ? 'text-gray-400 cursor-default'
+                : 'text-gray-500'
+            }`}
+            title={flowIndicatorTitle}
+            aria-label={flowIndicatorTitle}
+            data-testid="reader-flow-mode-indicator"
+            onClick={() => {
+              if (isFlowLockActive) return;
+              setSettings((s) => ({ ...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated' }));
+            }}
+          >
+            {settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}
+          </button>
+          {isFlowLockActive && (
+            <button
+              type="button"
+              onClick={openFlowChangeModal}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Change reading mode"
+              aria-label="Change reading mode"
+              data-testid="reader-flow-change-trigger"
+            >
+              <RotateCcw size={20} />
+            </button>
+          )}
+          <button
+            onClick={() => setShowFontMenu(!showFontMenu)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+            data-testid="reader-text-settings-toggle"
+            title={showFontMenu ? 'Close text settings' : 'Open text settings'}
+            aria-label={showFontMenu ? 'Close text settings' : 'Open text settings'}
+          >
+            <span className="text-[18px] leading-none font-semibold tracking-tight">Aa</span>
+          </button>
         </div>
       </div>
 
@@ -4157,7 +4911,7 @@ export default function Reader() {
           flashingHighlightPulse={flashingHighlightPulse}
           onSearchResultActivate={handleSearchResultActivate}
           onSearchFocusDismiss={dismissFocusedSearch}
-          highlights={highlights}
+          highlights={displayHighlights}
           onSelection={handleSelection}
           onInlineNoteMarkerActivate={handleInlineNoteMarkerActivate}
           onFootnotePreview={handleFootnotePreview}

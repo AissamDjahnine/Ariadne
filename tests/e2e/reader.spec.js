@@ -4,6 +4,25 @@ import path from 'path';
 const fixturePath = path.resolve(process.cwd(), 'tests/fixtures/fixture.epub');
 const footnoteFixturePath = path.resolve(process.cwd(), 'test-books/footnote-demo.epub');
 
+async function dismissFlowChoiceModalIfPresent(page, preferred = 'paginated') {
+  const modal = page.getByTestId('reader-flow-choice-modal');
+  let visible = false;
+  try {
+    await expect(modal).toBeVisible({ timeout: 3000 });
+    visible = true;
+  } catch {
+    visible = await modal.isVisible().catch(() => false);
+  }
+  if (!visible) return;
+
+  if (preferred === 'scrolled') {
+    await page.getByTestId('reader-flow-choice-scrolled').click();
+  } else {
+    await page.getByTestId('reader-flow-choice-paginated').click();
+  }
+  await expect(modal).toHaveCount(0);
+}
+
 async function openFixtureBook(page) {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
@@ -15,6 +34,7 @@ async function openFixtureBook(page) {
   const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
   await expect(bookLink).toBeVisible();
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 }
 
@@ -57,6 +77,8 @@ async function openFixtureBookInScrolledMode(page) {
               readerSettings: {
                 ...(payload.readerSettings || {}),
                 flow: 'scrolled',
+                flowLocked: true,
+                flowChosenAt: new Date().toISOString(),
                 theme: 'light',
                 fontSize: 100,
                 fontFamily: 'publisher'
@@ -81,6 +103,7 @@ async function openFixtureBookInScrolledMode(page) {
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'scrolled');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 }
 
@@ -97,7 +120,7 @@ test('selection toolbar closes automatically when selection is cleared', async (
   await selectTextInBook(page);
 
   const frame = page.frameLocator('iframe');
-  await frame.locator('body').click({ position: { x: 24, y: 24 } });
+  await frame.locator('body').click({ position: { x: 360, y: 24 } });
   await expect(page.getByTestId('selection-toolbar')).toHaveCount(0);
 });
 
@@ -128,6 +151,36 @@ test('ai toolbar actions are visibly disabled and orange', async ({ page }) => {
   await expect(story).toHaveClass(/bg-orange-50/);
 });
 
+test('first open requires flow choice and later changes require restart or chapter selection', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+  await bookLink.click();
+
+  const modal = page.getByTestId('reader-flow-choice-modal');
+  await expect(modal).toBeVisible();
+  await expect(page.getByTestId('reader-flow-change-trigger')).toHaveCount(0);
+
+  await page.getByTestId('reader-flow-choice-scrolled').click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.getByTestId('reader-flow-change-trigger')).toBeVisible();
+  await expect(page.getByTestId('reader-flow-mode-indicator')).toHaveAttribute('title', /Infinite scrolling/i);
+
+  await page.getByTestId('reader-flow-change-trigger').click();
+  await expect(modal).toBeVisible();
+  await page.getByTestId('reader-flow-choice-paginated').click();
+  await page.getByTestId('reader-flow-change-restart').click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.getByTestId('reader-flow-mode-indicator')).toHaveAttribute('title', /Book view/i);
+});
+
 test('footnote preview opens from marker and supports jump/close', async ({ page }) => {
   await page.addInitScript(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
@@ -140,6 +193,7 @@ test('footnote preview opens from marker and supports jump/close', async ({ page
   const bookLink = page.getByRole('link', { name: /Footnote Demo/i }).first();
   await expect(bookLink).toBeVisible();
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByTestId('reader-search-toggle')).toBeVisible();
 
   const frame = page.frameLocator('iframe');
@@ -300,6 +354,7 @@ test('search highlighting does not remove saved highlights', async ({ page }) =>
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-highlights-toggle').click();
@@ -392,6 +447,8 @@ test('ArrowUp and ArrowDown scroll in infinite mode', async ({ page }) => {
               readerSettings: {
                 ...(payload.readerSettings || {}),
                 flow: 'scrolled',
+                flowLocked: true,
+                flowChosenAt: new Date().toISOString(),
                 theme: 'light',
                 fontSize: 100,
                 fontFamily: 'publisher'
@@ -416,6 +473,7 @@ test('ArrowUp and ArrowDown scroll in infinite mode', async ({ page }) => {
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'scrolled');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
   const currentCfi = page.getByTestId('reader-current-cfi');
   await expect.poll(async () => (await currentCfi.textContent())?.trim() || '', { timeout: 10000 }).not.toBe('');
@@ -820,6 +878,32 @@ test('theme toggle works repeatedly in reader', async ({ page }) => {
   expect(revertedBg).toBe(initialBg);
 });
 
+test('text settings controls update line spacing, margins, and alignment', async ({ page }) => {
+  await openFixtureBook(page);
+
+  await page.getByTestId('reader-text-settings-toggle').click();
+  await expect(page.getByTestId('reader-text-margin-select')).toHaveCount(0);
+  await page.mouse.click(10, 10);
+
+  await page.getByTestId('reader-flow-change-trigger').click();
+  await page.getByTestId('reader-flow-choice-scrolled').click();
+  await page.getByTestId('reader-flow-change-restart').click();
+
+  await page.getByTestId('reader-text-settings-toggle').click();
+  const lineSpacingSlider = page.getByTestId('reader-line-spacing-slider');
+  await lineSpacingSlider.evaluate((el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(el, String(value));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, 2.05);
+  await page.getByTestId('reader-text-margin-select').selectOption('48');
+  await page.getByTestId('reader-text-align-justify').click();
+  await expect(page.getByTestId('reader-setting-line-spacing')).toHaveText('2.05');
+  await expect(page.getByTestId('reader-setting-text-margin')).toHaveText('48');
+  await expect(page.getByTestId('reader-setting-text-align')).toHaveText('justify');
+});
+
 test('reader utility icon colors match theme controls when idle', async ({ page }) => {
   await openFixtureBook(page);
 
@@ -898,6 +982,7 @@ test('highlights panel uses readable text contrast in light theme', async ({ pag
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-highlights-toggle').click();
@@ -978,6 +1063,7 @@ test('highlights panel renders saved highlight note text', async ({ page }) => {
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Open chapters/i })).toBeVisible();
   await page.getByTestId('reader-highlights-toggle').click();
 
@@ -1049,6 +1135,7 @@ test('bookmarks panel uses readable text contrast in light theme', async ({ page
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-bookmarks-toggle').click();
@@ -1081,6 +1168,104 @@ test('sepia mode toggles warm reading background', async ({ page }) => {
   await expect.poll(getBodyBg).toBe(initialBg);
 });
 
+test('colorblind palette toggle remaps highlight colors and AI action tone', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = Array.isArray(payload.highlights) ? [...payload.highlights] : [];
+            highlights.push({
+              cfiRange: 'epubcfi(/6/2[seed-daltonian]!/4/2/2,/4/2/10)',
+              text: 'Seeded highlight for color mode remap',
+              color: '#fcd34d'
+            });
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+  await page.getByTestId('reader-highlights-toggle').click();
+  await expect(page.getByTestId('highlight-item')).toHaveCount(1);
+  const panel = page.getByTestId('highlights-panel');
+  const colorBar = panel.getByTestId('highlight-item-color-bar').first();
+  await expect(colorBar).toBeVisible();
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('standard');
+
+  const readAiToneColor = async () =>
+    page.getByTestId('ai-explain-disabled').evaluate((el) => window.getComputedStyle(el).color);
+  const readColorBar = async () =>
+    colorBar.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+
+  const standardAiColor = await readAiToneColor();
+  const standardBarColor = await readColorBar();
+
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="colorblind-palette-toggle"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+  });
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('daltonian');
+  await expect.poll(readColorBar).not.toBe(standardBarColor);
+  await expect.poll(readAiToneColor).not.toBe(standardAiColor);
+
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="colorblind-palette-toggle"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+  });
+  await expect(page.getByTestId('reader-color-palette-mode')).toHaveText('standard');
+  await expect.poll(readColorBar).toBe(standardBarColor);
+  await expect.poll(readAiToneColor).toBe(standardAiColor);
+});
+
 test('menu button opens chapter contents and chapter selection closes panel', async ({ page }) => {
   await openFixtureBook(page);
 
@@ -1092,8 +1277,18 @@ test('menu button opens chapter contents and chapter selection closes panel', as
     .poll(async () => panel.getByTestId('toc-item').count(), { timeout: 30000 })
     .toBeGreaterThan(0);
 
-  await panel.getByTestId('toc-item').first().click();
+  const chapterBadge = page.getByTestId('reader-current-chapter');
+  await expect(chapterBadge).toBeVisible();
+
+  const tocCount = await panel.getByTestId('toc-item').count();
+  const targetIndex = tocCount > 1 ? 1 : 0;
+  const targetItem = panel.getByTestId('toc-item').nth(targetIndex);
+  const targetLabel = ((await targetItem.textContent()) || '').trim();
+  const targetLabelPattern = new RegExp(targetLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+  await targetItem.click();
   await expect(page.getByTestId('chapters-panel')).toHaveCount(0);
+  await expect(chapterBadge).toHaveText(targetLabelPattern);
 });
 
 test('highlights selection controls drive export availability', async ({ page }) => {
@@ -1164,6 +1359,7 @@ test('highlights selection controls drive export availability', async ({ page })
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-highlights-toggle').click();
@@ -1248,6 +1444,7 @@ test('highlight delete supports undo in reader panel', async ({ page }) => {
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-highlights-toggle').click();
@@ -1333,6 +1530,7 @@ test('clicking a highlight item triggers temporary in-book flash', async ({ page
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-highlights-toggle').click();
@@ -1353,7 +1551,7 @@ test('post-highlight note prompt supports direct note entry and save', async ({ 
 
   const toolbar = page.getByTestId('selection-toolbar');
   await toolbar.getByRole('button', { name: 'Highlight' }).click();
-  await toolbar.getByTitle('Highlight Amber').click();
+  await toolbar.locator('button[title^="Highlight "]').first().click();
 
   const notePrompt = page.getByTestId('post-highlight-note-prompt');
   await expect(notePrompt).toBeVisible();
@@ -1373,12 +1571,125 @@ test('post-highlight note prompt can be dismissed with Later', async ({ page }) 
 
   const toolbar = page.getByTestId('selection-toolbar');
   await toolbar.getByRole('button', { name: 'Highlight' }).click();
-  await toolbar.getByTitle('Highlight Amber').click();
+  await toolbar.locator('button[title^="Highlight "]').first().click();
 
   const notePrompt = page.getByTestId('post-highlight-note-prompt');
   await expect(notePrompt).toBeVisible();
   await notePrompt.getByRole('button', { name: 'Later' }).click();
   await expect(page.getByTestId('post-highlight-note-prompt')).toHaveCount(0);
+});
+
+test('highlight color options are ordered by last used first', async ({ page }) => {
+  await openFixtureBook(page);
+  await selectTextInBook(page);
+
+  await page.getByTestId('selection-toolbar').getByRole('button', { name: 'Highlight' }).click();
+  await expect(page.getByTestId('selection-toolbar').getByTitle('Highlight Lime')).toBeVisible();
+  await page.getByTestId('selection-toolbar').getByTitle('Highlight Lime').click();
+  await expect(page.getByTestId('post-highlight-note-prompt')).toBeVisible();
+  await page.getByRole('button', { name: 'Later' }).click();
+
+  await selectTextInBook(page);
+  await page.getByTestId('selection-toolbar').getByRole('button', { name: 'Highlight' }).click();
+  await expect(
+    page.getByTestId('selection-toolbar').locator('button[title]').first()
+  ).toHaveAttribute('title', 'Highlight Lime');
+});
+
+test('note can be added back after deletion via existing-highlight quick actions', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.deleteDatabase('SmartReaderLib');
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const fileInput = page.locator('input[type="file"][accept=".epub"]');
+  await fileInput.setInputFiles(fixturePath);
+  const bookLink = page.getByRole('link', { name: /Test Book/i }).first();
+  await expect(bookLink).toBeVisible();
+
+  const seeded = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('SmartReaderLib');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const storeName = db.objectStoreNames.contains('keyvaluepairs') ? 'keyvaluepairs' : db.objectStoreNames[0];
+        if (!storeName) {
+          db.close();
+          resolve(false);
+          return;
+        }
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const cursorRequest = store.openCursor();
+        let didSeed = false;
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const row = cursor.value;
+          const payload = row?.value && typeof row.value === 'object' ? row.value : row;
+          const isTargetBook = payload && payload.title === 'Test Book' && Object.prototype.hasOwnProperty.call(payload, 'data');
+          if (!didSeed && isTargetBook) {
+            const highlights = [
+              {
+                cfiRange: 'epubcfi(/6/2[seed-note-readd]!/4/2/2,/4/2/14)',
+                text: 'Seeded note restore highlight',
+                color: '#fcd34d',
+                note: 'Initial highlight note'
+              }
+            ];
+            const nextPayload = { ...payload, highlights };
+            if (row?.value && typeof row.value === 'object') {
+              cursor.update({ ...row, value: nextPayload });
+            } else {
+              cursor.update(nextPayload);
+            }
+            didSeed = true;
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve(didSeed);
+        };
+      };
+    });
+  });
+  expect(seeded).toBeTruthy();
+
+  await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
+  await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  const panel = page.getByTestId('highlights-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('highlight-item')).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Edit note' }).first().click();
+
+  const editor = page.getByTestId('highlight-note-editor');
+  await expect(editor).toBeVisible();
+  await editor.getByTestId('highlight-note-editor-input').fill('');
+  await editor.getByTestId('highlight-note-editor-save').click();
+  await expect(page.getByTestId('highlight-note-editor')).toHaveCount(0);
+  await expect(panel.getByTestId('highlight-item-note')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Add note' }).first()).toBeVisible();
+
+  await panel.locator(':scope > div').first().click();
+  await expect(page.getByTestId('highlights-panel')).toHaveCount(0);
+
+  await page.getByTestId('reader-highlights-toggle').click();
+  await expect(page.getByTestId('highlights-panel')).toBeVisible();
+  await page.getByTestId('highlights-panel').getByRole('button', { name: 'Add note' }).first().click();
+
+  await expect(page.getByTestId('highlight-note-editor')).toBeVisible();
+  await page.getByTestId('highlight-note-editor-input').fill('Note added back');
+  await page.getByTestId('highlight-note-editor-save').click();
+  await expect(page.getByTestId('highlight-note-editor')).toHaveCount(0);
+
+  await expect(panel.getByTestId('highlight-item-note').first()).toContainText('Note added back');
 });
 
 test('bookmarks panel supports jump-close and delete flow', async ({ page }) => {
@@ -1445,6 +1756,7 @@ test('bookmarks panel supports jump-close and delete flow', async ({ page }) => 
   expect(seeded).toBeTruthy();
 
   await bookLink.click();
+  await dismissFlowChoiceModalIfPresent(page, 'paginated');
   await expect(page.getByRole('button', { name: /Explain Page/i })).toBeVisible();
 
   await page.getByTestId('reader-bookmarks-toggle').click();

@@ -118,15 +118,28 @@ ariadne is built around real reading behavior:
 ### Reader Built for Focus
 
 - Paginated and infinite-scroll modes
+- First-open reading mode choice is mandatory per book:
+  - choose `Book view` or `Infinite scrolling` once before reading starts
+  - chosen mode stays locked while the book is in progress
+  - changing mode later uses a guided flow (`Change reading mode`) with mandatory relocation:
+    - restart from book start, or
+    - choose a chapter target
+- Paginated mode supports subtle edge click/tap zones for next/previous page turns (no intrusive on-page arrow buttons)
 - Centered portrait-style reading column in scroll mode
 - Per-book reading preferences:
   - Theme
   - Font size
   - Font family
+  - Line spacing (continuous slider, not fixed presets)
+  - Text alignment
+  - Page width control (available in `Infinite scrolling` mode only)
   - Reading flow
 - Light mode, dark mode, and sepia reading mode
+- Reader text settings control uses the standard `Aa` icon
+- Upper-right reader icon controls include hover tooltips for faster discoverability
 - Keyboard navigation support (Left/Right in paginated mode, Up/Down in infinite mode with gradual acceleration on hold)
 - Chapter menu + table of contents navigation
+- Centered current chapter label in the reader header (derived from TOC + current location)
 - Reader search keyboard shortcuts (`Ctrl+F` to open search, `Esc` to close)
 - Return-to-previous-spot chip after navigation jumps (search, highlights, bookmarks, notes, TOC)
 - Dictionary lookup cancels stale responses when you close the panel
@@ -155,6 +168,11 @@ ariadne is built around real reading behavior:
 ### Highlights, Notes, and Study Workflow
 
 - Multi-color highlights
+- Highlight anchors are content-stable across reader style/layout changes:
+  - same highlighted text is preserved when changing font size/family, line spacing, margins, alignment, and flow mode
+  - quote/context recovery is used when a raw CFI no longer maps cleanly after reflow
+- One-click `Highlight` now applies your most recently used color
+- `Colors` chooser is ordered by recency (last used color appears first)
 - Highlights panel defaults to no pre-selected items (`Select all` / `Unselect all` workflow)
 - Re-clicking an existing highlight opens a contextual action popup anchored next to that highlight (delete, dictionary, translate)
 - Existing highlights support in-place color changes from the same contextual popup (no delete/recreate needed)
