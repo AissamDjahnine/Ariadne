@@ -1,7 +1,8 @@
 import React from "react";
-import { Search, Filter, ArrowUpDown, LayoutGrid, List, RotateCcw } from "lucide-react";
+import { Search, Filter, ArrowUpDown, LayoutGrid, Grid3x3, List, RotateCcw } from "lucide-react";
 
 export default function LibraryToolbarSection({
+  isDarkLibraryTheme = false,
   searchQuery,
   onSearchChange,
   searchPlaceholder = "Search books, highlights, notes, bookmarks...",
@@ -18,6 +19,8 @@ export default function LibraryToolbarSection({
   onToggleFlagFilter,
   viewMode,
   onViewModeChange,
+  densityMode = "comfortable",
+  onDensityModeChange,
   canShowResetFilters,
   onResetFilters
 }) {
@@ -25,7 +28,11 @@ export default function LibraryToolbarSection({
     <>
       <div
         data-testid="library-toolbar-sticky"
-        className="sticky top-3 z-20 mb-3 rounded-2xl bg-gray-50/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80"
+        className={`sticky top-3 z-20 mb-3 rounded-2xl pb-2 backdrop-blur ${
+          isDarkLibraryTheme
+            ? "bg-slate-900/80"
+            : "bg-gray-50/95 supports-[backdrop-filter]:bg-gray-50/80"
+        }`}
       >
         <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_220px_280px]">
           <div className="relative flex-1">
@@ -105,20 +112,38 @@ export default function LibraryToolbarSection({
 
         <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
           <div
-            className="flex h-[42px] w-[108px] items-center rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
+            className="flex h-[42px] w-[160px] items-center rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
             data-testid="library-view-toggle"
           >
             <button
               type="button"
               data-testid="library-view-grid"
-              aria-pressed={viewMode === "grid"}
-              onClick={() => onViewModeChange("grid")}
+              aria-pressed={viewMode === "grid" && densityMode !== "compact"}
+              onClick={() => {
+                onDensityModeChange?.("comfortable");
+                onViewModeChange("grid");
+              }}
               className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
-                viewMode === "grid" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+                viewMode === "grid" && densityMode !== "compact" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
               }`}
               title="Grid view"
             >
               <LayoutGrid size={16} />
+            </button>
+            <button
+              type="button"
+              data-testid="library-view-grid-compact"
+              aria-pressed={viewMode === "grid" && densityMode === "compact"}
+              onClick={() => {
+                onDensityModeChange?.("compact");
+                onViewModeChange("grid");
+              }}
+              className={`flex h-full flex-1 items-center justify-center rounded-xl transition-colors ${
+                viewMode === "grid" && densityMode === "compact" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-900"
+              }`}
+              title="Compact grid view"
+            >
+              <Grid3x3 size={16} />
             </button>
             <button
               type="button"

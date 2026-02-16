@@ -1278,14 +1278,16 @@ test('library view toggle persists after reload', async ({ page }) => {
   await expect(bookLink).toBeVisible();
   await expect(page.getByTestId('library-books-grid')).toBeVisible();
 
-  const listToggle = page.getByTestId('library-view-list');
-  await listToggle.click();
-  await expect(page.getByTestId('library-books-list')).toBeVisible();
-  await expect(listToggle).toHaveAttribute('aria-pressed', 'true');
+  const compactGridToggle = page.getByTestId('library-view-grid-compact');
+  await compactGridToggle.click();
+  await expect(page.getByTestId('library-books-grid')).toBeVisible();
+  await expect(compactGridToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('library-books-grid')).toHaveAttribute('data-density', 'compact');
 
   await page.reload();
-  await expect(page.getByTestId('library-books-list')).toBeVisible();
-  await expect(page.getByTestId('library-view-list')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('library-books-grid')).toBeVisible();
+  await expect(page.getByTestId('library-view-grid-compact')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('library-books-grid')).toHaveAttribute('data-density', 'compact');
 });
 
 test('library view grid toggle restores grid mode', async ({ page }) => {
