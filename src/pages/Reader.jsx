@@ -2226,6 +2226,17 @@ export default function Reader() {
     return tocItems[0]?.href || '';
   }, [tocItems]);
 
+  const getChapterProgressPercent = useCallback((href) => {
+    const total = tocItems.length;
+    if (!total) return 0;
+    const normalizedTarget = normalizeHref(href || '');
+    const index = tocItems.findIndex((item) => normalizeHref(item.href) === normalizedTarget);
+    const safeIndex = index >= 0 ? index : 0;
+    const estimated = Math.floor((safeIndex / total) * 100);
+    // Chapter jump should reflect progress near chapter start, but never force completion.
+    return Math.max(0, Math.min(99, estimated));
+  }, [tocItems]);
+
   const flowModeLabel = settings.flow === 'paginated' ? 'Book view' : 'Infinite scrolling';
   const alternateFlow = settings.flow === 'paginated' ? 'scrolled' : 'paginated';
   const pendingFlowModeLabel = pendingFlowTarget === 'paginated' ? 'Book view' : 'Infinite scrolling';
@@ -2275,14 +2286,22 @@ export default function Reader() {
     setShowFlowChoiceModal(true);
   }, [alternateFlow]);
 
-  const requestFlowChangeViaRestart = useCallback(() => {
+  const requestFlowChangeViaRestart = useCallback(async () => {
     const startHref = getBookStartHref();
+    if (bookId) {
+      try {
+        await updateBookProgress(bookId, startHref || '', 0);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setProgressPct(0);
     scheduleFlowNavigation(pendingFlowTarget, startHref);
     setAwaitingFlowChapterPick(null);
     setFlowChoiceError('');
     setShowFlowChoiceModal(false);
     showFlowModeToast(pendingFlowTarget, 'Book restarted in selected mode.');
-  }, [getBookStartHref, pendingFlowTarget, scheduleFlowNavigation, showFlowModeToast]);
+  }, [bookId, getBookStartHref, pendingFlowTarget, scheduleFlowNavigation, showFlowModeToast]);
 
   const requestFlowChangeViaChapter = useCallback(() => {
     if (!tocItems.length) {
@@ -2311,13 +2330,22 @@ export default function Reader() {
     setShowSidebar(false);
   }, [awaitingFlowChapterPick]);
 
-  const handleTocSelect = (href) => {
+  const handleTocSelect = async (href) => {
     if (!href) return;
     if (awaitingFlowChapterPick) {
       const targetFlow = awaitingFlowChapterPick;
+      const chapterProgress = getChapterProgressPercent(href);
       setAwaitingFlowChapterPick(null);
       setFlowChoiceError('');
       setShowSidebar(false);
+      if (bookId) {
+        try {
+          await updateBookProgress(bookId, href, chapterProgress / 100);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      setProgressPct(chapterProgress);
       scheduleFlowNavigation(targetFlow, href);
       showFlowModeToast(targetFlow, 'Chapter jump applied in selected mode.');
       return;
@@ -2562,9 +2590,24 @@ export default function Reader() {
     if (isFlowLockActive) {
       setFlowChoiceMode('change');
       setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+      setShowFlowChoiceModal(false);
       return;
     }
     if (!hasFlowChoice) {
+      const existingProgress = Math.max(0, Math.min(100, Number(book?.progress || 0)));
+      const hasExistingLocation = typeof book?.lastLocation === 'string' && Boolean(book.lastLocation.trim());
+      // Existing books in progress should not be forced through initial mode chooser on every open.
+      if (existingProgress > 0 || hasExistingLocation) {
+        setSettings((prev) => ({
+          ...prev,
+          flowLocked: true,
+          flowChosenAt: prev.flowChosenAt || new Date().toISOString()
+        }));
+        setFlowChoiceMode('change');
+        setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+        setShowFlowChoiceModal(false);
+        return;
+      }
       setFlowChoiceMode('initial');
       setPendingFlowTarget(settings.flow || 'paginated');
       setShowFlowChoiceModal(true);
@@ -2573,7 +2616,7 @@ export default function Reader() {
     setShowFlowChoiceModal(false);
     setFlowChoiceMode('change');
     setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
-  }, [book?.id, isSettingsHydrated, isFlowLockActive, hasFlowChoice, settings.flow]);
+  }, [book?.id, book?.progress, book?.lastLocation, isSettingsHydrated, isFlowLockActive, hasFlowChoice, settings.flow]);
 
   useEffect(() => {
     const pending = pendingFlowNavigationRef.current;

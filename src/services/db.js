@@ -44,6 +44,8 @@ const remoteBookDefaults = {
     fontSize: 100,
     theme: 'light',
     flow: 'paginated',
+    flowLocked: false,
+    flowChosenAt: '',
     fontFamily: 'publisher',
     lineSpacing: 1.6,
     textMargin: 32,
@@ -64,6 +66,36 @@ const remoteBookDefaults = {
   globalSummary: ""
 };
 
+const READER_SETTINGS_STORAGE_PREFIX = "reader-settings-book";
+
+const getReaderSettingsStorageKey = (bookId) => {
+  const userId = getCurrentUser()?.id || "anon";
+  return `${READER_SETTINGS_STORAGE_PREFIX}:${userId}:${bookId}`;
+};
+
+const readStoredRemoteReaderSettings = (bookId) => {
+  if (typeof window === "undefined" || !bookId) return null;
+  try {
+    const raw = window.localStorage.getItem(getReaderSettingsStorageKey(bookId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+};
+
+const writeStoredRemoteReaderSettings = (bookId, readerSettings) => {
+  if (typeof window === "undefined" || !bookId || !readerSettings || typeof readerSettings !== "object") return;
+  try {
+    window.localStorage.setItem(getReaderSettingsStorageKey(bookId), JSON.stringify(readerSettings));
+  } catch (err) {
+    console.error(err);
+  }
+};
+
 const normalizeRemoteHighlight = (item = {}) => ({
   id: item.id,
   cfiRange: item.cfiRange || "",
@@ -80,6 +112,12 @@ const normalizeRemoteHighlight = (item = {}) => ({
 
 const normalizeRemoteBook = async (book = {}) => {
   const highlights = await fetchHighlights(book.id).catch(() => []);
+  const storedReaderSettings = readStoredRemoteReaderSettings(book.id);
+  const mergedReaderSettings = {
+    ...remoteBookDefaults.readerSettings,
+    ...(book.readerSettings || {}),
+    ...(storedReaderSettings || {})
+  };
   return {
     ...remoteBookDefaults,
     id: book.id,
@@ -93,6 +131,7 @@ const normalizeRemoteBook = async (book = {}) => {
     progress: Math.max(0, Math.min(100, Number(book.progress || 0))),
     lastLocation: book.lastLocation || "",
     lastOpenedAt: book.userBook?.lastOpenedAt || null,
+    readerSettings: mergedReaderSettings,
     highlights: Array.isArray(highlights) ? highlights.map(normalizeRemoteHighlight) : []
   };
 };
@@ -507,16 +546,21 @@ export const updateBookProgress = async (id, location, percentage) => {
 
 export const updateBookReaderSettings = async (id, readerSettings) => {
   if (isCollabMode) {
-    return {
+    const merged = {
       fontSize: 100,
       theme: 'light',
       flow: 'paginated',
+      flowLocked: false,
+      flowChosenAt: '',
       fontFamily: 'publisher',
       lineSpacing: 1.6,
       textMargin: 32,
       textAlign: 'left',
+      ...(readStoredRemoteReaderSettings(id) || {}),
       ...(readerSettings || {})
     };
+    writeStoredRemoteReaderSettings(id, merged);
+    return merged;
   }
 
   const updatedBook = await runBookMutation(id, (book) => {
