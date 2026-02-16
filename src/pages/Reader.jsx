@@ -6,11 +6,11 @@ import { summarizeChapter } from '../services/ai';
 import FeedbackToast from '../components/FeedbackToast';
 
 import { 
-  Moon, Sun, BookOpen, Scroll, Type, 
+  Moon, Sun, BookOpen, Scroll, 
   ChevronLeft, Menu, X,
   Search as SearchIcon, Sparkles, Wand2, User,
   BookOpenText, Highlighter, Languages, Bookmark, BookText,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify, List
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, List, RotateCcw, Info
 } from 'lucide-react';
 
 const DEFAULT_TRANSLATE_PROVIDER = 'mymemory';
@@ -24,17 +24,17 @@ const DEFAULT_READER_SETTINGS = {
   fontSize: 100,
   theme: 'light',
   flow: 'paginated',
+  flowLocked: false,
+  flowChosenAt: '',
   fontFamily: 'publisher',
   colorPalette: 'standard',
   lineSpacing: 1.6,
   textMargin: 32,
   textAlign: 'left'
 };
-const LINE_SPACING_OPTIONS = [
-  { label: 'Tight', value: 1.4, short: '1.4x' },
-  { label: 'Comfort', value: 1.6, short: '1.6x' },
-  { label: 'Loose', value: 1.8, short: '1.8x' }
-];
+const MIN_LINE_SPACING = 1.2;
+const MAX_LINE_SPACING = 2.4;
+const LINE_SPACING_STEP = 0.05;
 const TEXT_MARGIN_OPTIONS = [
   { label: 'Narrow', value: 16 },
   { label: 'Balanced', value: 32 },
@@ -320,6 +320,13 @@ export default function Reader() {
   });
   const settingsHydratedRef = useRef(false);
   const [settings, setSettings] = useState(DEFAULT_READER_SETTINGS);
+  const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
+  const [showFlowChoiceModal, setShowFlowChoiceModal] = useState(false);
+  const [flowChoiceMode, setFlowChoiceMode] = useState('initial');
+  const [pendingFlowTarget, setPendingFlowTarget] = useState('paginated');
+  const [flowChoiceError, setFlowChoiceError] = useState('');
+  const [awaitingFlowChapterPick, setAwaitingFlowChapterPick] = useState(null);
+  const pendingFlowNavigationRef = useRef(null);
   const initialPanelAppliedRef = useRef(false);
   const initialJumpAppliedRef = useRef(false);
   const initialSearchAppliedRef = useRef(false);
@@ -2213,8 +2220,91 @@ export default function Reader() {
     return '';
   }, [tocItems, currentHref]);
 
+  const getBookStartHref = useCallback(() => {
+    return tocItems[0]?.href || '';
+  }, [tocItems]);
+
+  const flowModeLabel = settings.flow === 'paginated' ? 'Book view' : 'Infinite scrolling';
+  const alternateFlow = settings.flow === 'paginated' ? 'scrolled' : 'paginated';
+  const pendingFlowModeLabel = pendingFlowTarget === 'paginated' ? 'Book view' : 'Infinite scrolling';
+  const hasFlowChoice = Boolean(settings.flowChosenAt || settings.flowLocked);
+  const isFlowLockActive = hasFlowChoice && (progressPct < 100);
+
+  const scheduleFlowNavigation = useCallback((targetFlow, targetCfi = '') => {
+    pendingFlowNavigationRef.current = { targetFlow, targetCfi };
+    setSettings((prev) => ({
+      ...prev,
+      flow: targetFlow,
+      flowLocked: true,
+      flowChosenAt: prev.flowChosenAt || new Date().toISOString()
+    }));
+  }, []);
+
+  const applyInitialFlowChoice = useCallback((targetFlow) => {
+    setSettings((prev) => ({
+      ...prev,
+      flow: targetFlow,
+      flowLocked: true,
+      flowChosenAt: new Date().toISOString()
+    }));
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('change');
+    setPendingFlowTarget(targetFlow === 'paginated' ? 'scrolled' : 'paginated');
+  }, []);
+
+  const openFlowChangeModal = useCallback(() => {
+    setFlowChoiceError('');
+    setPendingFlowTarget(alternateFlow);
+    setFlowChoiceMode('change');
+    setShowFlowChoiceModal(true);
+  }, [alternateFlow]);
+
+  const requestFlowChangeViaRestart = useCallback(() => {
+    const startHref = getBookStartHref();
+    scheduleFlowNavigation(pendingFlowTarget, startHref);
+    setAwaitingFlowChapterPick(null);
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+  }, [getBookStartHref, pendingFlowTarget, scheduleFlowNavigation]);
+
+  const requestFlowChangeViaChapter = useCallback(() => {
+    if (!tocItems.length) {
+      setFlowChoiceError('No chapter found. Restart is required.');
+      return;
+    }
+    setFlowChoiceError('');
+    setAwaitingFlowChapterPick(pendingFlowTarget);
+    setShowFlowChoiceModal(false);
+    setShowSidebar(true);
+  }, [pendingFlowTarget, tocItems.length]);
+
+  const closeFlowChoiceModal = useCallback(() => {
+    if (flowChoiceMode === 'initial') return;
+    setFlowChoiceError('');
+    setShowFlowChoiceModal(false);
+  }, [flowChoiceMode]);
+
+  const closeChaptersPanel = useCallback(() => {
+    if (awaitingFlowChapterPick) {
+      setShowSidebar(false);
+      setFlowChoiceMode('change');
+      setShowFlowChoiceModal(true);
+      return;
+    }
+    setShowSidebar(false);
+  }, [awaitingFlowChapterPick]);
+
   const handleTocSelect = (href) => {
     if (!href) return;
+    if (awaitingFlowChapterPick) {
+      const targetFlow = awaitingFlowChapterPick;
+      setAwaitingFlowChapterPick(null);
+      setFlowChoiceError('');
+      setShowSidebar(false);
+      scheduleFlowNavigation(targetFlow, href);
+      return;
+    }
     setShowSidebar(false);
     jumpToCfi(href, { rememberReturnSpot: true, source: 'toc' });
   };
@@ -2378,6 +2468,13 @@ export default function Reader() {
       readerToastTimerRef.current = null;
     }
     setReaderToast(null);
+    setIsSettingsHydrated(false);
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('initial');
+    setPendingFlowTarget('paginated');
+    setFlowChoiceError('');
+    setAwaitingFlowChapterPick(null);
+    pendingFlowNavigationRef.current = null;
   }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
@@ -2440,7 +2537,37 @@ export default function Reader() {
       return prevJson === nextJson ? prev : merged;
     });
     settingsHydratedRef.current = true;
+    setIsSettingsHydrated(true);
   }, [book?.id, legacyReaderSettings]);
+
+  useEffect(() => {
+    if (!book?.id || !isSettingsHydrated) return;
+    if (isFlowLockActive) {
+      setFlowChoiceMode('change');
+      setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+      return;
+    }
+    if (!hasFlowChoice) {
+      setFlowChoiceMode('initial');
+      setPendingFlowTarget(settings.flow || 'paginated');
+      setShowFlowChoiceModal(true);
+      return;
+    }
+    setShowFlowChoiceModal(false);
+    setFlowChoiceMode('change');
+    setPendingFlowTarget(settings.flow === 'paginated' ? 'scrolled' : 'paginated');
+  }, [book?.id, isSettingsHydrated, isFlowLockActive, hasFlowChoice, settings.flow]);
+
+  useEffect(() => {
+    const pending = pendingFlowNavigationRef.current;
+    if (!pending || !rendition) return;
+    const renditionFlow = rendition?.settings?.flow || settings.flow;
+    if (renditionFlow !== pending.targetFlow) return;
+
+    pendingFlowNavigationRef.current = null;
+    if (!pending.targetCfi) return;
+    jumpToCfi(pending.targetCfi, { rememberReturnSpot: false, source: 'flow-change' });
+  }, [rendition, settings.flow, jumpToCfi]);
 
   useEffect(() => {
     const incoming = Array.isArray(book?.highlights) ? book.highlights : [];
@@ -3038,7 +3165,7 @@ export default function Reader() {
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Type size={18} className="text-gray-400" />
+                <span className="text-sm font-semibold tracking-tight text-gray-400">Aa</span>
                 <div className="text-sm font-bold">Text Settings</div>
               </div>
               <button
@@ -3102,48 +3229,78 @@ export default function Reader() {
                 <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
                   Line spacing
                 </div>
-                <div className="grid grid-cols-3 gap-2" data-testid="reader-line-spacing-group">
-                  {LINE_SPACING_OPTIONS.map((item) => {
-                    const isActive = Number(settings.lineSpacing) === item.value;
-                    return (
-                      <button
-                        key={item.value}
-                        type="button"
-                        title={item.label}
-                        aria-label={`Line spacing ${item.label}`}
-                        data-testid={`reader-line-spacing-option-${String(item.value).replace('.', '-')}`}
-                        onClick={() => setSettings((s) => ({ ...s, lineSpacing: item.value }))}
-                        className={`rounded-xl border px-2 py-2 text-[11px] font-bold transition flex items-center justify-center gap-1.5 ${
-                          isActive
-                            ? 'border-blue-600 bg-blue-600 text-white'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-600'
-                        }`}
-                      >
-                        <List size={13} />
-                        <span>{item.short}</span>
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center gap-3" data-testid="reader-line-spacing-group">
+                  <button
+                    type="button"
+                    aria-label="Decrease line spacing"
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(
+                          Math.max(MIN_LINE_SPACING, Number(s.lineSpacing) - LINE_SPACING_STEP).toFixed(2)
+                        )
+                      }))
+                    }
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="range"
+                    min={MIN_LINE_SPACING}
+                    max={MAX_LINE_SPACING}
+                    step={LINE_SPACING_STEP}
+                    value={Number(settings.lineSpacing)}
+                    data-testid="reader-line-spacing-slider"
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(Number(e.target.value).toFixed(2))
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Increase line spacing"
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        lineSpacing: Number(
+                          Math.min(MAX_LINE_SPACING, Number(s.lineSpacing) + LINE_SPACING_STEP).toFixed(2)
+                        )
+                      }))
+                    }
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-bold"
+                  >
+                    +
+                  </button>
+                  <div className="w-12 text-right text-xs font-bold flex items-center justify-end gap-1">
+                    <List size={12} />
+                    <span>{Number(settings.lineSpacing).toFixed(2)}x</span>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
-                  Margins
+              {settings.flow === 'scrolled' && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                    Page width
+                  </div>
+                  <select
+                    data-testid="reader-text-margin-select"
+                    value={String(settings.textMargin)}
+                    onChange={(e) => setSettings((s) => ({ ...s, textMargin: Number(e.target.value) }))}
+                    className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
+                  >
+                    {TEXT_MARGIN_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  data-testid="reader-text-margin-select"
-                  value={String(settings.textMargin)}
-                  onChange={(e) => setSettings((s) => ({ ...s, textMargin: Number(e.target.value) }))}
-                  className="w-full py-2 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-transparent"
-                >
-                  {TEXT_MARGIN_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              )}
 
               <div>
                 <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
@@ -4332,10 +4489,159 @@ export default function Reader() {
         className="fixed bottom-20 left-1/2 z-[69] -translate-x-1/2"
       />
 
+      {showFlowChoiceModal && (
+        <div className="fixed inset-0 z-[74]" data-testid="reader-flow-choice-modal">
+          <div className="absolute inset-0 bg-slate-900/62 backdrop-blur-[2px]" />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className={`w-full max-w-lg rounded-3xl border shadow-[0_22px_70px_rgba(15,23,42,0.35)] ${
+              settings.theme === 'dark'
+                ? 'bg-gray-900 border-gray-700 text-gray-100'
+                : 'bg-white border-gray-200 text-gray-900'
+            }`}>
+              <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-3">
+                <div>
+                  <div className={`text-[10px] uppercase tracking-[0.22em] font-semibold ${settings.theme === 'dark' ? 'text-blue-300' : 'text-blue-600'}`}>
+                    Reading Mode
+                  </div>
+                  <div className="mt-1 flex items-start gap-2">
+                    <h3 className="text-[26px] leading-tight font-semibold tracking-tight">
+                      {flowChoiceMode === 'initial' ? 'Choose reading mode for this book' : 'Change reading mode'}
+                    </h3>
+                    <button
+                      type="button"
+                      className={`mt-[6px] shrink-0 rounded-full p-0.5 ${
+                        settings.theme === 'dark' ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'
+                      }`}
+                      title={
+                        flowChoiceMode === 'initial'
+                          ? 'Mode stays locked for this book to keep reading position and highlights stable. To change later, use restart or choose chapter.'
+                          : 'To keep progress stable, mode changes require a relocation step: restart the book or pick a chapter.'
+                      }
+                      aria-label={flowChoiceMode === 'initial' ? 'Why mode is locked' : 'Why relocation is required'}
+                      data-testid="reader-flow-choice-info"
+                    >
+                      <Info size={14} />
+                    </button>
+                  </div>
+                  {flowChoiceMode !== 'initial' && (
+                    <p className={`mt-2 text-[15px] leading-snug ${settings.theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
+                      Select target mode and continue.
+                    </p>
+                  )}
+                  {flowChoiceMode === 'initial' && (
+                    <div className="sr-only">
+                      First mode choice is mandatory.
+                    </div>
+                  )}
+                </div>
+                {flowChoiceMode !== 'initial' && (
+                  <button
+                    type="button"
+                    onClick={closeFlowChoiceModal}
+                    aria-label="Close mode chooser"
+                    className={`rounded-full p-1 ${settings.theme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-500 hover:text-red-500'}`}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="px-6 pb-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    data-testid="reader-flow-choice-paginated"
+                    onClick={() => (flowChoiceMode === 'initial' ? applyInitialFlowChoice('paginated') : setPendingFlowTarget('paginated'))}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      pendingFlowTarget === 'paginated'
+                        ? 'border-transparent ring-2 ring-blue-500 bg-blue-50 text-blue-700'
+                        : settings.theme === 'dark'
+                          ? 'border-gray-600 bg-gray-900/20 hover:border-gray-400 hover:bg-gray-800'
+                          : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-semibold text-[18px]">
+                      <BookOpen size={18} />
+                      Book view
+                    </div>
+                    <div className="mt-1 text-[13px] opacity-80">
+                      Classic paginated reading.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="reader-flow-choice-scrolled"
+                    onClick={() => (flowChoiceMode === 'initial' ? applyInitialFlowChoice('scrolled') : setPendingFlowTarget('scrolled'))}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      pendingFlowTarget === 'scrolled'
+                        ? 'border-transparent ring-2 ring-blue-500 bg-blue-50 text-blue-700'
+                        : settings.theme === 'dark'
+                          ? 'border-gray-600 bg-gray-900/20 hover:border-gray-400 hover:bg-gray-800'
+                          : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-semibold text-[18px]">
+                      <Scroll size={18} />
+                      Infinite scrolling
+                    </div>
+                    <div className="mt-1 text-[13px] opacity-80">
+                      Continuous vertical reading.
+                    </div>
+                  </button>
+                </div>
+
+                {flowChoiceMode === 'change' && (
+                  <div className={`rounded-2xl border px-4 py-3 ${
+                    settings.theme === 'dark' ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50'
+                  }`}>
+                    <div className="text-sm font-semibold">
+                      Move to {pendingFlowModeLabel}
+                    </div>
+                    <div className={`mt-1 text-[13px] ${settings.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                      Choose one mandatory relocation option.
+                    </div>
+                    {flowChoiceError && (
+                      <div
+                        data-testid="reader-flow-choice-error"
+                        className="mt-2 text-xs font-semibold text-red-500"
+                      >
+                        {flowChoiceError}
+                      </div>
+                    )}
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={requestFlowChangeViaRestart}
+                        data-testid="reader-flow-change-restart"
+                        className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        Restart book
+                      </button>
+                      <button
+                        type="button"
+                        onClick={requestFlowChangeViaChapter}
+                        data-testid="reader-flow-change-chapter"
+                        className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
+                          settings.theme === 'dark'
+                            ? 'border-gray-600 text-gray-100 hover:bg-gray-700'
+                            : 'border-gray-300 text-gray-800 hover:bg-gray-100'
+                        }`}
+                      >
+                        Choose chapter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSidebar && (
         <div className="fixed inset-0 z-[65]" data-testid="chapters-panel">
           <button
-            onClick={() => setShowSidebar(false)}
+            onClick={closeChaptersPanel}
             className="absolute inset-0 bg-black/40"
             aria-label="Close chapters"
           />
@@ -4353,13 +4659,26 @@ export default function Reader() {
                   <h3 className="text-sm font-bold">Contents</h3>
                 </div>
                 <button
-                  onClick={() => setShowSidebar(false)}
+                  onClick={closeChaptersPanel}
                   className={`p-1 rounded-full ${settings.theme === 'dark' ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
                   aria-label="Close contents"
                 >
                   <X size={16} />
                 </button>
               </div>
+
+              {awaitingFlowChapterPick && (
+                <div
+                  data-testid="flow-change-chapter-hint"
+                  className={`mx-3 mt-3 rounded-xl border px-3 py-2 text-xs ${
+                    settings.theme === 'dark'
+                      ? 'border-blue-700 bg-blue-950/40 text-blue-200'
+                      : 'border-blue-200 bg-blue-50 text-blue-700'
+                  }`}
+                >
+                  Choose a chapter to continue in {awaitingFlowChapterPick === 'paginated' ? 'Book view' : 'Infinite scrolling'}.
+                </div>
+              )}
 
               <div className="px-2 py-2 overflow-y-auto flex-1 space-y-1">
                 {tocItems.length === 0 ? (
@@ -4521,13 +4840,34 @@ export default function Reader() {
             <DaltonIcon size={20} />
           </button>
           <button
-            onClick={() => setSettings(s => ({...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated'}))}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-            title={settings.flow === 'paginated' ? 'Switch to infinite scrolling mode' : 'Switch to paginated mode'}
-            aria-label={settings.flow === 'paginated' ? 'Switch to infinite scrolling mode' : 'Switch to paginated mode'}
+            type="button"
+            className={`p-2 rounded-full ${
+              isFlowLockActive
+                ? 'text-gray-400 cursor-default'
+                : 'text-gray-500'
+            }`}
+            title={`Current reading mode: ${flowModeLabel}`}
+            aria-label={`Current reading mode: ${flowModeLabel}`}
+            data-testid="reader-flow-mode-indicator"
+            onClick={() => {
+              if (isFlowLockActive) return;
+              setSettings((s) => ({ ...s, flow: s.flow === 'paginated' ? 'scrolled' : 'paginated' }));
+            }}
           >
             {settings.flow === 'paginated' ? <Scroll size={20} /> : <BookOpen size={20} />}
           </button>
+          {isFlowLockActive && (
+            <button
+              type="button"
+              onClick={openFlowChangeModal}
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Change reading mode"
+              aria-label="Change reading mode"
+              data-testid="reader-flow-change-trigger"
+            >
+              <RotateCcw size={20} />
+            </button>
+          )}
           <button
             onClick={() => setShowFontMenu(!showFontMenu)}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -4535,7 +4875,7 @@ export default function Reader() {
             title={showFontMenu ? 'Close text settings' : 'Open text settings'}
             aria-label={showFontMenu ? 'Close text settings' : 'Open text settings'}
           >
-            <Type size={20} />
+            <span className="text-[18px] leading-none font-semibold tracking-tight">Aa</span>
           </button>
         </div>
       </div>

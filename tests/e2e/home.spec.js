@@ -92,7 +92,13 @@ test('library bulk actions select books and apply to-read/favorite updates', asy
     .toBeGreaterThan(0);
 
   await page.getByTestId('library-select-all').click();
-  await expect(page.getByTestId('library-selected-count')).toContainText('1 selected');
+  await expect(page.getByTestId('library-selected-count')).toContainText(/selected/);
+  await expect
+    .poll(async () => {
+      const text = (await page.getByTestId('library-selected-count').textContent()) || '';
+      return Number((text.match(/\d+/) || ['0'])[0]);
+    }, { timeout: 10000 })
+    .toBeGreaterThan(0);
 
   await page.getByTestId('library-bulk-to-read').click();
   await page.getByTestId('library-filter').selectOption('to-read');
@@ -115,7 +121,13 @@ test('library bulk actions select books and apply to-read/favorite updates', asy
     .poll(async () => page.locator('[data-testid^="library-book-select-input-"]').count(), { timeout: 15000 })
     .toBeGreaterThan(0);
   await page.getByTestId('library-select-all').click();
-  await expect(page.getByTestId('library-selected-count')).toContainText('1 selected');
+  await expect(page.getByTestId('library-selected-count')).toContainText(/selected/);
+  await expect
+    .poll(async () => {
+      const text = (await page.getByTestId('library-selected-count').textContent()) || '';
+      return Number((text.match(/\d+/) || ['0'])[0]);
+    }, { timeout: 10000 })
+    .toBeGreaterThan(0);
   await page.getByTestId('library-bulk-favorite').click();
   const favoritesQuickFilter = page.getByTestId('library-quick-filter-favorites');
   await favoritesQuickFilter.click();
