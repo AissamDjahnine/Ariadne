@@ -50,6 +50,7 @@ ariadne is built around real reading behavior:
   - Language labels shown in full form (`English`, `French`, etc.)
 - Clean inline metadata rows on cards (lightweight language/pages display)
 - Workspace sidebar for fast section switching: `My Library`, `My Collections`, `Notes`, `Highlights`, `Trash`, `Settings`
+- Dedicated brand slot at the top of the left sidebar (`public/brand/logo.png`) for app identity
 - Reading Snapshot panel above the workspace sidebar:
   - Completion donut (`finished / total`)
   - Total hours spent across all books
