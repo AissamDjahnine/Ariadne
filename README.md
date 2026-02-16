@@ -106,6 +106,7 @@ ariadne is built around real reading behavior:
 - Top-right header controls now include:
   - Notifications bell with unread badge
   - Profile avatar menu (`Profile`, `Reading Statistics`, `Settings`, `FAQ`, `Sign out`)
+  - Custom profile pictures and display names (set in Settings)
   - Notification Center with `All` / `Unread` tabs
   - Notification actions menu (`...`) per item: `Open in Reader`, `Mark as read/unread`, `Archive`, `Delete`
   - Notification card click focuses/highlights the related book in `Continue Reading`
@@ -213,16 +214,16 @@ npm run dev
 
 Open the app at the local Vite URL (usually `http://localhost:5173`).
 
-## Shared Server Mode (Tailscale)
+## Shared Server Mode
 
 This repository now includes a collaborative backend for multi-user sharing on one server.
 
 ### Topology
 
 - One shared server runs `docker-compose` (backend + postgres).
-- All users access the app from a browser over the same tailnet.
+- All users access the app from a browser over your private network.
 - No per-user Docker setup is required.
-- No public Funnel is required.
+- Public internet exposure is optional.
 
 ### Run on shared server
 
@@ -234,7 +235,7 @@ cp server/.env.example server/.env
 
 2. Set at least:
 - `JWT_SECRET` to a strong secret.
-- `APP_BASE_URL` to your server Tailscale URL, for example `http://100.64.0.10:4000`.
+- `APP_BASE_URL` to your backend URL, for example `http://<SERVER_IP>:4000`.
 
 3. Start backend + DB:
 
@@ -250,13 +251,15 @@ docker compose --profile frontend up -d --build frontend
 
 ### Frontend env for collaborative mode
 
-Set `VITE_API_BASE_URL` to your backend Tailscale URL (for example `http://100.64.0.10:4000`).
+Set `VITE_API_BASE_URL` to your backend URL (for example `http://<SERVER_IP>:4000`).
 When this variable is set:
 
 - Email/password registration/login is enabled.
+- Display name is required at signup.
 - JWT auth is required.
 - Books/progress/highlights are loaded from shared backend.
 - Share Inbox and book sharing UI are enabled.
+- Profile avatar upload and profile name updates are enabled.
 
 ### Access control model
 
