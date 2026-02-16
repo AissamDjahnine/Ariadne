@@ -65,7 +65,7 @@ import {
   Send,
 } from 'lucide-react';
 import { createBookShare, fetchShareInbox, isCollabMode } from '../services/collabApi';
-import { clearSession } from '../services/session';
+import { clearSession, getCurrentUser } from '../services/session';
 import LibraryAccountSection from './library/LibraryAccountSection';
 import { LibraryWorkspaceSidebar, LibraryWorkspaceMobileNav } from './library/LibraryWorkspaceNav';
 import LibraryNotesCenterPanel from './library/LibraryNotesCenterPanel';
@@ -93,7 +93,7 @@ const LIBRARY_THEME_KEY = 'library-theme';
 const LIBRARY_LANGUAGE_KEY = 'library-language';
 const ACCOUNT_PROFILE_KEY = 'library-account-profile';
 const LIBRARY_NOTIFICATION_STATE_KEY = 'library-notification-state';
-const ACCOUNT_DEFAULT_EMAIL = 'dreamerissame@gmail.com';
+const ACCOUNT_DEFAULT_EMAIL = '';
 const LIBRARY_PERF_DEBUG_KEY = "library-perf-debug";
 const LIBRARY_PERF_HISTORY_KEY = "__smartReaderPerfHistory";
 const LANGUAGE_DISPLAY_NAMES =
@@ -132,10 +132,18 @@ const recordPerfMetric = (label, startAt, details = {}) => {
 };
 
 const readStoredAccountProfile = () => {
+  const sessionEmail = (() => {
+    try {
+      return (getCurrentUser()?.email || "").trim();
+    } catch {
+      return "";
+    }
+  })();
+
   if (typeof window === "undefined") {
     return {
       firstName: "",
-      email: ACCOUNT_DEFAULT_EMAIL,
+      email: sessionEmail || ACCOUNT_DEFAULT_EMAIL,
       preferredLanguage: "en",
       emailNotifications: "yes"
     };
@@ -146,7 +154,7 @@ const readStoredAccountProfile = () => {
     const fallbackLanguage = window.localStorage.getItem(LIBRARY_LANGUAGE_KEY) || "en";
     return {
       firstName: typeof parsed?.firstName === "string" ? parsed.firstName : "",
-      email: typeof parsed?.email === "string" && parsed.email.trim() ? parsed.email.trim() : ACCOUNT_DEFAULT_EMAIL,
+      email: typeof parsed?.email === "string" && parsed.email.trim() ? parsed.email.trim() : (sessionEmail || ACCOUNT_DEFAULT_EMAIL),
       preferredLanguage:
         typeof parsed?.preferredLanguage === "string" && parsed.preferredLanguage.trim()
           ? parsed.preferredLanguage
@@ -157,7 +165,7 @@ const readStoredAccountProfile = () => {
     console.error(err);
     return {
       firstName: "",
-      email: ACCOUNT_DEFAULT_EMAIL,
+      email: sessionEmail || ACCOUNT_DEFAULT_EMAIL,
       preferredLanguage: "en",
       emailNotifications: "yes"
     };
@@ -1664,9 +1672,11 @@ export default function Home() {
   };
 
   const handleSaveAccountProfile = () => {
+    const sessionEmail = (getCurrentUser()?.email || "").trim();
+    const fallbackEmail = sessionEmail || ACCOUNT_DEFAULT_EMAIL;
     const nextProfile = {
       firstName: (accountProfile.firstName || "").trim(),
-      email: (accountProfile.email || ACCOUNT_DEFAULT_EMAIL).trim() || ACCOUNT_DEFAULT_EMAIL,
+      email: (accountProfile.email || fallbackEmail).trim() || fallbackEmail,
       preferredLanguage: accountProfile.preferredLanguage || "en",
       emailNotifications: accountProfile.emailNotifications === "no" ? "no" : "yes"
     };
