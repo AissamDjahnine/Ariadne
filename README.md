@@ -50,7 +50,9 @@ ariadne is built around real reading behavior:
   - Language labels shown in full form (`English`, `French`, etc.)
 - Clean inline metadata rows on cards (lightweight language/pages display)
 - Workspace sidebar for fast section switching: `My Library`, `My Collections`, `Notes`, `Highlights`, `Trash`, `Settings`
-- Dedicated brand slot at the top of the left sidebar (`public/brand/logo.png`) for app identity
+- Dedicated brand slot at the top of the left sidebar for app identity:
+  - `public/brand/logo-light.png` in light mode
+  - `public/brand/logo-dark.png` in dark mode
 - Reading Snapshot panel above the workspace sidebar:
   - Completion donut (`finished / total`)
   - Total hours spent across all books
@@ -127,9 +129,14 @@ ariadne is built around real reading behavior:
 - First-open reading mode choice is mandatory per book:
   - choose `Book view` or `Infinite scrolling` once before reading starts
   - chosen mode stays locked while the book is in progress
+  - reopening an already in-progress book does not re-trigger this chooser
   - changing mode later uses a guided flow (`Change reading mode`) with mandatory relocation:
-    - restart from book start, or
-    - choose a chapter target
+    - `Restart book`:
+      - jumps to the beginning
+      - resets book progress to `0%`
+    - `Choose chapter`:
+      - jumps to selected chapter
+      - updates progress based on that chapter position in the table of contents
 - Paginated mode supports subtle edge click/tap zones for next/previous page turns (no intrusive on-page arrow buttons)
 - Centered portrait-style reading column in scroll mode
 - Per-book reading preferences:
@@ -213,6 +220,16 @@ npm run dev
 ```
 
 Open the app at the local Vite URL (usually `http://localhost:5173`).
+
+### Reader mode behavior test (local)
+
+1. Open a new book, choose reading mode, read enough to create non-zero progress, close reader.
+2. Reopen the same book:
+   - expected: no mode chooser appears.
+3. In reader, click `Change reading mode` then `Restart book`:
+   - expected: progress becomes `0%`.
+4. In reader, click `Change reading mode` then `Choose chapter`:
+   - expected: progress updates relative to selected chapter position.
 
 ## Shared Server Mode
 
