@@ -118,14 +118,24 @@ ariadne is built around real reading behavior:
 ### Reader Built for Focus
 
 - Paginated and infinite-scroll modes
+- First-open reading mode choice is mandatory per book:
+  - choose `Book view` or `Infinite scrolling` once before reading starts
+  - chosen mode stays locked while the book is in progress
+  - changing mode later uses a guided flow (`Change reading mode`) with mandatory relocation:
+    - restart from book start, or
+    - choose a chapter target
 - Paginated mode supports subtle edge click/tap zones for next/previous page turns (no intrusive on-page arrow buttons)
 - Centered portrait-style reading column in scroll mode
 - Per-book reading preferences:
   - Theme
   - Font size
   - Font family
+  - Line spacing (continuous slider, not fixed presets)
+  - Text alignment
+  - Page width control (available in `Infinite scrolling` mode only)
   - Reading flow
 - Light mode, dark mode, and sepia reading mode
+- Reader text settings control uses the standard `Aa` icon
 - Upper-right reader icon controls include hover tooltips for faster discoverability
 - Keyboard navigation support (Left/Right in paginated mode, Up/Down in infinite mode with gradual acceleration on hold)
 - Chapter menu + table of contents navigation
