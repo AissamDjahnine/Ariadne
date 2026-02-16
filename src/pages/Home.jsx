@@ -2910,12 +2910,12 @@ export default function Home() {
     return `${hours}h ${remainingMinutes} min`;
   };
 
-const formatRoundedHours = (seconds) => {
-    const safeSeconds = Math.max(0, Number(seconds) || 0);
-    if (!safeSeconds) return "0h";
-    const hours = safeSeconds / 3600;
-    if (hours >= 10) return `${Math.round(hours)}h`;
-    return `${Math.round(hours * 10) / 10}h`;
+const formatHoursMinutes = (seconds) => {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  const totalMinutes = Math.floor(safeSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} Hours ${minutes} minutes`;
 };
 
 const formatNotificationTimeAgo = (value) => {
@@ -3304,10 +3304,16 @@ const formatNotificationTimeAgo = (value) => {
     }).length;
     const completedBooks = liveBooks.filter((book) => normalizeNumber(book.progress) >= 100);
     const finishedBooks = completedBooks.length;
+    const knownEstimatedPages = liveBooks
+      .map((book) => toPositiveNumber(book?.estimatedPages) || 0)
+      .filter((value) => value > 0);
+    const fallbackEstimatedPages = knownEstimatedPages.length
+      ? Math.round(knownEstimatedPages.reduce((sum, value) => sum + value, 0) / knownEstimatedPages.length)
+      : 320;
     const pagesDone = liveBooks.reduce((sum, book) => {
-      const estimatedPages = toPositiveNumber(book?.estimatedPages) || 0;
-      if (!estimatedPages) return sum;
       const progressRatio = Math.max(0, Math.min(1, normalizeNumber(book?.progress) / 100));
+      if (progressRatio <= 0) return sum;
+      const estimatedPages = toPositiveNumber(book?.estimatedPages) || fallbackEstimatedPages;
       return sum + Math.round(estimatedPages * progressRatio);
     }, 0);
     const totalProgressPercent = liveBooks.reduce((sum, book) => sum + Math.max(0, Math.min(100, normalizeNumber(book?.progress))), 0);
@@ -3723,7 +3729,7 @@ const formatNotificationTimeAgo = (value) => {
                     <div className="leading-tight">
                       <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Hours</div>
                       <div className={`text-lg font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {formatRoundedHours(readingSnapshot.totalSeconds)}
+                        {formatHoursMinutes(readingSnapshot.totalSeconds)}
                       </div>
                     </div>
                   </div>
