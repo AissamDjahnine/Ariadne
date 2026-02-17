@@ -92,6 +92,8 @@ model User {
   friendshipsB Friendship[] @relation("friendship_user_b")
   blocksInitiated FriendBlock[] @relation("friend_blocks_initiated")
   blocksReceived FriendBlock[] @relation("friend_blocks_received")
+  privacySettingsOwned FriendPrivacySetting[] @relation("friend_privacy_owner")
+  privacySettingsForOwner FriendPrivacySetting[] @relation("friend_privacy_friend")
 }
 
 model InviteCode {
@@ -375,4 +377,21 @@ model FriendBlock {
 
   @@unique([blockerUserId, blockedUserId])
   @@index([blockedUserId])
+}
+
+model FriendPrivacySetting {
+  id              String   @id @default(cuid())
+  ownerUserId     String
+  friendUserId    String
+  canViewLibrary  Boolean  @default(true)
+  canBorrow       Boolean  @default(true)
+  canViewActivity Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner           User @relation("friend_privacy_owner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  friend          User @relation("friend_privacy_friend", fields: [friendUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerUserId, friendUserId])
+  @@index([friendUserId])
 }
