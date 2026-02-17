@@ -2653,7 +2653,6 @@ export default function Home() {
     );
   };
   const isBookToRead = (book) => Boolean(book?.isToRead);
-  const isFlagFilterActive = (flag) => flagFilters.includes(flag);
   const toggleFlagFilter = (flag) => {
     setFlagFilters((current) =>
       current.includes(flag) ? current.filter((item) => item !== flag) : [...current, flag]
@@ -2780,34 +2779,6 @@ export default function Home() {
   const trashedBooksCount = useMemo(
     () => books.length - activeBooks.length,
     [books.length, activeBooks.length]
-  );
-  const quickFilterStats = useMemo(
-    () => [
-      {
-        key: "to-read",
-        label: "To read",
-        count: activeBooks.filter((book) => isBookToRead(book)).length
-      },
-      {
-        key: "in-progress",
-        label: "In progress",
-        count: activeBooks.filter((book) => {
-          const progress = normalizeNumber(book.progress);
-          return isBookStarted(book) && progress < 100;
-        }).length
-      },
-      {
-        key: "finished",
-        label: "Finished",
-        count: activeBooks.filter((book) => normalizeNumber(book.progress) >= 100).length
-      },
-      {
-        key: "favorites",
-        label: "Favorites",
-        count: activeBooks.filter((book) => Boolean(book.isFavorite)).length
-      }
-    ],
-    [activeBooks]
   );
   const normalizedDebouncedNotesSearchQuery = normalizeString(debouncedNotesSearchQuery.trim());
   const normalizedDebouncedHighlightsSearchQuery = normalizeString(debouncedHighlightsSearchQuery.trim());
@@ -4605,10 +4576,31 @@ const formatNotificationTimeAgo = (value) => {
                 isDarkLibraryTheme ? "workspace-surface-dark" : "workspace-surface-light library-zone-sidebar-light"
               }`}
             >
-              <div className={`text-sm font-semibold ${
-                isDarkLibraryTheme ? "text-slate-200" : "text-[#1A1A2E]"
-              }`}>
-                Reading Snapshot
+              <div className="flex items-center justify-between gap-2">
+                <div className={`text-sm font-semibold ${
+                  isDarkLibraryTheme ? "text-slate-200" : "text-[#1A1A2E]"
+                }`}>
+                  Reading Snapshot
+                </div>
+                <div
+                  data-testid="library-streak-badge"
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                    streakCount > 0
+                      ? (isDarkLibraryTheme ? "bg-amber-900/35 text-amber-200 ring-1 ring-amber-800/70" : "bg-orange-100 text-orange-700 ring-1 ring-orange-200")
+                      : (isDarkLibraryTheme ? "bg-slate-800 text-slate-400 ring-1 ring-slate-700" : "bg-gray-100 text-gray-600 ring-1 ring-gray-200")
+                  }`}
+                  title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
+                >
+                  <Flame
+                    size={12}
+                    className={
+                      streakCount > 0
+                        ? (isDarkLibraryTheme ? "text-amber-300" : "text-orange-500")
+                        : (isDarkLibraryTheme ? "text-slate-500" : "text-gray-400")
+                    }
+                  />
+                  <span>{streakCount > 0 ? `${streakCount}d` : "No streak"}</span>
+                </div>
               </div>
               <div className="mt-4 flex items-center gap-4">
                 <div
@@ -4631,7 +4623,7 @@ const formatNotificationTimeAgo = (value) => {
                   <div className="inline-flex items-center gap-2">
                     <Clock size={14} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
                     <div className="leading-tight">
-                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Hours</div>
+                      <div className={`text-[11px] font-medium ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Overall time passed</div>
                       <div className={`text-[22px] font-bold tracking-tight tabular-nums whitespace-nowrap ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                         {formatSnapshotDuration(readingSnapshot.totalSeconds)}
                       </div>
@@ -4701,8 +4693,8 @@ const formatNotificationTimeAgo = (value) => {
               </p>
 
               {isCollabMode && (
-                <div className={`mt-3 inline-flex flex-wrap items-center gap-1 rounded-xl border p-1 ${
-                  isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-gray-50"
+                <div className={`mt-3 flex flex-wrap items-end gap-1 border-b ${
+                  isDarkLibraryTheme ? "border-slate-700/80" : "border-gray-200"
                 }`}>
                   {[
                     { key: "library", label: "My library", Icon: BookIcon },
@@ -4718,14 +4710,14 @@ const formatNotificationTimeAgo = (value) => {
                         key={tab.key}
                         type="button"
                         onClick={() => handleSidebarSectionSelect(tab.key)}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                        className={`inline-flex items-center gap-1.5 rounded-t-xl border border-b-0 px-3 py-2 text-xs font-semibold transition ${
                           isActive
                             ? (isDarkLibraryTheme
-                                ? "bg-blue-900/60 text-blue-100"
-                                : "bg-white text-blue-700 shadow-sm")
+                                ? "border-slate-600 bg-slate-900 text-slate-100"
+                                : "border-gray-300 bg-white text-gray-900")
                             : (isDarkLibraryTheme
-                                ? "text-slate-300 hover:bg-slate-800 hover:text-slate-100"
-                                : "text-gray-600 hover:bg-white hover:text-gray-900")
+                                ? "border-transparent bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:bg-slate-900/70 hover:text-slate-200"
+                                : "border-transparent bg-gray-100 text-gray-500 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-700")
                         }`}
                       >
                         <TabIcon size={13} />
@@ -4736,77 +4728,6 @@ const formatNotificationTimeAgo = (value) => {
                 </div>
               )}
 
-              {shouldShowLibraryHomeContent && (
-                <>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <div
-                      data-testid="library-streak-badge"
-                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                        streakCount > 0
-                          ? (isDarkLibraryTheme ? "bg-amber-900/35 text-amber-200 ring-1 ring-amber-800/70" : "bg-orange-100 text-orange-700 ring-1 ring-orange-200")
-                          : (isDarkLibraryTheme ? "bg-slate-800 text-slate-400 ring-1 ring-slate-700" : "bg-gray-100 text-gray-600 ring-1 ring-gray-200")
-                      }`}
-                      title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
-                    >
-                      <Flame
-                        size={14}
-                        className={
-                          streakCount > 0
-                            ? (isDarkLibraryTheme ? "text-amber-300" : "text-orange-500")
-                            : (isDarkLibraryTheme ? "text-slate-500" : "text-gray-400")
-                        }
-                      />
-                      <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
-                    </div>
-                  </div>
-
-                  <div data-testid="library-quick-filters" className="mt-2 flex flex-wrap gap-2">
-                    {quickFilterStats.map((stat) => {
-                      const isQuickActive =
-                        stat.key === "favorites"
-                          ? isFlagFilterActive("favorites")
-                          : statusFilter === stat.key;
-                      return (
-                        <button
-                          key={stat.key}
-                          type="button"
-                          data-testid={`library-quick-filter-${stat.key}`}
-                          aria-pressed={isQuickActive}
-                          onClick={() => {
-                            if (stat.key === "favorites") {
-                              toggleFlagFilter("favorites");
-                              return;
-                            }
-                            setStatusFilter(stat.key);
-                          }}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                            isQuickActive
-                              ? (isDarkLibraryTheme
-                                  ? "bg-blue-900/55 text-blue-100 ring-1 ring-blue-700"
-                                  : "bg-blue-100 text-blue-700 ring-1 ring-blue-200")
-                              : (isDarkLibraryTheme
-                                  ? "bg-slate-800 text-slate-300 ring-1 ring-slate-700 hover:bg-slate-700"
-                                  : "bg-gray-100 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-200")
-                          }`}
-                          title={`Show ${stat.label.toLowerCase()} books`}
-                        >
-                          <span>{stat.label}</span>
-                          <span
-                            data-testid={`library-quick-filter-${stat.key}-count`}
-                            className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                              isQuickActive
-                                ? (isDarkLibraryTheme ? "bg-blue-800 text-blue-100" : "bg-white text-blue-700")
-                                : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-white text-gray-600")
-                            }`}
-                          >
-                            {stat.count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
             </div>
 
             {!isAccountSection && (
