@@ -681,7 +681,7 @@ export default function Home() {
     canEditHighlights: true,
     canAddNotes: true,
     canEditNotes: true,
-    annotationVisibility: "BORROWER_PRIVATE"
+    annotationVisibility: "PRIVATE"
   });
   const [shareError, setShareError] = useState("");
   const [isSharingBook, setIsSharingBook] = useState(false);
@@ -1209,7 +1209,7 @@ export default function Home() {
       canEditHighlights: true,
       canAddNotes: true,
       canEditNotes: true,
-      annotationVisibility: "BORROWER_PRIVATE"
+      annotationVisibility: "PRIVATE"
     });
     setShareError("");
   };
@@ -1249,8 +1249,8 @@ export default function Home() {
           message: shareMessage.trim() || undefined
         });
         showFeedbackToast({
-          title: "Share sent",
-          message: `Invitation sent to ${recipient}.`
+          title: "Recommendation sent",
+          message: `Recommendation sent to ${recipient}.`
         });
       }
       closeShareDialog();
@@ -1940,7 +1940,7 @@ export default function Home() {
       setSelectedTrashBookIds([]);
       refreshCollabPanels();
     }
-    if (section === "borrowed" || section === "lent" || section === "loan-audit") {
+    if (section === "borrowed" || section === "lent" || section === "history") {
       setStatusFilter("all");
       setCollectionFilter("all");
       setSelectedTrashBookIds([]);
@@ -3383,7 +3383,7 @@ const formatNotificationTimeAgo = (value) => {
   const isInboxSection = librarySection === "inbox";
   const isBorrowedSection = librarySection === "borrowed";
   const isLentSection = librarySection === "lent";
-  const isLoanAuditSection = librarySection === "loan-audit";
+  const isLoanAuditSection = librarySection === "history";
   const isTrashSection = librarySection === "trash";
   const isFaqSection = librarySection === "faq";
   const shouldShowLibraryHomeContent = librarySection === "library";
@@ -3421,7 +3421,7 @@ const formatNotificationTimeAgo = (value) => {
     if (isInboxSection) {
       return {
         title: "Inbox",
-        subtitle: "Pending incoming shares and loan requests.",
+        subtitle: "Pending recommendations and loan requests.",
         summary: `${shareInboxCount + loanInboxCount} pending item${shareInboxCount + loanInboxCount === 1 ? "" : "s"}`
       };
     }
@@ -3441,7 +3441,7 @@ const formatNotificationTimeAgo = (value) => {
     }
     if (isLoanAuditSection) {
       return {
-        title: "Loan Audit",
+        title: "History",
         subtitle: "Timeline of requests, accepts, returns, revokes, and expirations.",
         summary: `${loanAuditEvents.length} event${loanAuditEvents.length === 1 ? "" : "s"}`
       };
@@ -4061,7 +4061,7 @@ const formatNotificationTimeAgo = (value) => {
                   { key: "library", label: "My library" },
                   { key: "borrowed", label: "Borrowed" },
                   { key: "lent", label: "Lent" },
-                  { key: "loan-audit", label: "Audit" },
+                  { key: "history", label: "History" },
                   { key: "inbox", label: `Inbox (${shareInboxCount + loanInboxCount})` }
                 ].map((tab) => {
                   const isActive = librarySection === tab.key;
@@ -5060,7 +5060,7 @@ const formatNotificationTimeAgo = (value) => {
                       <div className={`mt-2 flex flex-wrap gap-1 text-[11px] ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
                         <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Notes: {loan.permissions?.canAddNotes ? "add" : "off"}</span>
                         <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Highlights: {loan.permissions?.canAddHighlights ? "add" : "off"}</span>
-                        <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Visibility: {loan.permissions?.annotationVisibility === "BOOK_SHARED" ? "shared" : "private"}</span>
+                        <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Visibility: {loan.permissions?.annotationVisibility === "SHARED_WITH_LENDER" ? "shared" : "private"}</span>
                       </div>
                       <div className="mt-3 flex items-center gap-2">
                         <button
@@ -5181,7 +5181,7 @@ const formatNotificationTimeAgo = (value) => {
         {isLoanAuditSection && !isTrashSection && (
           <section className={`rounded-2xl border p-5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "border-gray-200 bg-white"}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Loan Audit Trail</h2>
+              <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>History</h2>
               <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
             </div>
             {!loanAuditEvents.length ? (
@@ -5907,9 +5907,11 @@ const formatNotificationTimeAgo = (value) => {
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/30" onClick={closeShareDialog} />
             <div className="relative w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
-              <h3 className="text-lg font-semibold text-gray-900">{shareDialogMode === "loan" ? "Lend Book" : "Share Book"}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{shareDialogMode === "loan" ? "Lend Book" : "Recommend Book"}</h3>
               <p className="mt-1 text-sm text-gray-600">
-                <span className="font-semibold text-gray-900">{shareDialogBook.title}</span> with another user.
+                {shareDialogMode === "loan"
+                  ? <>Lend <span className="font-semibold text-gray-900">{shareDialogBook.title}</span> directly to another user.</>
+                  : <>Send <span className="font-semibold text-gray-900">{shareDialogBook.title}</span> as a recommendation. The recipient can choose whether to borrow it.</>}
               </p>
               <div className="mt-3 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
                 <button
@@ -5919,7 +5921,7 @@ const formatNotificationTimeAgo = (value) => {
                     shareDialogMode === "share" ? "bg-blue-600 text-white" : "text-gray-700"
                   }`}
                 >
-                  Share
+                  Recommend
                 </button>
                 <button
                   type="button"
@@ -6010,8 +6012,8 @@ const formatNotificationTimeAgo = (value) => {
                         onChange={(e) => setLoanPermissions((current) => ({ ...current, annotationVisibility: e.target.value }))}
                         className="w-full rounded-md border border-gray-300 bg-white px-2 py-1"
                       >
-                        <option value="BORROWER_PRIVATE">Borrower private</option>
-                        <option value="BOOK_SHARED">Book shared</option>
+                        <option value="PRIVATE">Borrower private</option>
+                        <option value="SHARED_WITH_LENDER">Shared with lender</option>
                       </select>
                     </label>
                   </div>
@@ -6032,7 +6034,7 @@ const formatNotificationTimeAgo = (value) => {
                   disabled={!shareRecipientEmail.trim() || isSharingBook}
                   className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  {isSharingBook ? "Sending..." : shareDialogMode === "loan" ? "Send loan request" : "Send share"}
+                  {isSharingBook ? "Sending..." : shareDialogMode === "loan" ? "Send loan request" : "Send recommendation"}
                 </button>
               </div>
             </div>

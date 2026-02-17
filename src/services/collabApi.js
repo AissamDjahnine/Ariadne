@@ -128,6 +128,11 @@ export const rejectShare = async (shareId) => {
   return data.share;
 };
 
+export const borrowFromShare = async (shareId, { borrowAnyway = false } = {}) => {
+  const { data } = await client.post(`/shares/${shareId}/borrow`, { borrowAnyway });
+  return data;
+};
+
 export const requestBookLoan = async ({
   bookId,
   epubHash,

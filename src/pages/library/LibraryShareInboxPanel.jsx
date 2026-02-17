@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { acceptShare, fetchShareInbox, rejectShare } from '../../services/collabApi';
+import { borrowFromShare, fetchShareInbox, rejectShare } from '../../services/collabApi';
 
 export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme = false }) {
   const [shares, setShares] = useState([]);
@@ -23,13 +23,24 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
     loadInbox();
   }, []);
 
-  const handleAccept = async (shareId) => {
+  const handleBorrow = async (shareId) => {
     try {
-      await acceptShare(shareId);
+      await borrowFromShare(shareId);
       await loadInbox();
       onAccepted?.();
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to accept share');
+      if (err?.response?.status === 409 && err?.response?.data?.code === "ALREADY_HAVE_BOOK") {
+        const shouldBorrowAnyway = typeof window !== "undefined"
+          ? window.confirm("You already have this book. Borrow anyway to track it in Borrowed?")
+          : false;
+        if (shouldBorrowAnyway) {
+          await borrowFromShare(shareId, { borrowAnyway: true });
+          await loadInbox();
+          onAccepted?.();
+          return;
+        }
+      }
+      setError(err?.response?.data?.error || 'Failed to borrow book');
     }
   };
 
@@ -50,7 +61,7 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
       data-testid="share-inbox-panel"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Share Inbox</h2>
+      <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Recommendations</h2>
         <button
           type="button"
           className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}
@@ -64,7 +75,7 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
       {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
       {!isLoading && shares.length === 0 && (
-        <p className={`mt-3 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No pending shares.</p>
+        <p className={`mt-3 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No pending recommendations.</p>
       )}
 
       <div className="mt-4 space-y-3">
@@ -83,14 +94,14 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
             <div className="mt-3 flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handleAccept(share.id)}
+                onClick={() => handleBorrow(share.id)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                   isDarkLibraryTheme
                     ? "bg-emerald-700 text-emerald-50 hover:bg-emerald-600"
                     : "bg-emerald-600 text-white"
                 }`}
               >
-                Accept
+                Borrow
               </button>
               <button
                 type="button"
@@ -101,7 +112,7 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
                     : "border-gray-300 text-gray-700"
                 }`}
               >
-                Reject
+                Dismiss
               </button>
             </div>
           </article>

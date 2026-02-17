@@ -675,29 +675,117 @@ app.post('/shares/:shareId/accept', requireAuth, async (req, res) => {
       },
       include: includeShareGraph
     });
-
-    await tx.userBook.upsert({
-      where: {
-        userId_bookId: {
-          userId: req.auth.userId,
-          bookId: share.bookId
-        }
-      },
-      update: {},
-      create: {
-        userId: req.auth.userId,
-        bookId: share.bookId,
-        status: 'TO_READ',
-        progressPercent: 0,
-        progressCfi: null,
-        lastOpenedAt: null
-      }
-    });
-
     return next;
   });
 
   return res.json({ share: accepted });
+});
+
+app.post('/shares/:shareId/borrow', requireAuth, async (req, res) => {
+  const schema = z.object({
+    borrowAnyway: z.boolean().default(false)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+  const share = await prisma.bookShare.findUnique({
+    where: { id: req.params.shareId },
+    include: includeShareGraph
+  });
+  if (!share) return res.status(404).json({ error: 'Share not found' });
+  if (share.toUserId !== req.auth.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (share.status === 'REJECTED') return res.status(400).json({ error: 'Share rejected' });
+
+  const lenderAccess = await prisma.userBook.findUnique({
+    where: {
+      userId_bookId: {
+        userId: share.fromUserId,
+        bookId: share.bookId
+      }
+    }
+  });
+  if (!lenderAccess) return res.status(400).json({ error: 'Sharer no longer has access to this book' });
+
+  const existingAccess = await prisma.userBook.findUnique({
+    where: {
+      userId_bookId: {
+        userId: req.auth.userId,
+        bookId: share.bookId
+      }
+    }
+  });
+  if (existingAccess && !parsed.data.borrowAnyway) {
+    return res.status(409).json({
+      error: 'You already have this book',
+      code: 'ALREADY_HAVE_BOOK',
+      warning: 'Borrow anyway creates a loan relationship while keeping your existing library copy.'
+    });
+  }
+
+  const acceptedAt = new Date();
+  const dueAt = new Date(acceptedAt.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  const result = await prisma.$transaction(async (tx) => {
+    let createdAccess = false;
+    if (!existingAccess) {
+      await tx.userBook.create({
+        data: {
+          userId: req.auth.userId,
+          bookId: share.bookId,
+          status: 'TO_READ',
+          progressPercent: 0,
+          progressCfi: null,
+          lastOpenedAt: null
+        }
+      });
+      createdAccess = true;
+    }
+
+    const loan = await tx.bookLoan.create({
+      data: {
+        bookId: share.bookId,
+        lenderId: share.fromUserId,
+        borrowerId: req.auth.userId,
+        message: share.message || null,
+        status: 'ACTIVE',
+        durationDays: 14,
+        graceDays: 0,
+        acceptedAt,
+        dueAt,
+        createdUserBookOnAccept: createdAccess,
+        canAddHighlights: true,
+        canEditHighlights: true,
+        canAddNotes: true,
+        canEditNotes: true,
+        annotationVisibility: 'PRIVATE'
+      },
+      include: includeLoanGraph
+    });
+
+    const nextShare = await tx.bookShare.update({
+      where: { id: share.id },
+      data: { status: 'ACCEPTED', acceptedAt: share.acceptedAt || acceptedAt },
+      include: includeShareGraph
+    });
+
+    await addLoanAuditEvent(tx, {
+      loanId: loan.id,
+      actorUserId: req.auth.userId,
+      targetUserId: share.fromUserId,
+      action: 'LOAN_ACCEPTED_FROM_SHARE',
+      details: {
+        dueAt,
+        borrowAnyway: Boolean(existingAccess)
+      }
+    });
+
+    return { loan, share: nextShare };
+  });
+
+  return res.json({
+    share: result.share,
+    loan: toLoanResponse(result.loan)
+  });
 });
 
 app.post('/shares/:shareId/reject', requireAuth, async (req, res) => {
