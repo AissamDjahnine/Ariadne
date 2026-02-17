@@ -1,6 +1,7 @@
 import path from 'path';
 import { verifyToken } from './auth.js';
 import { prisma } from './prisma.js';
+import { ensureBookEntitlement } from './loanPolicy.js';
 
 const resolveToken = (req) => {
   const auth = req.headers.authorization || '';
@@ -25,52 +26,9 @@ export const requireAuth = (req, res, next) => {
 export const requireBookAccess = async (req, res, next) => {
   const { bookId } = req.params;
   if (!bookId) return res.status(400).json({ error: 'bookId required' });
-  const loanExportWindowDays = 14;
-
-  const activeBorrowLoan = await prisma.bookLoan.findFirst({
-    where: {
-      bookId,
-      borrowerId: req.auth.userId,
-      status: 'ACTIVE'
-    },
-    orderBy: { acceptedAt: 'desc' }
-  });
-
-  if (activeBorrowLoan?.dueAt) {
-    const dueMs = new Date(activeBorrowLoan.dueAt).getTime();
-    const graceDays = Math.max(0, Number(activeBorrowLoan.graceDays) || 0);
-    const effectiveEndMs = dueMs + graceDays * 24 * 60 * 60 * 1000;
-    if (Number.isFinite(effectiveEndMs) && Date.now() > effectiveEndMs) {
-      const now = new Date();
-      const exportAvailableUntil = new Date(now.getTime() + loanExportWindowDays * 24 * 60 * 60 * 1000);
-      await prisma.$transaction(async (tx) => {
-        await tx.bookLoan.update({
-          where: { id: activeBorrowLoan.id },
-          data: {
-            status: 'EXPIRED',
-            expiredAt: now,
-            exportAvailableUntil
-          }
-        });
-        if (activeBorrowLoan.createdUserBookOnAccept) {
-          await tx.userBook.deleteMany({
-            where: {
-              userId: req.auth.userId,
-              bookId
-            }
-          });
-        }
-      });
-    }
-  }
-
-  const userBook = await prisma.userBook.findUnique({
-    where: {
-      userId_bookId: {
-        userId: req.auth.userId,
-        bookId
-      }
-    }
+  const { userBook } = await ensureBookEntitlement(prisma, {
+    userId: req.auth.userId,
+    bookId
   });
 
   if (!userBook) return res.status(403).json({ error: 'No access to this book' });

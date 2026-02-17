@@ -10,6 +10,14 @@ import { config } from './config.js';
 import { comparePassword, hashPassword, signToken } from './auth.js';
 import { requireAuth, requireBookAccess, isSafeRelativePath } from './middleware.js';
 import { clampPercent, ensureEpubHash, statusFromProgress, toBookResponse } from './utils.js';
+import {
+  LOAN_EXPORT_WINDOW_DAYS,
+  getActiveBorrowLoan,
+  resolveLoanAnnotationScope,
+  buildAnnotationAccessWhere,
+  requireBorrowCapability,
+  expireLoanIfNeeded
+} from './loanPolicy.js';
 
 dotenv.config();
 
@@ -52,74 +60,6 @@ const includeLoanGraph = {
   book: true,
   lender: { select: { id: true, email: true, displayName: true, avatarUrl: true } },
   borrower: { select: { id: true, email: true, displayName: true, avatarUrl: true } }
-};
-const LOAN_EXPORT_WINDOW_DAYS = 14;
-
-const getActiveBorrowLoan = async (userId, bookId) => {
-  if (!userId || !bookId) return null;
-  return prisma.bookLoan.findFirst({
-    where: {
-      bookId,
-      borrowerId: userId,
-      status: 'ACTIVE'
-    },
-    orderBy: { acceptedAt: 'desc' }
-  });
-};
-
-const getActiveBorrowerIdsForLender = async (lenderId, bookId) => {
-  if (!lenderId || !bookId) return [];
-  const loans = await prisma.bookLoan.findMany({
-    where: {
-      bookId,
-      lenderId,
-      status: 'ACTIVE'
-    },
-    select: { borrowerId: true }
-  });
-  return loans.map((loan) => loan.borrowerId).filter(Boolean);
-};
-
-const resolveLoanAnnotationScope = (loan) => {
-  if (!loan) return 'OWNER';
-  return loan.annotationVisibility === 'SHARED_WITH_LENDER'
-    ? 'LENDER_VISIBLE'
-    : 'PRIVATE_BORROWER';
-};
-
-const buildAnnotationAccessWhere = async ({ bookId, userId }) => {
-  const activeBorrowLoan = await getActiveBorrowLoan(userId, bookId);
-  if (activeBorrowLoan) {
-    if (!activeBorrowLoan.shareLenderAnnotations) {
-      return { bookId, createdByUserId: userId };
-    }
-    return {
-      bookId,
-      OR: [
-        { createdByUserId: userId },
-        { createdByUserId: activeBorrowLoan.lenderId, scope: 'OWNER' }
-      ]
-    };
-  }
-
-  const activeBorrowerIds = await getActiveBorrowerIdsForLender(userId, bookId);
-  const where = {
-    bookId,
-    scope: { not: 'PRIVATE_BORROWER' }
-  };
-  if (!activeBorrowerIds.length) return where;
-
-  return {
-    ...where,
-    NOT: [
-      {
-        AND: [
-          { createdByUserId: { in: activeBorrowerIds } },
-          { scope: 'LENDER_VISIBLE' }
-        ]
-      }
-    ]
-  };
 };
 
 const toLoanResponse = (loan) => ({
@@ -177,51 +117,6 @@ const addLoanAuditEvent = async (tx, payload) => {
   });
 };
 
-const expireLoanIfNeeded = async (loan, userIdForAccess = null) => {
-  if (!loan || loan.status !== 'ACTIVE' || !loan.dueAt) return loan;
-  const dueMs = new Date(loan.dueAt).getTime();
-  if (!Number.isFinite(dueMs)) return loan;
-  const graceDays = Math.max(0, Number(loan.graceDays) || 0);
-  const effectiveEndMs = dueMs + graceDays * 24 * 60 * 60 * 1000;
-  if (Date.now() <= effectiveEndMs) return loan;
-
-  const updated = await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const exportAvailableUntil = new Date(now.getTime() + LOAN_EXPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const next = await tx.bookLoan.update({
-      where: { id: loan.id },
-      data: {
-        status: 'EXPIRED',
-        expiredAt: now,
-        exportAvailableUntil
-      },
-      include: includeLoanGraph
-    });
-
-    if (loan.createdUserBookOnAccept && userIdForAccess) {
-      await tx.userBook.deleteMany({
-        where: {
-          userId: userIdForAccess,
-          bookId: loan.bookId
-        }
-      });
-    }
-
-    await addLoanAuditEvent(tx, {
-      loanId: loan.id,
-      actorUserId: null,
-      targetUserId: loan.borrowerId,
-      action: 'LOAN_EXPIRED',
-      details: {
-        dueAt: loan.dueAt,
-        graceDays: loan.graceDays
-      }
-    });
-
-    return next;
-  });
-  return updated;
-};
 
 const toUserResponse = (user) => ({
   id: user.id,
@@ -229,6 +124,15 @@ const toUserResponse = (user) => ({
   displayName: user.displayName || null,
   avatarUrl: user.avatarUrl || null
 });
+
+const parseExpectedRevision = (req) => {
+  const header = req.headers['if-match-revision'];
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) return null;
+  return value;
+};
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
@@ -469,7 +373,7 @@ app.patch('/books/:bookId/progress', requireAuth, requireBookAccess, async (req,
 });
 
 app.get('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req, res) => {
-  const where = await buildAnnotationAccessWhere({
+  const where = await buildAnnotationAccessWhere(prisma, {
     bookId: req.params.bookId,
     userId: req.auth.userId
   });
@@ -496,10 +400,13 @@ app.post('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
 
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, req.params.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canAddHighlights) {
-    return res.status(403).json({ error: 'Lender disabled adding highlights for this loan' });
-  }
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: req.params.bookId,
+    capability: 'addHighlights'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
+  const { activeBorrowLoan } = capability;
   const scope = resolveLoanAnnotationScope(activeBorrowLoan);
 
   await prisma.highlight.upsert({
@@ -532,7 +439,7 @@ app.post('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req
     }
   });
 
-  const where = await buildAnnotationAccessWhere({
+  const where = await buildAnnotationAccessWhere(prisma, {
     bookId: req.params.bookId,
     userId: req.auth.userId
   });
@@ -562,16 +469,27 @@ app.patch('/highlights/:highlightId', requireAuth, async (req, res) => {
   if (existing.createdByUserId !== req.auth.userId) {
     return res.status(403).json({ error: 'You can edit only your own highlights' });
   }
+  const expectedRevision = parseExpectedRevision(req);
+  if (expectedRevision !== null && expectedRevision !== existing.revision) {
+    return res.status(409).json({
+      error: 'Highlight conflict',
+      code: 'REVISION_CONFLICT',
+      currentRevision: existing.revision
+    });
+  }
 
   const access = await prisma.userBook.findUnique({
     where: { userId_bookId: { userId: req.auth.userId, bookId: existing.bookId } }
   });
   if (!access) return res.status(403).json({ error: 'No access to this book' });
 
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, existing.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canEditHighlights) {
-    return res.status(403).json({ error: 'Lender disabled editing highlights for this loan' });
-  }
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: existing.bookId,
+    capability: 'editHighlights'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
+  const { activeBorrowLoan } = capability;
 
   await prisma.highlight.update({
     where: { id: existing.id },
@@ -582,11 +500,12 @@ app.patch('/highlights/:highlightId', requireAuth, async (req, res) => {
       contextPrefix: parsed.data.contextPrefix === undefined ? existing.contextPrefix : parsed.data.contextPrefix,
       contextSuffix: parsed.data.contextSuffix === undefined ? existing.contextSuffix : parsed.data.contextSuffix,
       chapterHref: parsed.data.chapterHref === undefined ? existing.chapterHref : parsed.data.chapterHref,
-      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope
+      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope,
+      revision: { increment: 1 }
     }
   });
 
-  const where = await buildAnnotationAccessWhere({
+  const where = await buildAnnotationAccessWhere(prisma, {
     bookId: existing.bookId,
     userId: req.auth.userId
   });
@@ -605,14 +524,24 @@ app.delete('/highlights/:highlightId', requireAuth, async (req, res) => {
   if (existing.createdByUserId !== req.auth.userId) {
     return res.status(403).json({ error: 'You can delete only your own highlights' });
   }
-
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, existing.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canEditHighlights) {
-    return res.status(403).json({ error: 'Lender disabled deleting highlights for this loan' });
+  const expectedRevision = parseExpectedRevision(req);
+  if (expectedRevision !== null && expectedRevision !== existing.revision) {
+    return res.status(409).json({
+      error: 'Highlight conflict',
+      code: 'REVISION_CONFLICT',
+      currentRevision: existing.revision
+    });
   }
 
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: existing.bookId,
+    capability: 'editHighlights'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
+
   await prisma.highlight.delete({ where: { id: existing.id } });
-  const where = await buildAnnotationAccessWhere({
+  const where = await buildAnnotationAccessWhere(prisma, {
     bookId: existing.bookId,
     userId: req.auth.userId
   });
@@ -626,7 +555,7 @@ app.delete('/highlights/:highlightId', requireAuth, async (req, res) => {
 });
 
 app.get('/books/:bookId/notes', requireAuth, requireBookAccess, async (req, res) => {
-  const where = await buildAnnotationAccessWhere({
+  const where = await buildAnnotationAccessWhere(prisma, {
     bookId: req.params.bookId,
     userId: req.auth.userId
   });
@@ -647,10 +576,13 @@ app.post('/books/:bookId/notes', requireAuth, requireBookAccess, async (req, res
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
 
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, req.params.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canAddNotes) {
-    return res.status(403).json({ error: 'Lender disabled adding notes for this loan' });
-  }
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: req.params.bookId,
+    capability: 'addNotes'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
+  const { activeBorrowLoan } = capability;
   const scope = resolveLoanAnnotationScope(activeBorrowLoan);
 
   const note = await prisma.note.create({
@@ -682,11 +614,22 @@ app.patch('/notes/:noteId', requireAuth, async (req, res) => {
   if (existing.createdByUserId !== req.auth.userId) {
     return res.status(403).json({ error: 'You can edit only your own notes' });
   }
-
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, existing.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canEditNotes) {
-    return res.status(403).json({ error: 'Lender disabled editing notes for this loan' });
+  const expectedRevision = parseExpectedRevision(req);
+  if (expectedRevision !== null && expectedRevision !== existing.revision) {
+    return res.status(409).json({
+      error: 'Note conflict',
+      code: 'REVISION_CONFLICT',
+      currentRevision: existing.revision
+    });
   }
+
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: existing.bookId,
+    capability: 'editNotes'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
+  const { activeBorrowLoan } = capability;
 
   const note = await prisma.note.update({
     where: { id: existing.id },
@@ -694,7 +637,8 @@ app.patch('/notes/:noteId', requireAuth, async (req, res) => {
       text: parsed.data.text === undefined ? existing.text : parsed.data.text,
       cfi: parsed.data.cfi === undefined ? existing.cfi : parsed.data.cfi,
       message: parsed.data.message === undefined ? existing.message : parsed.data.message,
-      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope
+      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope,
+      revision: { increment: 1 }
     },
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } }
   });
@@ -708,11 +652,21 @@ app.delete('/notes/:noteId', requireAuth, async (req, res) => {
   if (existing.createdByUserId !== req.auth.userId) {
     return res.status(403).json({ error: 'You can delete only your own notes' });
   }
-
-  const activeBorrowLoan = await getActiveBorrowLoan(req.auth.userId, existing.bookId);
-  if (activeBorrowLoan && !activeBorrowLoan.canEditNotes) {
-    return res.status(403).json({ error: 'Lender disabled deleting notes for this loan' });
+  const expectedRevision = parseExpectedRevision(req);
+  if (expectedRevision !== null && expectedRevision !== existing.revision) {
+    return res.status(409).json({
+      error: 'Note conflict',
+      code: 'REVISION_CONFLICT',
+      currentRevision: existing.revision
+    });
   }
+
+  const capability = await requireBorrowCapability(prisma, {
+    userId: req.auth.userId,
+    bookId: existing.bookId,
+    capability: 'editNotes'
+  });
+  if (!capability.ok) return res.status(capability.status).json({ error: capability.error });
 
   await prisma.note.delete({ where: { id: existing.id } });
   return res.json({ ok: true });
@@ -1157,7 +1111,11 @@ app.get('/loans/borrowed', requireAuth, async (req, res) => {
 
   const normalized = [];
   for (const loan of loans) {
-    normalized.push(await expireLoanIfNeeded(loan, req.auth.userId));
+    normalized.push(await expireLoanIfNeeded(prisma, loan, {
+      include: includeLoanGraph,
+      cleanupBorrowerAccess: true,
+      addAuditEvent: true
+    }));
   }
   return res.json({ loans: normalized.map(toLoanResponse) });
 });
