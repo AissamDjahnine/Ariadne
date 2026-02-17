@@ -4357,15 +4357,23 @@ const formatNotificationTimeAgo = (value) => {
   const isLikelyFilenameTitle = (value) => {
     const title = String(value || "").trim();
     if (!title) return true;
+    const normalized = title.toLowerCase().replace(/\.epub$/i, "").trim();
     if (/\.epub$/i.test(title)) return true;
-    if (/^[a-z0-9_-]{6,}$/i.test(title) && !/\s/.test(title)) return true;
-    if (/^pg\d+(-images)?-\d+$/i.test(title)) return true;
+    if (/^[a-z0-9_-]{6,}$/i.test(normalized) && !/\s/.test(normalized)) return true;
+    if (/^pg\s*\d+([\s_-]*images?)?([\s_-]*\d+)?$/i.test(normalized)) return true;
+    if (/^[a-z0-9]+(?:[\s_-][a-z0-9]+){2,}$/i.test(normalized) && /\d/.test(normalized)) return true;
     return false;
   };
-  const humanizeFilenameTitle = (value) => {
+  const humanizeFilenameTitle = (value, author = "") => {
     const raw = String(value || "").trim();
     if (!raw) return "";
-    if (/^pg\d+(-images)?-\d+$/i.test(raw.replace(/\.epub$/i, ""))) return "";
+    if (/^pg\s*\d+([\s_-]*images?)?([\s_-]*\d+)?$/i.test(raw.replace(/\.epub$/i, ""))) return "";
+    const authorSurname = String(author || "")
+      .trim()
+      .toLowerCase()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .pop() || "";
     const stripped = raw
       .replace(/\.epub$/i, "")
       .replace(/\(\d+\)$/g, "")
@@ -4373,15 +4381,26 @@ const formatNotificationTimeAgo = (value) => {
       .replace(/\s+/g, " ")
       .trim();
     if (!stripped) return "";
-    return toTitleCaseWords(stripped);
+    const tokens = stripped
+      .split(" ")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .filter((token) => !/^images?$/i.test(token))
+      .filter((token) => !/^pg\d+$/i.test(token))
+      .filter((token) => !/^\d+$/.test(token));
+    if (!tokens.length) return "";
+    if (authorSurname && tokens.length > 2 && tokens[0].toLowerCase() === authorSurname) {
+      tokens.shift();
+    }
+    return toTitleCaseWords(tokens.join(" "));
   };
   const getDisplayBookTitle = (book) => {
-    if (!book) return "Book";
+    if (!book) return "Unknown Title";
     const candidate = String(book.title || "").trim();
     if (candidate && !isLikelyFilenameTitle(candidate)) return candidate;
     const metadataTitle = String(book?.epubMetadata?.title || "").trim();
     if (metadataTitle && !isLikelyFilenameTitle(metadataTitle)) return metadataTitle;
-    return humanizeFilenameTitle(candidate) || "Book";
+    return humanizeFilenameTitle(candidate, book?.author || "") || "Unknown Title";
   };
   const getLoanPermissionChips = (loan, mode = "borrowed") => {
     const perms = loan?.permissions || {};
