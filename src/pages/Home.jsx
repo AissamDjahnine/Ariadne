@@ -3868,6 +3868,28 @@ const formatNotificationTimeAgo = (value) => {
     };
     return themeMap[key] || themeMap.PENDING;
   };
+  const renderLoanEmptyState = ({ icon: EmptyIcon, title, description, actionLabel, onAction }) => (
+    <div
+      className={`mt-3 rounded-xl border p-6 text-center ${
+        isDarkLibraryTheme ? "border-slate-700/80 bg-slate-900/40" : "border-gray-200 bg-gray-50"
+      }`}
+    >
+      {EmptyIcon ? React.createElement(EmptyIcon, { size: 22, className: `mx-auto mb-2 ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}` }) : null}
+      <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-gray-800"}`}>{title}</p>
+      <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>{description}</p>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className={`mt-3 rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            isDarkLibraryTheme ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
   const formatLoanDate = (value) => {
     if (!value) return "N/A";
     const date = new Date(value);
@@ -5586,7 +5608,13 @@ const formatNotificationTimeAgo = (value) => {
                 </button>
               </div>
               {!loanInbox.length ? (
-                <p className={`mt-3 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No pending loan requests.</p>
+                renderLoanEmptyState({
+                  icon: Mail,
+                  title: "No pending loan requests",
+                  description: "Loan invitations you receive will appear here.",
+                  actionLabel: "Refresh",
+                  onAction: refreshCollabPanels
+                })
               ) : (
                 <div className="mt-4 space-y-3">
                   {loanInbox.map((loan) => (
@@ -5673,9 +5701,11 @@ const formatNotificationTimeAgo = (value) => {
                 </button>
               </div>
               {!loanReminderInboxItems.length ? (
-                <p className={`mt-3 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
-                  No due reminders right now.
-                </p>
+                renderLoanEmptyState({
+                  icon: Clock,
+                  title: "No due reminders right now",
+                  description: "Upcoming due dates and overdue borrowed books appear here."
+                })
               ) : (
                 <div className="mt-4 space-y-3">
                   {loanReminderInboxItems.map((item) => {
@@ -5734,7 +5764,13 @@ const formatNotificationTimeAgo = (value) => {
               </div>
             </div>
             {!borrowedLoans.length ? (
-              <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No borrowed books.</p>
+              renderLoanEmptyState({
+                icon: BookIcon,
+                title: "No borrowed books",
+                description: "Accept a loan request from Inbox to see borrowed books here.",
+                actionLabel: "Open Inbox",
+                onAction: () => handleSidebarSectionSelect("inbox")
+              })
             ) : (
               <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
                 {borrowedLoans.map((loan) => {
@@ -5818,7 +5854,13 @@ const formatNotificationTimeAgo = (value) => {
               </div>
             </div>
             {!lentLoans.length ? (
-              <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No lent books.</p>
+              renderLoanEmptyState({
+                icon: Send,
+                title: "No lent books",
+                description: "Lend a book from your library to track active and completed loans.",
+                actionLabel: "Go to My library",
+                onAction: () => handleSidebarSectionSelect("library")
+              })
             ) : (
               <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
                 {lentLoans.map((loan) => {
@@ -5885,7 +5927,11 @@ const formatNotificationTimeAgo = (value) => {
               <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
             </div>
             {!loanAuditEvents.length ? (
-              <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No audit events yet.</p>
+              renderLoanEmptyState({
+                icon: History,
+                title: "No history yet",
+                description: "Loan actions like lend, borrow, revoke, return, and renewal will appear here."
+              })
             ) : (
               <div className="space-y-4">
                 {Object.values(
