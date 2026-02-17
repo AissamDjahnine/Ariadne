@@ -105,7 +105,7 @@ export const updateHighlightById = async (highlightId, payload) => {
   if (Number.isInteger(payload?.expectedRevision) && payload.expectedRevision > 0) {
     headers['if-match-revision'] = String(payload.expectedRevision);
   }
-  const { expectedRevision, ...rest } = payload || {};
+  const { ...rest } = payload || {};
   const { data } = await client.patch(`/highlights/${highlightId}`, rest, {
     headers
   });

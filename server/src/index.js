@@ -13,7 +13,6 @@ import { requireAuth, requireBookAccess, isSafeRelativePath } from './middleware
 import { clampPercent, ensureEpubHash, statusFromProgress, toBookResponse } from './utils.js';
 import {
   LOAN_EXPORT_WINDOW_DAYS,
-  getActiveBorrowLoan,
   ensureBookEntitlement,
   resolveLoanAnnotationScope,
   buildAnnotationAccessWhere,
