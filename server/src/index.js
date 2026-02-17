@@ -302,6 +302,46 @@ const toTemplateResponse = (row) => ({
   }
 });
 
+const toLoanReviewMessageResponse = (row) => ({
+  id: row.id,
+  loanId: row.loanId,
+  rating: row.rating,
+  comment: row.comment,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  author: row.author ? toUserResponse(row.author) : null
+});
+
+const startOfDayUtc = (value = new Date()) => {
+  const day = new Date(value);
+  day.setUTCHours(0, 0, 0, 0);
+  return day;
+};
+
+const computeStreakDaysFromRows = (rows = []) => {
+  const daySet = new Set(
+    rows
+      .map((row) => startOfDayUtc(row?.dayDate).getTime())
+      .filter((value) => Number.isFinite(value))
+  );
+  if (!daySet.size) return 0;
+
+  let streak = 0;
+  let cursor = startOfDayUtc(new Date()).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  while (daySet.has(cursor)) {
+    streak += 1;
+    cursor -= oneDayMs;
+  }
+  if (streak > 0) return streak;
+  cursor = startOfDayUtc(new Date(Date.now() - oneDayMs)).getTime();
+  while (daySet.has(cursor)) {
+    streak += 1;
+    cursor -= oneDayMs;
+  }
+  return streak;
+};
+
 const emitLoanNotification = async (db, payload) => {
   const {
     userId,
@@ -625,6 +665,19 @@ app.post('/friends/requests', requireAuth, async (req, res) => {
       }
     });
 
+  await emitLoanNotification(prisma, {
+    userId: toUserId,
+    eventKey: `friend-request-${friendRequest.id}-${new Date(friendRequest.updatedAt || friendRequest.createdAt).toISOString()}`,
+    kind: 'friend-request',
+    title: 'New friend request',
+    message: `${friendRequest.fromUser?.displayName || friendRequest.fromUser?.email || 'A reader'} sent you a friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: friendRequest.fromUserId,
+    meta: {
+      requestId: friendRequest.id
+    }
+  });
+
   return res.status(201).json({
     request: toFriendRequestResponse(friendRequest)
   });
@@ -699,6 +752,19 @@ app.post('/friends/requests/:requestId/accept', requireAuth, async (req, res) =>
     return { friendship, request: updatedRequest };
   });
 
+  await emitLoanNotification(prisma, {
+    userId: result.request.fromUserId,
+    eventKey: `friend-request-accepted-${result.request.id}-${new Date(result.request.respondedAt || result.request.updatedAt).toISOString()}`,
+    kind: 'friend-request-accepted',
+    title: 'Friend request accepted',
+    message: `${result.request.toUser?.displayName || result.request.toUser?.email || 'A reader'} accepted your friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: result.request.toUserId,
+    meta: {
+      requestId: result.request.id
+    }
+  });
+
   return res.json({
     request: toFriendRequestResponse(result.request),
     friendship: toFriendshipResponse({ friendship: result.friendship, currentUserId: req.auth.userId })
@@ -723,6 +789,19 @@ app.post('/friends/requests/:requestId/reject', requireAuth, async (req, res) =>
     include: { fromUser: true, toUser: true }
   });
 
+  await emitLoanNotification(prisma, {
+    userId: updated.fromUserId,
+    eventKey: `friend-request-rejected-${updated.id}-${new Date(updated.respondedAt || updated.updatedAt).toISOString()}`,
+    kind: 'friend-request-rejected',
+    title: 'Friend request declined',
+    message: `${updated.toUser?.displayName || updated.toUser?.email || 'A reader'} declined your friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: updated.toUserId,
+    meta: {
+      requestId: updated.id
+    }
+  });
+
   return res.json({ request: toFriendRequestResponse(updated) });
 });
 
@@ -742,6 +821,19 @@ app.post('/friends/requests/:requestId/cancel', requireAuth, async (req, res) =>
       respondedAt: new Date()
     },
     include: { fromUser: true, toUser: true }
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: updated.toUserId,
+    eventKey: `friend-request-cancelled-${updated.id}-${new Date(updated.respondedAt || updated.updatedAt).toISOString()}`,
+    kind: 'friend-request-cancelled',
+    title: 'Friend request canceled',
+    message: `${updated.fromUser?.displayName || updated.fromUser?.email || 'A reader'} canceled a friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: updated.fromUserId,
+    meta: {
+      requestId: updated.id
+    }
   });
 
   return res.json({ request: toFriendRequestResponse(updated) });
@@ -778,6 +870,152 @@ app.get('/friends', requireAuth, async (req, res) => {
   return res.json({
     friends
   });
+});
+
+app.get('/friends/leaderboard', requireAuth, async (req, res) => {
+  const metricSchema = z.enum(['pagesRead', 'readingMinutes', 'finishedBooks', 'inProgressBooks', 'streakDays']);
+  const metricParsed = metricSchema.safeParse(req.query?.metric || 'pagesRead');
+  const metric = metricParsed.success ? metricParsed.data : 'pagesRead';
+
+  const myId = req.auth.userId;
+  const directEdges = await prisma.friendship.findMany({
+    where: {
+      OR: [{ userAId: myId }, { userBId: myId }]
+    },
+    select: { userAId: true, userBId: true }
+  });
+
+  const directFriendIds = new Set();
+  directEdges.forEach((edge) => {
+    if (edge.userAId !== myId) directFriendIds.add(edge.userAId);
+    if (edge.userBId !== myId) directFriendIds.add(edge.userBId);
+  });
+
+  const viaMap = new Map();
+  if (directFriendIds.size > 0) {
+    const secondEdges = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { userAId: { in: [...directFriendIds] } },
+          { userBId: { in: [...directFriendIds] } }
+        ]
+      },
+      select: { userAId: true, userBId: true }
+    });
+
+    secondEdges.forEach((edge) => {
+      if (directFriendIds.has(edge.userAId) && edge.userBId !== myId && !directFriendIds.has(edge.userBId)) {
+        const list = viaMap.get(edge.userBId) || [];
+        list.push(edge.userAId);
+        viaMap.set(edge.userBId, [...new Set(list)]);
+      }
+      if (directFriendIds.has(edge.userBId) && edge.userAId !== myId && !directFriendIds.has(edge.userAId)) {
+        const list = viaMap.get(edge.userAId) || [];
+        list.push(edge.userBId);
+        viaMap.set(edge.userAId, [...new Set(list)]);
+      }
+    });
+  }
+
+  const blockedRows = await prisma.friendBlock.findMany({
+    where: {
+      OR: [{ blockerUserId: myId }, { blockedUserId: myId }]
+    },
+    select: { blockerUserId: true, blockedUserId: true }
+  });
+  const blockedUserIds = new Set();
+  blockedRows.forEach((row) => {
+    if (row.blockerUserId !== myId) blockedUserIds.add(row.blockerUserId);
+    if (row.blockedUserId !== myId) blockedUserIds.add(row.blockedUserId);
+  });
+
+  const candidateIds = new Set([myId, ...directFriendIds, ...viaMap.keys()]);
+  blockedUserIds.forEach((id) => candidateIds.delete(id));
+  const ids = [...candidateIds];
+
+  const [users, readingStats, readingDays, bookStatusRows] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+    }),
+    prisma.userReadingStat.findMany({
+      where: { userId: { in: ids } },
+      select: { userId: true, totalReadingSeconds: true, totalPagesRead: true }
+    }),
+    prisma.userReadingDay.findMany({
+      where: {
+        userId: { in: ids },
+        readingSeconds: { gt: 0 }
+      },
+      select: { userId: true, dayDate: true }
+    }),
+    prisma.userBook.groupBy({
+      by: ['userId', 'status'],
+      where: {
+        userId: { in: ids },
+        isDeleted: false
+      },
+      _count: { _all: true }
+    })
+  ]);
+
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const statByUserId = new Map(readingStats.map((row) => [row.userId, row]));
+  const readingDaysByUserId = new Map();
+  readingDays.forEach((row) => {
+    const list = readingDaysByUserId.get(row.userId) || [];
+    list.push(row);
+    readingDaysByUserId.set(row.userId, list);
+  });
+  const statusCountsByUserId = new Map();
+  bookStatusRows.forEach((row) => {
+    const existing = statusCountsByUserId.get(row.userId) || { FINISHED: 0, IN_PROGRESS: 0 };
+    existing[row.status] = row._count?._all || 0;
+    statusCountsByUserId.set(row.userId, existing);
+  });
+
+  const rows = ids
+    .map((userId) => {
+      const user = userById.get(userId);
+      if (!user) return null;
+      const stat = statByUserId.get(userId);
+      const statusCounts = statusCountsByUserId.get(userId) || { FINISHED: 0, IN_PROGRESS: 0 };
+      const minutes = Math.floor(Math.max(0, Number(stat?.totalReadingSeconds || 0)) / 60);
+      const finishedBooks = Number(statusCounts.FINISHED || 0);
+      const inProgressBooks = Number(statusCounts.IN_PROGRESS || 0);
+      const streakDays = computeStreakDaysFromRows(readingDaysByUserId.get(userId) || []);
+      const relation = userId === myId ? 'SELF' : (directFriendIds.has(userId) ? 'FRIEND' : 'FRIEND_OF_FRIEND');
+      const sharedViaIds = viaMap.get(userId) || [];
+
+      return {
+        user: toUserResponse(user),
+        relation,
+        canAddFriend: relation === 'FRIEND_OF_FRIEND',
+        mutualVia: sharedViaIds
+          .map((id) => userById.get(id))
+          .filter(Boolean)
+          .map(toUserResponse),
+        metrics: {
+          pagesRead: Math.max(
+            Math.max(0, Number(stat?.totalPagesRead || 0)),
+            0
+          ),
+          readingMinutes: minutes,
+          finishedBooks,
+          inProgressBooks,
+          streakDays
+        }
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const diff = Number(right.metrics?.[metric] || 0) - Number(left.metrics?.[metric] || 0);
+      if (diff !== 0) return diff;
+      return (left.user?.displayName || left.user?.email || '').localeCompare(right.user?.displayName || right.user?.email || '');
+    })
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  return res.json({ metric, rows, generatedAt: new Date().toISOString() });
 });
 
 app.delete('/friends/:friendUserId', requireAuth, async (req, res) => {
@@ -1349,6 +1587,35 @@ app.get('/books/:bookId', requireAuth, requireBookAccess, async (req, res) => {
   return res.json({ book: toBookResponse(book, req.auth.userId, getBaseUrl(req)) });
 });
 
+app.patch('/books/:bookId/metadata', requireAuth, requireBookAccess, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(512).optional(),
+    author: z.string().max(512).optional().nullable(),
+    language: z.string().max(64).optional().nullable(),
+    cover: z.string().max(2_000_000).optional().nullable()
+  }).refine((value) => (
+    value.title !== undefined ||
+    value.author !== undefined ||
+    value.language !== undefined ||
+    value.cover !== undefined
+  ), { message: 'At least one metadata field is required' });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const book = await prisma.book.update({
+    where: { id: req.params.bookId },
+    data: {
+      title: parsed.data.title === undefined ? undefined : parsed.data.title.trim(),
+      author: parsed.data.author === undefined ? undefined : (parsed.data.author || null),
+      language: parsed.data.language === undefined ? undefined : (parsed.data.language || null),
+      cover: parsed.data.cover === undefined ? undefined : (parsed.data.cover || null)
+    },
+    include: includeBookGraph
+  });
+
+  return res.json({ book: toBookResponse(book, req.auth.userId, getBaseUrl(req)) });
+});
+
 app.delete('/books/:bookId', requireAuth, async (req, res) => {
   const userBook = await prisma.userBook.findUnique({
     where: {
@@ -1513,6 +1780,56 @@ app.patch('/books/:bookId/progress', requireAuth, requireBookAccess, async (req,
   return res.json({
     book: toBookResponse({ ...updated.book, userBooks: [updated] }, req.auth.userId, getBaseUrl(req))
   });
+});
+
+app.post('/books/:bookId/activity', requireAuth, requireBookAccess, async (req, res) => {
+  const schema = z.object({
+    secondsRead: z.number().int().min(0).max(3600).optional(),
+    pagesRead: z.number().int().min(0).max(2000).optional()
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const secondsRead = Math.max(0, Number(parsed.data.secondsRead || 0));
+  const pagesRead = Math.max(0, Number(parsed.data.pagesRead || 0));
+  if (!secondsRead && !pagesRead) return res.json({ ok: true });
+
+  const dayDate = startOfDayUtc(new Date());
+  await prisma.$transaction(async (tx) => {
+    await tx.userReadingStat.upsert({
+      where: { userId: req.auth.userId },
+      create: {
+        userId: req.auth.userId,
+        totalReadingSeconds: secondsRead,
+        totalPagesRead: pagesRead
+      },
+      update: {
+        totalReadingSeconds: { increment: secondsRead },
+        totalPagesRead: { increment: pagesRead }
+      }
+    });
+
+    await tx.userReadingDay.upsert({
+      where: {
+        userId_dayDate: {
+          userId: req.auth.userId,
+          dayDate
+        }
+      },
+      create: {
+        userId: req.auth.userId,
+        dayDate,
+        readingSeconds: secondsRead,
+        pagesRead
+      },
+      update: {
+        readingSeconds: { increment: secondsRead },
+        pagesRead: { increment: pagesRead }
+      }
+    });
+  });
+
+  return res.json({ ok: true });
 });
 
 app.get('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req, res) => {
@@ -2396,6 +2713,74 @@ app.get('/loans/lent', requireAuth, async (req, res) => {
     orderBy: { requestedAt: 'desc' }
   });
   return res.json({ loans: loans.map(toLoanResponse) });
+});
+
+app.get('/loans/:loanId/reviews', requireAuth, async (req, res) => {
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    include: includeLoanGraph
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (loan.borrowerId !== req.auth.userId && loan.lenderId !== req.auth.userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const messages = await prisma.loanReviewMessage.findMany({
+    where: { loanId: loan.id },
+    include: {
+      author: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+  return res.json({ loan: toLoanResponse(loan), messages: messages.map(toLoanReviewMessageResponse) });
+});
+
+app.post('/loans/:loanId/reviews', requireAuth, async (req, res) => {
+  const schema = z.object({
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().min(1).max(3000)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    include: includeLoanGraph
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (loan.borrowerId !== req.auth.userId && loan.lenderId !== req.auth.userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const message = await prisma.loanReviewMessage.create({
+    data: {
+      loanId: loan.id,
+      authorUserId: req.auth.userId,
+      rating: parsed.data.rating,
+      comment: parsed.data.comment.trim()
+    },
+    include: {
+      author: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+    }
+  });
+
+  const otherUserId = loan.borrowerId === req.auth.userId ? loan.lenderId : loan.borrowerId;
+  const opensBorrowed = otherUserId === loan.borrowerId;
+  await emitLoanNotification(prisma, {
+    userId: otherUserId,
+    eventKey: `loan-review-${message.id}`,
+    kind: 'loan-review',
+    title: 'New loan review',
+    message: `${message.author?.displayName || message.author?.email || 'A reader'} reviewed "${loan.book?.title || 'book'}" (${message.rating}/5).`,
+    loanId: loan.id,
+    actionType: opensBorrowed ? 'open-borrowed' : 'open-lent',
+    actionTargetId: loan.id,
+    meta: {
+      reviewId: message.id
+    }
+  });
+
+  return res.status(201).json({ message: toLoanReviewMessageResponse(message) });
 });
 
 const includeRenewalGraph = {

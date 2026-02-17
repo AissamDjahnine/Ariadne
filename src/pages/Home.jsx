@@ -74,6 +74,7 @@ import {
   createBookShare,
   denyLoanRenewal,
   exportLoanData,
+  fetchBookBinary,
   fetchFriends,
   fetchFriendHistory,
   fetchFriendLibrary,
@@ -102,6 +103,7 @@ import {
   searchUsers,
   sendFriendRequest,
   updateFriendPrivacy,
+  updateBookMetadata,
   updateLoanTemplate,
   updateMe,
   uploadMyAvatar
@@ -782,6 +784,7 @@ export default function Home() {
   const duplicateDecisionResolverRef = useRef(null);
   const notificationsMenuRef = useRef(null);
   const notificationFocusTimerRef = useRef(null);
+  const metadataRepairInFlightRef = useRef(new Set());
 
   useEffect(() => {
     if (!isCollabMode) return;
@@ -926,6 +929,72 @@ export default function Home() {
       clearTimeout(timeoutId);
     };
   }, [friendSearchQuery, isCollabMode, librarySection]);
+
+  useEffect(() => {
+    if (!isCollabMode || !Array.isArray(books) || !books.length) return;
+    if (typeof window === "undefined" || typeof File === "undefined") return;
+
+    const cacheKey = "metadata-title-repair-v1";
+    let repairedMap = {};
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(cacheKey) || "{}");
+      repairedMap = parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      repairedMap = {};
+    }
+
+    const candidates = books.filter((book) => (
+      book?.id &&
+      isMetadataRepairCandidate(book?.title) &&
+      !repairedMap[book.id] &&
+      !metadataRepairInFlightRef.current.has(book.id)
+    ));
+    if (!candidates.length) return;
+
+    let cancelled = false;
+    const run = async () => {
+      let hasUpdates = false;
+      for (const book of candidates.slice(0, 8)) {
+        if (cancelled) return;
+        metadataRepairInFlightRef.current.add(book.id);
+        try {
+          const binary = await fetchBookBinary(book.id);
+          const epubFile = new File([binary], `${book.id}.epub`, { type: "application/epub+zip" });
+          const prepared = await readEpubMetadataFast(epubFile);
+          const metadata = prepared?.metadata || {};
+          const metadataTitle = String(metadata.title || "").trim();
+          if (metadataTitle && !isMetadataRepairCandidate(metadataTitle)) {
+            await updateBookMetadata(book.id, {
+              title: metadataTitle,
+              author: String(metadata.creator || book.author || "").trim() || null,
+              language: String(metadata.language || book.language || "").trim() || null
+            });
+            hasUpdates = true;
+          }
+        } catch (err) {
+          console.error("Metadata repair failed", err);
+        } finally {
+          repairedMap[book.id] = true;
+          metadataRepairInFlightRef.current.delete(book.id);
+        }
+      }
+
+      if (!cancelled) {
+        window.localStorage.setItem(cacheKey, JSON.stringify(repairedMap));
+        if (hasUpdates) {
+          await loadLibrary();
+        }
+      }
+    };
+
+    run().catch((err) => {
+      console.error("Metadata repair batch failed", err);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [books, isCollabMode]);
 
   useEffect(() => {
     if (!infoPopover) return;
@@ -4349,58 +4418,21 @@ const formatNotificationTimeAgo = (value) => {
     if (key === "ACTIVE" || key === "DUE_SOON") return formatLoanRemaining(loan);
     return "";
   };
-  const toTitleCaseWords = (value = "") => value
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.length <= 2 ? word.toLowerCase() : `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`)
-    .join(" ");
-  const isLikelyFilenameTitle = (value) => {
+  const isMetadataRepairCandidate = (value) => {
     const title = String(value || "").trim();
     if (!title) return true;
     const normalized = title.toLowerCase().replace(/\.epub$/i, "").trim();
-    if (/\.epub$/i.test(title)) return true;
-    if (/^[a-z0-9_-]{6,}$/i.test(normalized) && !/\s/.test(normalized)) return true;
+    if (/\.epub$/i.test(normalized)) return true;
     if (/^pg\s*\d+([\s_-]*images?)?([\s_-]*\d+)?$/i.test(normalized)) return true;
     if (/^[a-z0-9]+(?:[\s_-][a-z0-9]+){2,}$/i.test(normalized) && /\d/.test(normalized)) return true;
+    if (/^[a-z0-9_-]{6,}$/i.test(normalized) && !/\s/.test(normalized)) return true;
     return false;
   };
-  const humanizeFilenameTitle = (value, author = "") => {
-    const raw = String(value || "").trim();
-    if (!raw) return "";
-    if (/^pg\s*\d+([\s_-]*images?)?([\s_-]*\d+)?$/i.test(raw.replace(/\.epub$/i, ""))) return "";
-    const authorSurname = String(author || "")
-      .trim()
-      .toLowerCase()
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .pop() || "";
-    const stripped = raw
-      .replace(/\.epub$/i, "")
-      .replace(/\(\d+\)$/g, "")
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!stripped) return "";
-    const tokens = stripped
-      .split(" ")
-      .map((token) => token.trim())
-      .filter(Boolean)
-      .filter((token) => !/^images?$/i.test(token))
-      .filter((token) => !/^pg\d+$/i.test(token))
-      .filter((token) => !/^\d+$/.test(token));
-    if (!tokens.length) return "";
-    if (authorSurname && tokens.length > 2 && tokens[0].toLowerCase() === authorSurname) {
-      tokens.shift();
-    }
-    return toTitleCaseWords(tokens.join(" "));
-  };
   const getDisplayBookTitle = (book) => {
-    if (!book) return "Unknown Title";
-    const candidate = String(book.title || "").trim();
-    if (candidate && !isLikelyFilenameTitle(candidate)) return candidate;
     const metadataTitle = String(book?.epubMetadata?.title || "").trim();
-    if (metadataTitle && !isLikelyFilenameTitle(metadataTitle)) return metadataTitle;
-    return humanizeFilenameTitle(candidate, book?.author || "") || "Unknown Title";
+    if (metadataTitle) return metadataTitle;
+    const title = String(book?.title || "").trim();
+    return title || "Untitled";
   };
   const getLoanPermissionChips = (loan, mode = "borrowed") => {
     const perms = loan?.permissions || {};

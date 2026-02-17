@@ -100,6 +100,11 @@ export const saveProgress = async (bookId, progressPercent, progressCfi) => {
   return data.book;
 };
 
+export const updateBookMetadata = async (bookId, payload) => {
+  const { data } = await client.patch(`/books/${bookId}/metadata`, payload);
+  return data.book;
+};
+
 export const fetchHighlights = async (bookId) => {
   const { data } = await client.get(`/books/${bookId}/highlights`);
   return data.highlights || [];
