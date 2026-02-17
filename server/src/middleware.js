@@ -32,6 +32,12 @@ export const requireBookAccess = async (req, res, next) => {
   });
 
   if (!userBook) return res.status(403).json({ error: 'No access to this book' });
+  if (userBook.isDeleted) {
+    return res.status(410).json({
+      error: 'Book is in trash. Restore it first.',
+      code: 'BOOK_IN_TRASH'
+    });
+  }
   req.userBook = userBook;
   return next();
 };

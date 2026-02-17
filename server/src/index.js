@@ -63,6 +63,7 @@ const includeLoanGraph = {
   lender: { select: { id: true, email: true, displayName: true, avatarUrl: true } },
   borrower: { select: { id: true, email: true, displayName: true, avatarUrl: true } }
 };
+const TRASH_RETENTION_DAYS = 30;
 
 const toLoanResponse = (loan) => ({
   id: loan.id,
@@ -186,6 +187,19 @@ const emitLoanNotification = async (db, payload) => {
     actionType,
     actionTargetId
   });
+};
+
+const purgeExpiredUserTrash = async (db, userId, retentionDays = TRASH_RETENTION_DAYS) => {
+  if (!userId) return 0;
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const { count } = await db.userBook.deleteMany({
+    where: {
+      userId,
+      isDeleted: true,
+      deletedAt: { not: null, lte: cutoff }
+    }
+  });
+  return count || 0;
 };
 
 const toRenewalResponse = (row) => ({
@@ -312,6 +326,7 @@ app.post('/users/me/avatar', requireAuth, avatarUpload.single('avatar'), async (
 });
 
 app.get('/books', requireAuth, async (req, res) => {
+  await purgeExpiredUserTrash(prisma, req.auth.userId);
   const rows = await prisma.userBook.findMany({
     where: { userId: req.auth.userId },
     include: { book: true },
@@ -443,12 +458,39 @@ app.delete('/books/:bookId', requireAuth, async (req, res) => {
     });
   }
 
+  const activeBorrowingCount = await prisma.bookLoan.count({
+    where: {
+      bookId: req.params.bookId,
+      status: 'ACTIVE',
+      borrowerId: req.auth.userId
+    }
+  });
+  if (activeBorrowingCount > 0) {
+    return res.status(409).json({
+      error: 'This book is currently borrowed. Return it first, then delete from trash.',
+      code: 'ACTIVE_BORROWING_EXISTS'
+    });
+  }
+
   await prisma.userBook.delete({
     where: {
       userId_bookId: {
         userId: req.auth.userId,
         bookId: req.params.bookId
       }
+    }
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: req.auth.userId,
+    eventKey: `book-removed-${req.params.bookId}-${Date.now()}`,
+    kind: 'book-removed',
+    title: 'Book removed',
+    message: `A book was removed from your library permanently.`,
+    actionType: 'open-library',
+    actionTargetId: req.params.bookId,
+    meta: {
+      bookId: req.params.bookId
     }
   });
 
@@ -497,6 +539,23 @@ app.patch('/books/:bookId/trash', requireAuth, async (req, res) => {
       deletedAt: parsed.data.deleted ? now : null
     },
     include: { book: true }
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: req.auth.userId,
+    eventKey: parsed.data.deleted
+      ? `book-trashed-${req.params.bookId}-${Date.now()}`
+      : `book-restored-${req.params.bookId}-${Date.now()}`,
+    kind: parsed.data.deleted ? 'book-trashed' : 'book-restored',
+    title: parsed.data.deleted ? 'Moved to Trash' : 'Restored from Trash',
+    message: parsed.data.deleted
+      ? `${existing.book.title} moved to your Trash.`
+      : `${existing.book.title} restored to your library.`,
+    actionType: parsed.data.deleted ? 'open-trash' : 'open-library',
+    actionTargetId: req.params.bookId,
+    meta: {
+      bookId: req.params.bookId
+    }
   });
 
   return res.json({

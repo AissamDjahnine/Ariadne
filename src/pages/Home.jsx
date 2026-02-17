@@ -1639,11 +1639,18 @@ export default function Home() {
         }
       }, { duration: 6200 });
     } catch (err) {
+      const serverCode = err?.response?.data?.code;
       const serverMessage = err?.response?.data?.error;
+      const hint =
+        serverCode === "ACTIVE_LENDING_EXISTS"
+          ? "Revoke lending first in Lent."
+          : serverCode === "ACTIVE_BORROWING_EXISTS"
+            ? "Return the borrowed loan first in Borrowed."
+            : "Try again.";
       showFeedbackToast({
         tone: "destructive",
         title: "Could not move to Trash",
-        message: serverMessage || "Try again."
+        message: serverMessage || hint
       });
     }
   };
@@ -1677,13 +1684,29 @@ export default function Home() {
         await exportTrashBackups([targetBook]);
       }
     }
-    await deleteBook(id);
-    await loadLibrary();
-    showFeedbackToast({
-      tone: "destructive",
-      title: "Deleted permanently",
-      message: `${targetBook.title || "Book"} was deleted forever.`
-    }, { duration: 3600 });
+    try {
+      await deleteBook(id);
+      await loadLibrary();
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Deleted permanently",
+        message: `${targetBook.title || "Book"} was deleted forever.`
+      }, { duration: 3600 });
+    } catch (err) {
+      const serverCode = err?.response?.data?.code;
+      const serverMessage = err?.response?.data?.error;
+      const hint =
+        serverCode === "ACTIVE_LENDING_EXISTS"
+          ? "Revoke lending first in Lent."
+          : serverCode === "ACTIVE_BORROWING_EXISTS"
+            ? "Return the borrowed loan first in Borrowed."
+            : "Try again.";
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Could not delete permanently",
+        message: serverMessage || hint
+      });
+    }
   };
 
   const buildBookBackupPayload = (book) => {
@@ -1902,14 +1925,30 @@ export default function Home() {
     if (!selectedLibraryBookIds.length) return;
     const selectedBooks = activeBooks.filter((book) => selectedLibraryBookIds.includes(book.id));
     if (!selectedBooks.length) return;
-    await Promise.all(selectedBooks.map((book) => moveBookToTrash(book.id)));
-    setSelectedLibraryBookIds([]);
-    await loadLibrary();
-    showFeedbackToast({
-      tone: "warning",
-      title: "Moved to Trash",
-      message: `${selectedBooks.length} book${selectedBooks.length === 1 ? "" : "s"} moved to Trash.`
-    });
+    try {
+      await Promise.all(selectedBooks.map((book) => moveBookToTrash(book.id)));
+      setSelectedLibraryBookIds([]);
+      await loadLibrary();
+      showFeedbackToast({
+        tone: "warning",
+        title: "Moved to Trash",
+        message: `${selectedBooks.length} book${selectedBooks.length === 1 ? "" : "s"} moved to Trash.`
+      });
+    } catch (err) {
+      const serverCode = err?.response?.data?.code;
+      const serverMessage = err?.response?.data?.error;
+      const hint =
+        serverCode === "ACTIVE_LENDING_EXISTS"
+          ? "Some selected books are actively lent. Revoke lending first."
+          : serverCode === "ACTIVE_BORROWING_EXISTS"
+            ? "Some selected books are currently borrowed. Return them first."
+            : "Try again.";
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Could not move selected books",
+        message: serverMessage || hint
+      });
+    }
   };
 
   const handleRestoreSelectedTrash = async () => {
@@ -1939,14 +1978,30 @@ export default function Home() {
         await exportTrashBackups(selectedBooks);
       }
     }
-    await Promise.all(selectedTrashBookIds.map((id) => deleteBook(id)));
-    setSelectedTrashBookIds([]);
-    await loadLibrary();
-    showFeedbackToast({
-      tone: "destructive",
-      title: "Deleted permanently",
-      message: `${selectedBooks.length} book${selectedBooks.length === 1 ? "" : "s"} deleted forever.`
-    }, { duration: 3600 });
+    try {
+      await Promise.all(selectedTrashBookIds.map((id) => deleteBook(id)));
+      setSelectedTrashBookIds([]);
+      await loadLibrary();
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Deleted permanently",
+        message: `${selectedBooks.length} book${selectedBooks.length === 1 ? "" : "s"} deleted forever.`
+      }, { duration: 3600 });
+    } catch (err) {
+      const serverCode = err?.response?.data?.code;
+      const serverMessage = err?.response?.data?.error;
+      const hint =
+        serverCode === "ACTIVE_LENDING_EXISTS"
+          ? "Some books are actively lent. Revoke lending first."
+          : serverCode === "ACTIVE_BORROWING_EXISTS"
+            ? "Some books are currently borrowed. Return them first."
+            : "Try again.";
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Could not delete selected books",
+        message: serverMessage || hint
+      });
+    }
   };
 
   const handleRestoreAllTrash = async () => {
@@ -1975,14 +2030,30 @@ export default function Home() {
         await exportTrashBackups(trashedBooks);
       }
     }
-    await Promise.all(trashedBooks.map((book) => deleteBook(book.id)));
-    setSelectedTrashBookIds([]);
-    await loadLibrary();
-    showFeedbackToast({
-      tone: "destructive",
-      title: "Trash deleted permanently",
-      message: "All books in Trash were deleted forever."
-    }, { duration: 3600 });
+    try {
+      await Promise.all(trashedBooks.map((book) => deleteBook(book.id)));
+      setSelectedTrashBookIds([]);
+      await loadLibrary();
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Trash deleted permanently",
+        message: "All books in Trash were deleted forever."
+      }, { duration: 3600 });
+    } catch (err) {
+      const serverCode = err?.response?.data?.code;
+      const serverMessage = err?.response?.data?.error;
+      const hint =
+        serverCode === "ACTIVE_LENDING_EXISTS"
+          ? "Some books are actively lent. Revoke lending first."
+          : serverCode === "ACTIVE_BORROWING_EXISTS"
+            ? "Some books are currently borrowed. Return them first."
+            : "Try again.";
+      showFeedbackToast({
+        tone: "destructive",
+        title: "Could not delete all trash",
+        message: serverMessage || hint
+      });
+    }
   };
 
   const handleToggleFavorite = async (e, id) => {
@@ -4230,7 +4301,10 @@ const formatNotificationTimeAgo = (value) => {
     "loan-renewal-request": { label: "Renewal", Icon: Calendar, tone: "blue" },
     "loan-renewal-approved": { label: "Renewal", Icon: Check, tone: "green" },
     "loan-renewal-denied": { label: "Renewal", Icon: X, tone: "rose" },
-    "loan-export-window": { label: "Export", Icon: FileText, tone: "amber" }
+    "loan-export-window": { label: "Export", Icon: FileText, tone: "amber" },
+    "book-trashed": { label: "Trash", Icon: Trash2, tone: "rose" },
+    "book-restored": { label: "Restored", Icon: RotateCcw, tone: "green" },
+    "book-removed": { label: "Removed", Icon: Archive, tone: "rose" }
   };
   const notificationToneClasses = {
     amber: isDarkLibraryTheme ? "bg-amber-900/30 text-amber-300" : "bg-amber-100 text-amber-700",
@@ -4413,6 +4487,11 @@ const formatNotificationTimeAgo = (value) => {
       return;
     }
 
+    if (item.actionType === "open-trash") {
+      handleSidebarSectionSelect("trash");
+      return;
+    }
+
     handleSidebarSectionSelect("library");
   };
 
@@ -4441,7 +4520,7 @@ const formatNotificationTimeAgo = (value) => {
     setActiveNotificationMenuId("");
     setIsNotificationsOpen(false);
 
-    if (item.actionType === "open-inbox" || item.actionType === "open-borrowed" || item.actionType === "open-lent") {
+    if (item.actionType === "open-inbox" || item.actionType === "open-borrowed" || item.actionType === "open-lent" || item.actionType === "open-trash") {
       handleOpenNotificationTarget(item);
       return;
     }
