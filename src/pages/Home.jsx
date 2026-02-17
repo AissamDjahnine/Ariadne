@@ -63,16 +63,22 @@ import {
   Check,
   Mail,
   Send,
+  UserPlus,
 } from 'lucide-react';
 import {
+  acceptFriendRequest,
   approveLoanRenewal,
   acceptLoan,
+  cancelFriendRequest,
   createBookShare,
   denyLoanRenewal,
   exportLoanData,
+  fetchFriends,
+  fetchIncomingFriendRequests,
   fetchBorrowedLoans,
   fetchLoanAudit,
   fetchLoanInbox,
+  fetchOutgoingFriendRequests,
   fetchLoanRenewals,
   fetchLoanTemplate,
   fetchNotifications,
@@ -81,11 +87,15 @@ import {
   isCollabMode,
   markAllNotificationsRead,
   patchNotification,
+  rejectFriendRequest,
   rejectLoan,
+  removeFriend,
   requestLoanRenewal,
   requestBookLoan,
   returnLoan,
   revokeLoan,
+  searchUsers,
+  sendFriendRequest,
   updateLoanTemplate,
   updateMe,
   uploadMyAvatar
@@ -686,6 +696,14 @@ export default function Home() {
   const [notificationFocusedBookId, setNotificationFocusedBookId] = useState("");
   const [shareInboxCount, setShareInboxCount] = useState(0);
   const [loanInboxCount, setLoanInboxCount] = useState(0);
+  const [friends, setFriends] = useState([]);
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState([]);
+  const [outgoingFriendRequests, setOutgoingFriendRequests] = useState([]);
+  const [friendSearchQuery, setFriendSearchQuery] = useState("");
+  const [friendSearchResults, setFriendSearchResults] = useState([]);
+  const [isFriendsLoading, setIsFriendsLoading] = useState(false);
+  const [isFriendSearchLoading, setIsFriendSearchLoading] = useState(false);
+  const [friendActionBusyId, setFriendActionBusyId] = useState("");
   const [loanInbox, setLoanInbox] = useState([]);
   const [borrowedLoans, setBorrowedLoans] = useState([]);
   const [lentLoans, setLentLoans] = useState([]);
@@ -802,6 +820,7 @@ export default function Home() {
   useEffect(() => {
     loadLibrary();
     refreshCollabPanels();
+    loadFriendsData();
   }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -853,6 +872,33 @@ export default function Home() {
     }, 180);
     return () => clearTimeout(timeoutId);
   }, [highlightsSearchQuery]);
+
+  useEffect(() => {
+    if (!isCollabMode || librarySection !== "friends") return;
+    const query = friendSearchQuery.trim();
+    if (!query) {
+      setFriendSearchResults([]);
+      setIsFriendSearchLoading(false);
+      return;
+    }
+    let isCanceled = false;
+    setIsFriendSearchLoading(true);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const users = await searchUsers(query);
+        if (!isCanceled) setFriendSearchResults(Array.isArray(users) ? users : []);
+      } catch {
+        if (!isCanceled) setFriendSearchResults([]);
+      } finally {
+        if (!isCanceled) setIsFriendSearchLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      isCanceled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [friendSearchQuery, isCollabMode, librarySection]);
 
   useEffect(() => {
     if (!infoPopover) return;
@@ -1234,6 +1280,32 @@ export default function Home() {
     }
   };
 
+  const loadFriendsData = async () => {
+    if (!isCollabMode) {
+      setFriends([]);
+      setIncomingFriendRequests([]);
+      setOutgoingFriendRequests([]);
+      return;
+    }
+    setIsFriendsLoading(true);
+    try {
+      const [friendsRows, incomingRows, outgoingRows] = await Promise.all([
+        fetchFriends(),
+        fetchIncomingFriendRequests(),
+        fetchOutgoingFriendRequests()
+      ]);
+      setFriends(Array.isArray(friendsRows) ? friendsRows : []);
+      setIncomingFriendRequests(Array.isArray(incomingRows) ? incomingRows : []);
+      setOutgoingFriendRequests(Array.isArray(outgoingRows) ? outgoingRows : []);
+    } catch {
+      setFriends([]);
+      setIncomingFriendRequests([]);
+      setOutgoingFriendRequests([]);
+    } finally {
+      setIsFriendsLoading(false);
+    }
+  };
+
   const refreshShareInboxCount = async () => {
     if (!isCollabMode) {
       setShareInboxCount(0);
@@ -1253,6 +1325,115 @@ export default function Home() {
   const refreshCollabPanels = async () => {
     if (!isCollabMode) return;
     await Promise.all([refreshShareInboxCount(), loadLoansData()]);
+  };
+
+  const handleSendFriendRequest = async (toUserId) => {
+    if (!toUserId || friendActionBusyId) return;
+    setFriendActionBusyId(`send-${toUserId}`);
+    try {
+      await sendFriendRequest(toUserId);
+      showFeedbackToast({
+        title: "Request sent",
+        message: "Friend request sent successfully."
+      });
+      await loadFriendsData();
+      if (friendSearchQuery.trim()) {
+        const users = await searchUsers(friendSearchQuery.trim());
+        setFriendSearchResults(users);
+      }
+    } catch (err) {
+      showFeedbackToast({
+        tone: "error",
+        title: "Could not send request",
+        message: err?.response?.data?.error || "Please try again."
+      });
+    } finally {
+      setFriendActionBusyId("");
+    }
+  };
+
+  const handleAcceptFriendRequest = async (requestId) => {
+    if (!requestId || friendActionBusyId) return;
+    setFriendActionBusyId(`accept-${requestId}`);
+    try {
+      await acceptFriendRequest(requestId);
+      showFeedbackToast({
+        title: "Friend added",
+        message: "Friend request accepted."
+      });
+      await loadFriendsData();
+    } catch (err) {
+      showFeedbackToast({
+        tone: "error",
+        title: "Could not accept request",
+        message: err?.response?.data?.error || "Please try again."
+      });
+    } finally {
+      setFriendActionBusyId("");
+    }
+  };
+
+  const handleRejectFriendRequest = async (requestId) => {
+    if (!requestId || friendActionBusyId) return;
+    setFriendActionBusyId(`reject-${requestId}`);
+    try {
+      await rejectFriendRequest(requestId);
+      showFeedbackToast({
+        title: "Request rejected",
+        message: "Friend request rejected."
+      });
+      await loadFriendsData();
+    } catch (err) {
+      showFeedbackToast({
+        tone: "error",
+        title: "Could not reject request",
+        message: err?.response?.data?.error || "Please try again."
+      });
+    } finally {
+      setFriendActionBusyId("");
+    }
+  };
+
+  const handleCancelFriendRequest = async (requestId) => {
+    if (!requestId || friendActionBusyId) return;
+    setFriendActionBusyId(`cancel-${requestId}`);
+    try {
+      await cancelFriendRequest(requestId);
+      showFeedbackToast({
+        title: "Request canceled",
+        message: "Outgoing friend request canceled."
+      });
+      await loadFriendsData();
+    } catch (err) {
+      showFeedbackToast({
+        tone: "error",
+        title: "Could not cancel request",
+        message: err?.response?.data?.error || "Please try again."
+      });
+    } finally {
+      setFriendActionBusyId("");
+    }
+  };
+
+  const handleRemoveFriend = async (friendUserId) => {
+    if (!friendUserId || friendActionBusyId) return;
+    setFriendActionBusyId(`remove-${friendUserId}`);
+    try {
+      await removeFriend(friendUserId);
+      showFeedbackToast({
+        title: "Friend removed",
+        message: "Friend removed from your list."
+      });
+      await loadFriendsData();
+    } catch (err) {
+      showFeedbackToast({
+        tone: "error",
+        title: "Could not remove friend",
+        message: err?.response?.data?.error || "Please try again."
+      });
+    } finally {
+      setFriendActionBusyId("");
+    }
   };
 
   useEffect(() => {
@@ -2219,6 +2400,12 @@ export default function Home() {
       setCollectionFilter("all");
       setSelectedTrashBookIds([]);
       loadLoansData();
+    }
+    if (section === "friends") {
+      setStatusFilter("all");
+      setCollectionFilter("all");
+      setSelectedTrashBookIds([]);
+      loadFriendsData();
     }
     if (section === "account" || section === "statistics" || section === "faq") {
       setStatusFilter("all");
@@ -3655,6 +3842,7 @@ const formatNotificationTimeAgo = (value) => {
   const isNotesSection = librarySection === "notes";
   const isHighlightsSection = librarySection === "highlights";
   const isInboxSection = librarySection === "inbox";
+  const isFriendsSection = librarySection === "friends";
   const isBorrowedSection = librarySection === "borrowed";
   const isLentSection = librarySection === "lent";
   const isLoanAuditSection = librarySection === "history";
@@ -3698,6 +3886,14 @@ const formatNotificationTimeAgo = (value) => {
         title: "Inbox",
         subtitle: "Pending recommendations and loan requests.",
         summary: `${pendingCount} pending request${pendingCount === 1 ? "" : "s"}`
+      };
+    }
+    if (isFriendsSection) {
+      const pendingCount = incomingFriendRequests.length;
+      return {
+        title: "Friends",
+        subtitle: "Discover readers, accept requests, and manage your social graph.",
+        summary: `${friends.length} friend${friends.length === 1 ? "" : "s"} · ${pendingCount} incoming request${pendingCount === 1 ? "" : "s"}`
       };
     }
     if (isBorrowedSection) {
@@ -3758,6 +3954,7 @@ const formatNotificationTimeAgo = (value) => {
     isCollectionsPage,
     isTrashSection,
     isInboxSection,
+    isFriendsSection,
     isBorrowedSection,
     isLentSection,
     isLoanAuditSection,
@@ -3767,6 +3964,8 @@ const formatNotificationTimeAgo = (value) => {
     highlightsCenterDisplayEntries.length,
     shareInboxCount,
     loanInboxCount,
+    friends.length,
+    incomingFriendRequests.length,
     borrowedLoans.length,
     lentLoans.length,
     loanAuditEvents.length,
@@ -4749,6 +4948,7 @@ const formatNotificationTimeAgo = (value) => {
                 }`}>
                   {[
                     { key: "library", label: "My library", Icon: BookIcon },
+                    { key: "friends", label: "Friends", Icon: UserPlus },
                     { key: "borrowed", label: "Borrowed", Icon: Clock },
                     { key: "lent", label: "Lent", Icon: Send },
                     { key: "history", label: "History", Icon: History },
@@ -5677,6 +5877,177 @@ const formatNotificationTimeAgo = (value) => {
             onClose={handleToggleHighlightsCenter}
             onOpenReader={handleOpenHighlightInReader}
           />
+        )}
+        {isFriendsSection && !isTrashSection && (
+          <section className={`space-y-4 rounded-2xl border p-5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "border-gray-200 bg-white"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Find readers</h2>
+              <button
+                type="button"
+                onClick={loadFriendsData}
+                className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <article className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200 bg-gray-50/70"}`}>
+                <label className={`text-xs font-semibold uppercase tracking-[0.12em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                  Search by name, username, or user id
+                </label>
+                <input
+                  type="text"
+                  value={friendSearchQuery}
+                  onChange={(event) => setFriendSearchQuery(event.target.value)}
+                  placeholder="Type at least one character..."
+                  className={`mt-2 h-11 w-full rounded-xl border px-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDarkLibraryTheme ? "border-slate-700 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-gray-900"
+                  }`}
+                />
+                {isFriendSearchLoading ? (
+                  <p className={`mt-2 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Searching...</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {friendSearchResults.slice(0, 6).map((user) => (
+                      <div key={`search-user-${user.id}`} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/60" : "border-gray-200 bg-white"}`}>
+                        <div className="min-w-0">
+                          <p className={`truncate text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                            {user.displayName || user.email}
+                          </p>
+                          <p className={`truncate text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                            @{user.username || "no-username"} · {user.id}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSendFriendRequest(user.id)}
+                          disabled={friendActionBusyId === `send-${user.id}`}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                            isDarkLibraryTheme ? "bg-blue-700 text-white hover:bg-blue-600" : "bg-blue-600 text-white hover:bg-blue-700"
+                          }`}
+                        >
+                          {friendActionBusyId === `send-${user.id}` ? "Sending..." : "Add"}
+                        </button>
+                      </div>
+                    ))}
+                    {!friendSearchResults.length && friendSearchQuery.trim() && (
+                      <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>No users found.</p>
+                    )}
+                  </div>
+                )}
+              </article>
+
+              <article className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200 bg-gray-50/70"}`}>
+                <h3 className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Incoming requests</h3>
+                <div className="mt-2 space-y-2">
+                  {incomingFriendRequests.map((request) => (
+                    <div key={request.id} className={`rounded-lg border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/60" : "border-gray-200 bg-white"}`}>
+                      <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                        {request.fromUser?.displayName || request.fromUser?.email}
+                      </p>
+                      <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                        @{request.fromUser?.username || "no-username"}
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptFriendRequest(request.id)}
+                          disabled={friendActionBusyId === `accept-${request.id}`}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                            isDarkLibraryTheme ? "bg-emerald-700 text-white hover:bg-emerald-600" : "bg-emerald-600 text-white hover:bg-emerald-700"
+                          }`}
+                        >
+                          {friendActionBusyId === `accept-${request.id}` ? "Accepting..." : "Accept"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectFriendRequest(request.id)}
+                          disabled={friendActionBusyId === `reject-${request.id}`}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                            isDarkLibraryTheme ? "border-slate-600 text-slate-200 hover:bg-slate-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {friendActionBusyId === `reject-${request.id}` ? "Rejecting..." : "Reject"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {!incomingFriendRequests.length && (
+                    <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>No incoming requests.</p>
+                  )}
+                </div>
+              </article>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <article className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200 bg-gray-50/70"}`}>
+                <h3 className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Outgoing requests</h3>
+                <div className="mt-2 space-y-2">
+                  {outgoingFriendRequests.map((request) => (
+                    <div key={request.id} className={`rounded-lg border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/60" : "border-gray-200 bg-white"}`}>
+                      <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                        {request.toUser?.displayName || request.toUser?.email}
+                      </p>
+                      <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                        @{request.toUser?.username || "no-username"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleCancelFriendRequest(request.id)}
+                        disabled={friendActionBusyId === `cancel-${request.id}`}
+                        className={`mt-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                          isDarkLibraryTheme ? "border-slate-600 text-slate-200 hover:bg-slate-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        {friendActionBusyId === `cancel-${request.id}` ? "Canceling..." : "Cancel request"}
+                      </button>
+                    </div>
+                  ))}
+                  {!outgoingFriendRequests.length && (
+                    <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>No outgoing requests.</p>
+                  )}
+                </div>
+              </article>
+
+              <article className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200 bg-gray-50/70"}`}>
+                <h3 className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>My friends</h3>
+                {isFriendsLoading ? (
+                  <p className={`mt-2 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Loading friends...</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {friends.map((item) => {
+                      const friend = item.friend || {};
+                      return (
+                        <div key={item.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/60" : "border-gray-200 bg-white"}`}>
+                          <div className="min-w-0">
+                            <p className={`truncate text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                              {friend.displayName || friend.email}
+                            </p>
+                            <p className={`truncate text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                              @{friend.username || "no-username"} · {friend.id}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFriend(friend.id)}
+                            disabled={friendActionBusyId === `remove-${friend.id}`}
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                              isDarkLibraryTheme ? "border-rose-700/70 text-rose-200 hover:bg-rose-900/25" : "border-rose-200 text-rose-700 hover:bg-rose-50"
+                            }`}
+                          >
+                            {friendActionBusyId === `remove-${friend.id}` ? "Removing..." : "Remove"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {!friends.length && (
+                      <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>No friends yet.</p>
+                    )}
+                  </div>
+                )}
+              </article>
+            </div>
+          </section>
         )}
         {isInboxSection && !isTrashSection && (
           <div className="space-y-4">
