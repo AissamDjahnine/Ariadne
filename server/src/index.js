@@ -53,6 +53,7 @@ const includeLoanGraph = {
   lender: { select: { id: true, email: true, displayName: true, avatarUrl: true } },
   borrower: { select: { id: true, email: true, displayName: true, avatarUrl: true } }
 };
+const LOAN_EXPORT_WINDOW_DAYS = 14;
 
 const getActiveBorrowLoan = async (userId, bookId) => {
   if (!userId || !bookId) return null;
@@ -79,6 +80,48 @@ const getActiveBorrowerIdsForLender = async (lenderId, bookId) => {
   return loans.map((loan) => loan.borrowerId).filter(Boolean);
 };
 
+const resolveLoanAnnotationScope = (loan) => {
+  if (!loan) return 'OWNER';
+  return loan.annotationVisibility === 'SHARED_WITH_LENDER'
+    ? 'LENDER_VISIBLE'
+    : 'PRIVATE_BORROWER';
+};
+
+const buildAnnotationAccessWhere = async ({ bookId, userId }) => {
+  const activeBorrowLoan = await getActiveBorrowLoan(userId, bookId);
+  if (activeBorrowLoan) {
+    if (!activeBorrowLoan.shareLenderAnnotations) {
+      return { bookId, createdByUserId: userId };
+    }
+    return {
+      bookId,
+      OR: [
+        { createdByUserId: userId },
+        { createdByUserId: activeBorrowLoan.lenderId, scope: 'OWNER' }
+      ]
+    };
+  }
+
+  const activeBorrowerIds = await getActiveBorrowerIdsForLender(userId, bookId);
+  const where = {
+    bookId,
+    scope: { not: 'PRIVATE_BORROWER' }
+  };
+  if (!activeBorrowerIds.length) return where;
+
+  return {
+    ...where,
+    NOT: [
+      {
+        AND: [
+          { createdByUserId: { in: activeBorrowerIds } },
+          { scope: 'LENDER_VISIBLE' }
+        ]
+      }
+    ]
+  };
+};
+
 const toLoanResponse = (loan) => ({
   id: loan.id,
   status: loan.status,
@@ -98,7 +141,8 @@ const toLoanResponse = (loan) => ({
     canEditHighlights: loan.canEditHighlights,
     canAddNotes: loan.canAddNotes,
     canEditNotes: loan.canEditNotes,
-    annotationVisibility: loan.annotationVisibility
+    annotationVisibility: loan.annotationVisibility,
+    shareLenderAnnotations: Boolean(loan.shareLenderAnnotations)
   },
   book: loan.book ? toBookResponse({ ...loan.book, userBooks: [] }, null, '') : null,
   lender: loan.lender ? toUserResponse(loan.lender) : null,
@@ -142,12 +186,14 @@ const expireLoanIfNeeded = async (loan, userIdForAccess = null) => {
   if (Date.now() <= effectiveEndMs) return loan;
 
   const updated = await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const exportAvailableUntil = new Date(now.getTime() + LOAN_EXPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     const next = await tx.bookLoan.update({
       where: { id: loan.id },
       data: {
         status: 'EXPIRED',
-        expiredAt: new Date(),
-        exportAvailableUntil: null
+        expiredAt: now,
+        exportAvailableUntil
       },
       include: includeLoanGraph
     });
@@ -423,14 +469,12 @@ app.patch('/books/:bookId/progress', requireAuth, requireBookAccess, async (req,
 });
 
 app.get('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req, res) => {
-  const hiddenBorrowerIds = await getActiveBorrowerIdsForLender(req.auth.userId, req.params.bookId);
+  const where = await buildAnnotationAccessWhere({
+    bookId: req.params.bookId,
+    userId: req.auth.userId
+  });
   const highlights = await prisma.highlight.findMany({
-    where: {
-      bookId: req.params.bookId,
-      ...(hiddenBorrowerIds.length
-        ? { createdByUserId: { notIn: hiddenBorrowerIds } }
-        : {})
-    },
+    where,
     include: {
       createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } }
     },
@@ -456,6 +500,7 @@ app.post('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req
   if (activeBorrowLoan && !activeBorrowLoan.canAddHighlights) {
     return res.status(403).json({ error: 'Lender disabled adding highlights for this loan' });
   }
+  const scope = resolveLoanAnnotationScope(activeBorrowLoan);
 
   await prisma.highlight.upsert({
     where: {
@@ -482,12 +527,17 @@ app.post('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req
       color: parsed.data.color || null,
       contextPrefix: parsed.data.contextPrefix || null,
       contextSuffix: parsed.data.contextSuffix || null,
-      chapterHref: parsed.data.chapterHref || null
+      chapterHref: parsed.data.chapterHref || null,
+      scope
     }
   });
 
+  const where = await buildAnnotationAccessWhere({
+    bookId: req.params.bookId,
+    userId: req.auth.userId
+  });
   const highlights = await prisma.highlight.findMany({
-    where: { bookId: req.params.bookId },
+    where,
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } },
     orderBy: { createdAt: 'asc' }
   });
@@ -531,12 +581,17 @@ app.patch('/highlights/:highlightId', requireAuth, async (req, res) => {
       text: parsed.data.text === undefined ? existing.text : parsed.data.text,
       contextPrefix: parsed.data.contextPrefix === undefined ? existing.contextPrefix : parsed.data.contextPrefix,
       contextSuffix: parsed.data.contextSuffix === undefined ? existing.contextSuffix : parsed.data.contextSuffix,
-      chapterHref: parsed.data.chapterHref === undefined ? existing.chapterHref : parsed.data.chapterHref
+      chapterHref: parsed.data.chapterHref === undefined ? existing.chapterHref : parsed.data.chapterHref,
+      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope
     }
   });
 
+  const where = await buildAnnotationAccessWhere({
+    bookId: existing.bookId,
+    userId: req.auth.userId
+  });
   const highlights = await prisma.highlight.findMany({
-    where: { bookId: existing.bookId },
+    where,
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } },
     orderBy: { createdAt: 'asc' }
   });
@@ -557,8 +612,12 @@ app.delete('/highlights/:highlightId', requireAuth, async (req, res) => {
   }
 
   await prisma.highlight.delete({ where: { id: existing.id } });
+  const where = await buildAnnotationAccessWhere({
+    bookId: existing.bookId,
+    userId: req.auth.userId
+  });
   const highlights = await prisma.highlight.findMany({
-    where: { bookId: existing.bookId },
+    where,
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } },
     orderBy: { createdAt: 'asc' }
   });
@@ -567,14 +626,12 @@ app.delete('/highlights/:highlightId', requireAuth, async (req, res) => {
 });
 
 app.get('/books/:bookId/notes', requireAuth, requireBookAccess, async (req, res) => {
-  const hiddenBorrowerIds = await getActiveBorrowerIdsForLender(req.auth.userId, req.params.bookId);
+  const where = await buildAnnotationAccessWhere({
+    bookId: req.params.bookId,
+    userId: req.auth.userId
+  });
   const notes = await prisma.note.findMany({
-    where: {
-      bookId: req.params.bookId,
-      ...(hiddenBorrowerIds.length
-        ? { createdByUserId: { notIn: hiddenBorrowerIds } }
-        : {})
-    },
+    where,
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } },
     orderBy: { createdAt: 'asc' }
   });
@@ -594,6 +651,7 @@ app.post('/books/:bookId/notes', requireAuth, requireBookAccess, async (req, res
   if (activeBorrowLoan && !activeBorrowLoan.canAddNotes) {
     return res.status(403).json({ error: 'Lender disabled adding notes for this loan' });
   }
+  const scope = resolveLoanAnnotationScope(activeBorrowLoan);
 
   const note = await prisma.note.create({
     data: {
@@ -601,7 +659,8 @@ app.post('/books/:bookId/notes', requireAuth, requireBookAccess, async (req, res
       createdByUserId: req.auth.userId,
       text: parsed.data.text,
       cfi: parsed.data.cfi || null,
-      message: parsed.data.message || null
+      message: parsed.data.message || null,
+      scope
     },
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } }
   });
@@ -634,7 +693,8 @@ app.patch('/notes/:noteId', requireAuth, async (req, res) => {
     data: {
       text: parsed.data.text === undefined ? existing.text : parsed.data.text,
       cfi: parsed.data.cfi === undefined ? existing.cfi : parsed.data.cfi,
-      message: parsed.data.message === undefined ? existing.message : parsed.data.message
+      message: parsed.data.message === undefined ? existing.message : parsed.data.message,
+      scope: activeBorrowLoan ? resolveLoanAnnotationScope(activeBorrowLoan) : existing.scope
     },
     include: { createdBy: { select: { id: true, email: true, displayName: true, avatarUrl: true } } }
   });
@@ -824,7 +884,8 @@ app.post('/shares/:shareId/borrow', requireAuth, async (req, res) => {
         canEditHighlights: true,
         canAddNotes: true,
         canEditNotes: true,
-        annotationVisibility: 'PRIVATE'
+        annotationVisibility: 'PRIVATE',
+        shareLenderAnnotations: false
       },
       include: includeLoanGraph
     });
@@ -882,13 +943,15 @@ app.post('/loans/books', requireAuth, async (req, res) => {
       canEditHighlights: z.boolean().default(true),
       canAddNotes: z.boolean().default(true),
       canEditNotes: z.boolean().default(true),
-      annotationVisibility: z.enum(['PRIVATE', 'SHARED_WITH_LENDER']).default('PRIVATE')
+      annotationVisibility: z.enum(['PRIVATE', 'SHARED_WITH_LENDER']).default('PRIVATE'),
+      shareLenderAnnotations: z.boolean().default(false)
     }).default({
       canAddHighlights: true,
       canEditHighlights: true,
       canAddNotes: true,
       canEditNotes: true,
-      annotationVisibility: 'PRIVATE'
+      annotationVisibility: 'PRIVATE',
+      shareLenderAnnotations: false
     })
   }).refine((v) => !!v.bookId || !!v.epubHash, {
     message: 'bookId or epubHash is required'
@@ -931,7 +994,8 @@ app.post('/loans/books', requireAuth, async (req, res) => {
           canEditHighlights: parsed.data.permissions.canEditHighlights,
           canAddNotes: parsed.data.permissions.canAddNotes,
           canEditNotes: parsed.data.permissions.canEditNotes,
-          annotationVisibility: parsed.data.permissions.annotationVisibility
+          annotationVisibility: parsed.data.permissions.annotationVisibility,
+          shareLenderAnnotations: parsed.data.permissions.shareLenderAnnotations
         },
         include: includeLoanGraph
       })
@@ -947,7 +1011,8 @@ app.post('/loans/books', requireAuth, async (req, res) => {
           canEditHighlights: parsed.data.permissions.canEditHighlights,
           canAddNotes: parsed.data.permissions.canAddNotes,
           canEditNotes: parsed.data.permissions.canEditNotes,
-          annotationVisibility: parsed.data.permissions.annotationVisibility
+          annotationVisibility: parsed.data.permissions.annotationVisibility,
+          shareLenderAnnotations: parsed.data.permissions.shareLenderAnnotations
         },
         include: includeLoanGraph
       });
@@ -1172,12 +1237,14 @@ app.post('/loans/:loanId/return', requireAuth, async (req, res) => {
     : null;
 
   const returned = await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const exportAvailableUntil = new Date(now.getTime() + LOAN_EXPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     const next = await tx.bookLoan.update({
       where: { id: loan.id },
       data: {
         status: 'RETURNED',
-        returnedAt: new Date(),
-        exportAvailableUntil: null
+        returnedAt: now,
+        exportAvailableUntil
       },
       include: includeLoanGraph
     });
@@ -1215,7 +1282,7 @@ app.post('/loans/:loanId/revoke', requireAuth, async (req, res) => {
   if (loan.status !== 'ACTIVE') return res.status(400).json({ error: 'Loan is not active' });
 
   const now = new Date();
-  const exportAvailableUntil = new Date(now.getTime() + 60 * 60 * 1000);
+  const exportAvailableUntil = new Date(now.getTime() + LOAN_EXPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const revoked = await prisma.$transaction(async (tx) => {
     const next = await tx.bookLoan.update({
       where: { id: loan.id },
@@ -1257,10 +1324,14 @@ app.get('/loans/:loanId/export', requireAuth, async (req, res) => {
   if (!loan) return res.status(404).json({ error: 'Loan not found' });
   if (loan.borrowerId !== req.auth.userId) return res.status(403).json({ error: 'Forbidden' });
 
-  if (loan.status !== 'REVOKED') {
-    return res.status(400).json({ error: 'Export is available only for revoked loans in grace window' });
+  if (!['REVOKED', 'RETURNED', 'EXPIRED'].includes(loan.status)) {
+    return res.status(400).json({ error: 'Export is available only for ended loans' });
   }
-  const deadlineMs = loan.exportAvailableUntil ? new Date(loan.exportAvailableUntil).getTime() : NaN;
+  const fallbackDeadlineSource = loan.revokedAt || loan.returnedAt || loan.expiredAt || loan.updatedAt || loan.createdAt;
+  const fallbackDeadline = new Date(new Date(fallbackDeadlineSource).getTime() + LOAN_EXPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const deadlineMs = loan.exportAvailableUntil
+    ? new Date(loan.exportAvailableUntil).getTime()
+    : fallbackDeadline.getTime();
   if (!Number.isFinite(deadlineMs) || Date.now() > deadlineMs) {
     return res.status(403).json({ error: 'Export window ended' });
   }

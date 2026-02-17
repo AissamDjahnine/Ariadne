@@ -33,6 +33,12 @@ enum AnnotationVisibility {
   SHARED_WITH_LENDER
 }
 
+enum AnnotationScope {
+  OWNER
+  LENDER_VISIBLE
+  PRIVATE_BORROWER
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -105,6 +111,7 @@ model Note {
   cfi             String?
   text            String
   message         String?
+  scope           AnnotationScope @default(OWNER)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -125,6 +132,7 @@ model Highlight {
   contextPrefix   String?
   contextSuffix   String?
   chapterHref     String?
+  scope           AnnotationScope @default(OWNER)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -175,6 +183,7 @@ model BookLoan {
   canAddNotes                   Boolean              @default(true)
   canEditNotes                  Boolean              @default(true)
   annotationVisibility          AnnotationVisibility @default(PRIVATE)
+  shareLenderAnnotations        Boolean              @default(false)
   createdAt                     DateTime             @default(now())
   updatedAt                     DateTime             @updatedAt
 

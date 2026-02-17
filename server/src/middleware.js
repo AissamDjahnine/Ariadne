@@ -25,6 +25,7 @@ export const requireAuth = (req, res, next) => {
 export const requireBookAccess = async (req, res, next) => {
   const { bookId } = req.params;
   if (!bookId) return res.status(400).json({ error: 'bookId required' });
+  const loanExportWindowDays = 14;
 
   const activeBorrowLoan = await prisma.bookLoan.findFirst({
     where: {
@@ -40,13 +41,15 @@ export const requireBookAccess = async (req, res, next) => {
     const graceDays = Math.max(0, Number(activeBorrowLoan.graceDays) || 0);
     const effectiveEndMs = dueMs + graceDays * 24 * 60 * 60 * 1000;
     if (Number.isFinite(effectiveEndMs) && Date.now() > effectiveEndMs) {
+      const now = new Date();
+      const exportAvailableUntil = new Date(now.getTime() + loanExportWindowDays * 24 * 60 * 60 * 1000);
       await prisma.$transaction(async (tx) => {
         await tx.bookLoan.update({
           where: { id: activeBorrowLoan.id },
           data: {
             status: 'EXPIRED',
-            expiredAt: new Date(),
-            exportAvailableUntil: null
+            expiredAt: now,
+            exportAvailableUntil
           }
         });
         if (activeBorrowLoan.createdUserBookOnAccept) {

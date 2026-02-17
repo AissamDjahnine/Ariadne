@@ -189,10 +189,12 @@ export const revokeLoan = async (loanId) => {
   return data.loan;
 };
 
-export const exportRevokedLoanData = async (loanId) => {
+export const exportLoanData = async (loanId) => {
   const { data } = await client.get(`/loans/${loanId}/export`);
   return data.export;
 };
+
+export const exportRevokedLoanData = exportLoanData;
 
 export const fetchLoanAudit = async () => {
   const { data } = await client.get('/loans/audit');

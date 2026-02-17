@@ -67,7 +67,7 @@ import {
 import {
   acceptLoan,
   createBookShare,
-  exportRevokedLoanData,
+  exportLoanData,
   fetchBorrowedLoans,
   fetchLoanAudit,
   fetchLoanInbox,
@@ -681,7 +681,8 @@ export default function Home() {
     canEditHighlights: true,
     canAddNotes: true,
     canEditNotes: true,
-    annotationVisibility: "PRIVATE"
+    annotationVisibility: "PRIVATE",
+    shareLenderAnnotations: false
   });
   const [shareError, setShareError] = useState("");
   const [isSharingBook, setIsSharingBook] = useState(false);
@@ -1195,6 +1196,28 @@ export default function Home() {
     await Promise.all([refreshShareInboxCount(), loadLoansData()]);
   };
 
+  useEffect(() => {
+    if (!isCollabMode || typeof window === "undefined") return;
+    const key = "loan-revocation-notified-ids";
+    let seen = [];
+    try {
+      seen = JSON.parse(window.localStorage.getItem(key) || "[]");
+      if (!Array.isArray(seen)) seen = [];
+    } catch {
+      seen = [];
+    }
+    const revoked = borrowedLoans.filter((loan) => loan?.status === "REVOKED");
+    const newlyRevoked = revoked.filter((loan) => loan?.id && !seen.includes(loan.id));
+    if (!newlyRevoked.length) return;
+    const first = newlyRevoked[0];
+    showFeedbackToast({
+      title: "Loan revoked",
+      message: `Access removed for "${first?.book?.title || "book"}". You have 14 days to export annotations.`
+    });
+    const nextSeen = [...seen, ...newlyRevoked.map((loan) => loan.id)].slice(-200);
+    window.localStorage.setItem(key, JSON.stringify(nextSeen));
+  }, [borrowedLoans, isCollabMode]);
+
   const openShareDialog = (event, book) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1209,7 +1232,8 @@ export default function Home() {
       canEditHighlights: true,
       canAddNotes: true,
       canEditNotes: true,
-      annotationVisibility: "PRIVATE"
+      annotationVisibility: "PRIVATE",
+      shareLenderAnnotations: false
     });
     setShareError("");
   };
@@ -1320,7 +1344,7 @@ export default function Home() {
   const handleRevokeLentLoan = async (loanId) => {
     if (!loanId) return;
     const confirmed = typeof window !== "undefined"
-      ? window.confirm("Revoke this loan now? Borrower access will stop immediately and export will be available for 1 hour.")
+      ? window.confirm("Revoke this loan now? Borrower access stops immediately and they can only export annotations for 14 days.")
       : false;
     if (!confirmed) return;
     setIsLoanActionBusyId(`revoke-${loanId}`);
@@ -1335,21 +1359,42 @@ export default function Home() {
     }
   };
 
-  const handleExportRevokedLoan = async (loanId) => {
+  const handleExportLoanData = async (loanId, format = "json") => {
     if (!loanId) return;
-    setIsLoanActionBusyId(`export-${loanId}`);
+    setIsLoanActionBusyId(`export-${loanId}-${format}`);
     try {
-      const payload = await exportRevokedLoanData(loanId);
+      const payload = await exportLoanData(loanId);
       if (typeof window !== "undefined") {
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-        const objectUrl = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = objectUrl;
-        link.download = `loan-export-${loanId}.json`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(objectUrl);
+        if (format === "pdf") {
+          const { jsPDF } = await import("jspdf");
+          const doc = new jsPDF();
+          const lines = [
+            `Loan export: ${loanId}`,
+            `Exported at: ${payload?.exportedAt || ""}`,
+            `Book: ${payload?.book?.title || "Untitled"}${payload?.book?.author ? ` - ${payload.book.author}` : ""}`,
+            `Lender: ${payload?.lender?.email || ""}`,
+            `Borrower: ${payload?.borrower?.email || ""}`,
+            "",
+            `Notes: ${Array.isArray(payload?.notes) ? payload.notes.length : 0}`,
+            `Highlights: ${Array.isArray(payload?.highlights) ? payload.highlights.length : 0}`
+          ];
+          let y = 18;
+          lines.forEach((line) => {
+            doc.text(String(line), 12, y);
+            y += 8;
+          });
+          doc.save(`loan-export-${loanId}.pdf`);
+        } else {
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = `loan-export-${loanId}.json`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(objectUrl);
+        }
       }
       showFeedbackToast({ title: "Export ready", message: "Loan annotations exported." });
     } catch (err) {
@@ -5061,6 +5106,7 @@ const formatNotificationTimeAgo = (value) => {
                         <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Notes: {loan.permissions?.canAddNotes ? "add" : "off"}</span>
                         <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Highlights: {loan.permissions?.canAddHighlights ? "add" : "off"}</span>
                         <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Visibility: {loan.permissions?.annotationVisibility === "SHARED_WITH_LENDER" ? "shared" : "private"}</span>
+                        <span className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>Lender notes: {loan.permissions?.shareLenderAnnotations ? "visible" : "hidden"}</span>
                       </div>
                       <div className="mt-3 flex items-center gap-2">
                         <button
@@ -5103,12 +5149,28 @@ const formatNotificationTimeAgo = (value) => {
               <div className="space-y-3">
                 {borrowedLoans.map((loan) => (
                   <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
+                    <div className="flex items-start gap-3">
+                      <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                        {loan.book?.cover ? (
+                          <img
+                            src={loan.book.cover}
+                            alt={loan.book?.title || "Book cover"}
+                            className={`h-full w-full object-cover ${loan.status === "ACTIVE" ? "" : "grayscale opacity-60"}`}
+                          />
+                        ) : (
+                          <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                        )}
+                      </div>
+                      <div className="flex-1">
                         <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{loan.book?.title || "Book"}</p>
                         <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
                           from {loan.lender?.displayName || loan.lender?.email} · due {formatLoanDate(getLoanDeadline(loan))}
                         </p>
+                        {loan.status !== "ACTIVE" && (
+                          <p className={`mt-1 text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                            Access removed. Export annotations only.
+                          </p>
+                        )}
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
                         loan.status === "ACTIVE"
@@ -5126,10 +5188,15 @@ const formatNotificationTimeAgo = (value) => {
                           {isLoanActionBusyId === `return-${loan.id}` ? "Returning..." : "Return"}
                         </button>
                       )}
-                      {loan.status === "REVOKED" && loan.exportAvailableUntil && (
-                        <button type="button" onClick={() => handleExportRevokedLoan(loan.id)} disabled={isLoanActionBusyId === `export-${loan.id}`} className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "bg-blue-700 text-white hover:bg-blue-600" : "bg-blue-600 text-white"}`}>
-                          {isLoanActionBusyId === `export-${loan.id}` ? "Exporting..." : "Export notes/highlights"}
-                        </button>
+                      {["REVOKED", "EXPIRED", "RETURNED"].includes(loan.status) && (
+                        <>
+                          <button type="button" onClick={() => handleExportLoanData(loan.id, "json")} disabled={isLoanActionBusyId === `export-${loan.id}-json`} className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "bg-blue-700 text-white hover:bg-blue-600" : "bg-blue-600 text-white"}`}>
+                            {isLoanActionBusyId === `export-${loan.id}-json` ? "Exporting..." : "Export JSON"}
+                          </button>
+                          <button type="button" onClick={() => handleExportLoanData(loan.id, "pdf")} disabled={isLoanActionBusyId === `export-${loan.id}-pdf`} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "border-slate-600 text-slate-100 hover:bg-slate-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}>
+                            {isLoanActionBusyId === `export-${loan.id}-pdf` ? "Exporting..." : "Export PDF"}
+                          </button>
+                        </>
                       )}
                     </div>
                   </article>
@@ -6015,6 +6082,14 @@ const formatNotificationTimeAgo = (value) => {
                         <option value="PRIVATE">Borrower private</option>
                         <option value="SHARED_WITH_LENDER">Shared with lender</option>
                       </select>
+                    </label>
+                    <label className="mt-3 inline-flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={loanPermissions.shareLenderAnnotations}
+                        onChange={(e) => setLoanPermissions((current) => ({ ...current, shareLenderAnnotations: e.target.checked }))}
+                      />
+                      <span>Share my existing annotations with borrower</span>
                     </label>
                   </div>
                 )}
