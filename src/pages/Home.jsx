@@ -4256,11 +4256,15 @@ const formatNotificationTimeAgo = (value) => {
   }, [lentLoans]);
   const getBookLoanBadge = (bookId) => {
     if (!bookId) return null;
-    if (activeBorrowedLoanByBookId.has(bookId)) {
-      return { label: "Borrowed", tone: "amber" };
+    const borrowedLoan = activeBorrowedLoanByBookId.get(bookId);
+    if (borrowedLoan) {
+      const remaining = formatLoanCompactRemaining(borrowedLoan);
+      return { label: remaining ? `Borrowed · ${remaining}` : "Borrowed", tone: "amber" };
     }
-    if (activeLentLoanByBookId.has(bookId)) {
-      return { label: "Lent", tone: "blue" };
+    const lentLoan = activeLentLoanByBookId.get(bookId);
+    if (lentLoan) {
+      const remaining = formatLoanCompactRemaining(lentLoan);
+      return { label: remaining ? `Lent · ${remaining}` : "Lent", tone: "blue" };
     }
     return null;
   };
@@ -4361,6 +4365,7 @@ const formatNotificationTimeAgo = (value) => {
   const humanizeFilenameTitle = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
+    if (/^pg\d+(-images)?-\d+$/i.test(raw.replace(/\.epub$/i, ""))) return "";
     const stripped = raw
       .replace(/\.epub$/i, "")
       .replace(/\(\d+\)$/g, "")
@@ -7038,8 +7043,6 @@ const formatNotificationTimeAgo = (value) => {
             {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
-              const borrowedLoan = activeBorrowedLoanByBookId.get(book.id);
-              const lentLoan = activeLentLoanByBookId.get(book.id);
               const loanBadge = getBookLoanBadge(book.id);
               return (
                 <Link 
@@ -7317,25 +7320,6 @@ const formatNotificationTimeAgo = (value) => {
                       <User size={14} />
                       <span className="truncate">{book.author}</span>
                     </div>
-                      {borrowedLoan && (
-                        <div className={`mb-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                          isDarkLibraryTheme
-                            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                            : "border-amber-300 bg-amber-50 text-amber-700"
-                        }`}>
-                          Borrowed{formatLoanCompactRemaining(borrowedLoan) ? ` · ${formatLoanCompactRemaining(borrowedLoan)}` : ""}
-                        </div>
-                      )}
-                      {!borrowedLoan && lentLoan && (
-                        <div className={`mb-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                          isDarkLibraryTheme
-                            ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
-                            : "border-blue-300 bg-blue-50 text-blue-700"
-                        }`}>
-                          Lent{formatLoanCompactRemaining(lentLoan) ? ` · ${formatLoanCompactRemaining(lentLoan)}` : ""}
-                        </div>
-                      )}
-
                     {densityMode !== "compact" ? (
                       <>
                         {renderMetadataBadges(book)}
@@ -7368,8 +7352,6 @@ const formatNotificationTimeAgo = (value) => {
             {renderedBooks.map((book) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
-              const borrowedLoan = activeBorrowedLoanByBookId.get(book.id);
-              const lentLoan = activeLentLoanByBookId.get(book.id);
               const loanBadge = getBookLoanBadge(book.id);
               return (
                 <Link
@@ -7432,25 +7414,6 @@ const formatNotificationTimeAgo = (value) => {
                         <User size={14} />
                         <span className="truncate">{book.author}</span>
                       </div>
-                      {borrowedLoan && (
-                        <div className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                          isDarkLibraryTheme
-                            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                            : "border-amber-300 bg-amber-50 text-amber-700"
-                        }`}>
-                          Borrowed{formatLoanCompactRemaining(borrowedLoan) ? ` · ${formatLoanCompactRemaining(borrowedLoan)}` : ""}
-                        </div>
-                      )}
-                      {!borrowedLoan && lentLoan && (
-                        <div className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                          isDarkLibraryTheme
-                            ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
-                            : "border-blue-300 bg-blue-50 text-blue-700"
-                        }`}>
-                          Lent{formatLoanCompactRemaining(lentLoan) ? ` · ${formatLoanCompactRemaining(lentLoan)}` : ""}
-                        </div>
-                      )}
-
                       {renderMetadataBadges(book)}
                       {renderCollectionChips(book)}
 
