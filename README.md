@@ -319,6 +319,10 @@ When this variable is set:
   - `Grid`
   - `Compact`
   - `List`
+- Loan accept flow now includes a permission-summary confirmation step before final accept.
+- Borrowed and Lent views include renewal controls:
+  - borrower can request extension days,
+  - lender can approve/deny pending renewal requests.
 - History is grouped at book level:
   - all lifecycle events for the same book are shown together
   - each event row shows actor/target identity with small avatar chips.
@@ -377,6 +381,7 @@ When this variable is set:
 Environment variables:
 - `LOAN_SCHEDULER_ENABLED=true|false` (default `true`)
 - `LOAN_SCHEDULER_INTERVAL_MS` (default `60000`, minimum `15000`)
+- `server/.env.example` and `docker-compose.yml` already expose these values.
 
 ### Backend migrations
 
@@ -384,6 +389,12 @@ When pulling latest collaboration changes, run migrations on the server DB:
 
 ```bash
 docker compose exec backend npx prisma migrate deploy
+```
+
+Then rebuild/restart backend/frontend so API + UI match:
+
+```bash
+docker compose up -d --build backend frontend
 ```
 
 ## Main App Areas
