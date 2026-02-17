@@ -275,16 +275,59 @@ When this variable is set:
 - Display name is required at signup.
 - JWT auth is required.
 - Books/progress/highlights are loaded from shared backend.
-- Share Inbox and book sharing UI are enabled.
+- Recommendation Inbox, Borrowed, Lent, and History sections are enabled.
 - Profile avatar upload and profile name updates are enabled.
 
-### Access control model
+### Collaboration model (current)
 
 - `Book` is global/shared by `epubHash`.
 - Per-user progress is in `UserBook`.
-- Notes/highlights are shared per `Book` and include author.
+- Sharing is recommendation-first:
+  - `Share` sends book recommendation metadata.
+  - Recipient chooses whether to borrow.
+- Lending creates a `BookLoan` with immutable permission snapshot at creation/accept.
+- Borrower progress is always independent from lender progress.
+- Notes/highlights use scoped visibility:
+  - `OWNER`
+  - `LENDER_VISIBLE`
+  - `PRIVATE_BORROWER`
+- Borrowed annotation permissions are enforceable per loan:
+  - add/edit notes
+  - add/edit highlights
+  - borrower cannot edit/delete lender annotations.
+- Lender can choose whether borrower can see lender existing annotations (`shareLenderAnnotations`).
+- Borrower annotations do not affect lender reading state or progress.
 - Book access requires `UserBook` relation.
-- Shares are invitation-like records in `BookShare` and become active when accepted.
+- Recommendation records are stored in `BookShare`.
+- Loan events/timeline are stored in `LoanAuditEvent` and shown in `History`.
+
+### Borrow/Lend lifecycle
+
+- `PENDING` -> `ACTIVE` on borrower accept.
+- `ACTIVE` can become:
+  - `RETURNED` (borrower returns),
+  - `REVOKED` (lender revokes anytime),
+  - `EXPIRED` (due + grace exceeded).
+- On `RETURNED` / `REVOKED` / `EXPIRED`:
+  - reader access is blocked immediately,
+  - book appears as ended state in Borrowed view,
+  - only export actions remain available.
+
+### Export window (ended loans)
+
+- Borrower can export their annotations for **14 days** after loan end.
+- Export formats in UI:
+  - `JSON`
+  - `PDF` (summary export)
+- After export window ends, annotations are no longer accessible through loan export endpoints.
+
+### Backend migrations
+
+When pulling latest collaboration changes, run migrations on the server DB:
+
+```bash
+docker compose exec backend npx prisma migrate deploy
+```
 
 ## Main App Areas
 
