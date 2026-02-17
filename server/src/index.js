@@ -1976,7 +1976,8 @@ app.get('/loans/audit', requireAuth, async (req, res) => {
         book: {
           id: event.loan.book.id,
           title: event.loan.book.title,
-          author: event.loan.book.author || null
+          author: event.loan.book.author || null,
+          cover: event.loan.book.cover || null
         },
         lender: toUserResponse(event.loan.lender),
         borrower: toUserResponse(event.loan.borrower)

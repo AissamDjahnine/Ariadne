@@ -3919,6 +3919,40 @@ const formatNotificationTimeAgo = (value) => {
     };
     return themeMap[key] || themeMap.PENDING;
   };
+  const formatLoanStatusLine = (loan, dueSoonDays = 0) => {
+    const statusMeta = getLoanStatusMeta(loan, dueSoonDays);
+    const deadline = getLoanDeadline(loan);
+    const endedAt = loan?.returnedAt || loan?.revokedAt || loan?.expiredAt || null;
+    if (["ACTIVE", "DUE_SOON", "OVERDUE"].includes(statusMeta.key) && deadline) {
+      return `${statusMeta.label} · ${formatLoanRemaining(loan)} · due ${formatLoanDate(deadline)}`;
+    }
+    if (statusMeta.key === "PENDING" && loan?.requestedAt) {
+      return `${statusMeta.label} · requested ${formatLoanDate(loan.requestedAt)}`;
+    }
+    if (endedAt) {
+      return `${statusMeta.label} · ${formatLoanDate(endedAt)}`;
+    }
+    return statusMeta.label;
+  };
+  const getLoanPermissionChips = (loan, mode = "borrowed") => {
+    const perms = loan?.permissions || {};
+    const noteLabel = perms.canAddNotes
+      ? (perms.canEditNotes ? "Notes: add/edit" : "Notes: add only")
+      : "Notes: off";
+    const highlightLabel = perms.canAddHighlights
+      ? (perms.canEditHighlights ? "Highlights: add/edit" : "Highlights: add only")
+      : "Highlights: off";
+    const visibilityLabel =
+      perms.annotationVisibility === "SHARED_WITH_LENDER"
+        ? "Borrower notes: shared"
+        : "Borrower notes: private";
+    const lenderLabel = perms.shareLenderAnnotations
+      ? "Lender notes: visible"
+      : "Lender notes: hidden";
+    return mode === "lent"
+      ? [noteLabel, highlightLabel, visibilityLabel, lenderLabel]
+      : [noteLabel, highlightLabel, visibilityLabel, lenderLabel];
+  };
   const renderLoanEmptyState = ({ icon: EmptyIcon, title, description, actionLabel, onAction }) => (
     <div
       className={`mt-3 rounded-xl border p-6 text-center ${
@@ -5844,8 +5878,15 @@ const formatNotificationTimeAgo = (value) => {
                         )}
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[11px] font-semibold transition-colors ${getLoanStatusChipClass(statusMeta.key)}`}>
-                        {statusMeta.label} · {formatLoanRemaining(loan)}
+                        {formatLoanStatusLine(loan, loanReminderDays)}
                       </span>
+                    </div>
+                    <div className={`mt-2 flex flex-wrap gap-1.5 text-[11px] ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
+                      {getLoanPermissionChips(loan, "borrowed").map((chip) => (
+                        <span key={`${loan.id}-${chip}`} className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
+                          {chip}
+                        </span>
+                      ))}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {loan.status === "ACTIVE" && (
@@ -5931,8 +5972,15 @@ const formatNotificationTimeAgo = (value) => {
                         </div>
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[11px] font-semibold transition-colors ${getLoanStatusChipClass(statusMeta.key)}`}>
-                        {statusMeta.label}
+                        {formatLoanStatusLine(loan, loanReminderDays)}
                       </span>
+                    </div>
+                    <div className={`mt-2 flex flex-wrap gap-1.5 text-[11px] ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
+                      {getLoanPermissionChips(loan, "lent").map((chip) => (
+                        <span key={`${loan.id}-${chip}`} className={`rounded-full px-2 py-0.5 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-100"}`}>
+                          {chip}
+                        </span>
+                      ))}
                     </div>
                     {loan.status === "ACTIVE" && (
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -6018,6 +6066,11 @@ const formatNotificationTimeAgo = (value) => {
                               <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
                                 {group.events.length} event{group.events.length === 1 ? "" : "s"} · latest {formatLoanDate(latestEvent?.createdAt)}
                               </p>
+                              {latestEvent?.loan ? (
+                                <p className={`mt-0.5 text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                                  {formatLoanStatusLine(latestEvent.loan, loanReminderDays)}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${getLoanStatusChipClass(latestStatusMeta.key)}`}>
@@ -6434,7 +6487,7 @@ const formatNotificationTimeAgo = (value) => {
                           ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
                           : "border-amber-300 bg-amber-50 text-amber-700"
                       }`}>
-                        Borrowed · {formatLoanRemaining(borrowedLoan)}
+                        Borrowed · {formatLoanStatusLine(borrowedLoan, loanReminderDays)}
                       </div>
                     )}
                     {!borrowedLoan && lentLoan && (
@@ -6443,7 +6496,7 @@ const formatNotificationTimeAgo = (value) => {
                           ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
                           : "border-blue-300 bg-blue-50 text-blue-700"
                       }`}>
-                        Lent · {formatLoanRemaining(lentLoan)}
+                        Lent · {formatLoanStatusLine(lentLoan, loanReminderDays)}
                       </div>
                     )}
 
@@ -6549,7 +6602,7 @@ const formatNotificationTimeAgo = (value) => {
                             ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
                             : "border-amber-300 bg-amber-50 text-amber-700"
                         }`}>
-                          Borrowed · {formatLoanRemaining(borrowedLoan)}
+                          Borrowed · {formatLoanStatusLine(borrowedLoan, loanReminderDays)}
                         </div>
                       )}
                       {!borrowedLoan && lentLoan && (
@@ -6558,7 +6611,7 @@ const formatNotificationTimeAgo = (value) => {
                             ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
                             : "border-blue-300 bg-blue-50 text-blue-700"
                         }`}>
-                          Lent · {formatLoanRemaining(lentLoan)}
+                          Lent · {formatLoanStatusLine(lentLoan, loanReminderDays)}
                         </div>
                       )}
 
