@@ -34,8 +34,10 @@ export const authMe = async () => {
   return data.user;
 };
 
-export const updateMe = async ({ displayName }) => {
-  const { data } = await client.patch('/users/me', { displayName });
+export const updateMe = async ({ displayName, loanReminderDays }) => {
+  const payload = { displayName };
+  if (loanReminderDays !== undefined) payload.loanReminderDays = loanReminderDays;
+  const { data } = await client.patch('/users/me', payload);
   if (data?.user) setCurrentUser(data.user);
   return data.user;
 };
@@ -99,12 +101,25 @@ export const createHighlight = async (bookId, payload) => {
 };
 
 export const updateHighlightById = async (highlightId, payload) => {
-  const { data } = await client.patch(`/highlights/${highlightId}`, payload);
+  const headers = {};
+  if (Number.isInteger(payload?.expectedRevision) && payload.expectedRevision > 0) {
+    headers['if-match-revision'] = String(payload.expectedRevision);
+  }
+  const { expectedRevision, ...rest } = payload || {};
+  const { data } = await client.patch(`/highlights/${highlightId}`, rest, {
+    headers
+  });
   return data.highlights || [];
 };
 
-export const deleteHighlightById = async (highlightId) => {
-  const { data } = await client.delete(`/highlights/${highlightId}`);
+export const deleteHighlightById = async (highlightId, { expectedRevision } = {}) => {
+  const headers = {};
+  if (Number.isInteger(expectedRevision) && expectedRevision > 0) {
+    headers['if-match-revision'] = String(expectedRevision);
+  }
+  const { data } = await client.delete(`/highlights/${highlightId}`, {
+    headers
+  });
   return data.highlights || [];
 };
 
@@ -159,6 +174,16 @@ export const fetchLoanInbox = async () => {
   return data.loans || [];
 };
 
+export const fetchLoanTemplate = async () => {
+  const { data } = await client.get('/loans/templates/default');
+  return data.template;
+};
+
+export const updateLoanTemplate = async (payload) => {
+  const { data } = await client.put('/loans/templates/default', payload);
+  return data.template;
+};
+
 export const acceptLoan = async (loanId, { borrowAnyway = false } = {}) => {
   const { data } = await client.post(`/loans/${loanId}/accept`, { borrowAnyway });
   return data;
@@ -177,6 +202,31 @@ export const fetchBorrowedLoans = async () => {
 export const fetchLentLoans = async () => {
   const { data } = await client.get('/loans/lent');
   return data.loans || [];
+};
+
+export const fetchLoanRenewals = async () => {
+  const { data } = await client.get('/loans/renewals');
+  return data.renewals || [];
+};
+
+export const requestLoanRenewal = async (loanId, payload) => {
+  const { data } = await client.post(`/loans/${loanId}/renewals`, payload);
+  return data.renewal;
+};
+
+export const approveLoanRenewal = async (renewalId, payload = {}) => {
+  const { data } = await client.post(`/loans/renewals/${renewalId}/approve`, payload);
+  return data.renewal;
+};
+
+export const denyLoanRenewal = async (renewalId, payload = {}) => {
+  const { data } = await client.post(`/loans/renewals/${renewalId}/deny`, payload);
+  return data.renewal;
+};
+
+export const cancelLoanRenewal = async (renewalId) => {
+  const { data } = await client.post(`/loans/renewals/${renewalId}/cancel`);
+  return data.renewal;
 };
 
 export const returnLoan = async (loanId, { exportAnnotations = false } = {}) => {
@@ -199,6 +249,21 @@ export const exportRevokedLoanData = exportLoanData;
 export const fetchLoanAudit = async () => {
   const { data } = await client.get('/loans/audit');
   return data.events || [];
+};
+
+export const fetchNotifications = async () => {
+  const { data } = await client.get('/notifications');
+  return data.notifications || [];
+};
+
+export const markAllNotificationsRead = async () => {
+  const { data } = await client.post('/notifications/read-all');
+  return data.ok;
+};
+
+export const patchNotification = async (notificationId, payload) => {
+  const { data } = await client.patch(`/notifications/${notificationId}`, payload);
+  return data.notification;
 };
 
 export const getFileUrl = (bookId) => {

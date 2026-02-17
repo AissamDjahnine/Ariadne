@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
@@ -1563,7 +1564,8 @@ const buildLoanExportPayload = async (loan, borrowerId) => {
     })
   ]);
 
-  return {
+  const exportData = {
+    schemaVersion: "loan-export.v2",
     exportedAt: new Date().toISOString(),
     loan: {
       id: loan.id,
@@ -1574,6 +1576,11 @@ const buildLoanExportPayload = async (loan, borrowerId) => {
       returnedAt: loan.returnedAt,
       revokedAt: loan.revokedAt,
       expiredAt: loan.expiredAt
+    },
+    portability: {
+      loanName: loan.lender.displayName || loan.lender.email,
+      lenderEmail: loan.lender.email,
+      borrowerEmail: loan.borrower.email
     },
     lender: {
       id: loan.lender.id,
@@ -1594,6 +1601,14 @@ const buildLoanExportPayload = async (loan, borrowerId) => {
     },
     notes,
     highlights
+  };
+  const hash = crypto.createHash('sha256').update(JSON.stringify(exportData)).digest('hex');
+  return {
+    ...exportData,
+    integrity: {
+      algorithm: 'sha256',
+      hash
+    }
   };
 };
 

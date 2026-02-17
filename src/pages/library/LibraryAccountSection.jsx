@@ -5,9 +5,14 @@ export default function LibraryAccountSection({
   accountProfile,
   accountSaveMessage,
   isUploadingAvatar = false,
+  loanTemplate = null,
+  isSavingLoanTemplate = false,
   onFieldChange,
+  onLoanTemplateFieldChange,
+  onLoanTemplatePermissionChange,
   onAvatarUpload,
-  onSave
+  onSave,
+  onSaveLoanTemplate
 }) {
   return (
     <section
@@ -178,6 +183,61 @@ export default function LibraryAccountSection({
             </span>
           )}
         </div>
+
+        {loanTemplate && (
+          <div className={`mt-8 rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200 bg-gray-50/60"}`}>
+            <h3 className={`text-sm font-bold ${isDarkLibraryTheme ? "text-slate-100" : "text-slate-900"}`}>Default Lending Template</h3>
+            <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-slate-600"}`}>
+              Used as default values when you send a new loan request.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div>
+                <label className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-slate-700"}`}>Duration (days)</label>
+                <input type="number" min={1} max={365} value={Number(loanTemplate.durationDays || 14)} onChange={(event) => onLoanTemplateFieldChange?.("durationDays", Math.max(1, Math.min(365, Number(event.target.value) || 1)))} className={`mt-1 h-10 w-full rounded-lg border px-3 text-sm ${isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-800"}`} />
+              </div>
+              <div>
+                <label className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-slate-700"}`}>Grace (days)</label>
+                <input type="number" min={0} max={30} value={Number(loanTemplate.graceDays || 0)} onChange={(event) => onLoanTemplateFieldChange?.("graceDays", Math.max(0, Math.min(30, Number(event.target.value) || 0)))} className={`mt-1 h-10 w-full rounded-lg border px-3 text-sm ${isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-800"}`} />
+              </div>
+              <div>
+                <label className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-300" : "text-slate-700"}`}>Due reminder (days)</label>
+                <input type="number" min={0} max={30} value={Number(loanTemplate.remindBeforeDays || 0)} onChange={(event) => onLoanTemplateFieldChange?.("remindBeforeDays", Math.max(0, Math.min(30, Number(event.target.value) || 0)))} className={`mt-1 h-10 w-full rounded-lg border px-3 text-sm ${isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-800"}`} />
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {[
+                ["canAddNotes", "Allow adding notes"],
+                ["canEditNotes", "Allow editing/deleting notes"],
+                ["canAddHighlights", "Allow adding highlights"],
+                ["canEditHighlights", "Allow editing/deleting highlights"]
+              ].map(([key, label]) => (
+                <label key={key} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${isDarkLibraryTheme ? "border-slate-700 text-slate-300" : "border-gray-200 text-slate-700"}`}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(loanTemplate?.permissions?.[key])}
+                    onChange={(event) => onLoanTemplatePermissionChange?.(key, event.target.checked)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <select value={loanTemplate?.permissions?.annotationVisibility || "PRIVATE"} onChange={(event) => onLoanTemplatePermissionChange?.("annotationVisibility", event.target.value)} className={`h-10 rounded-lg border px-3 text-xs ${isDarkLibraryTheme ? "border-slate-600 bg-slate-800 text-slate-100" : "border-gray-200 bg-white text-slate-800"}`}>
+                <option value="PRIVATE">Borrower notes private</option>
+                <option value="SHARED_WITH_LENDER">Borrower notes shared with lender</option>
+              </select>
+              <label className={`flex items-center gap-2 text-xs ${isDarkLibraryTheme ? "text-slate-300" : "text-slate-700"}`}>
+                <input type="checkbox" checked={Boolean(loanTemplate?.permissions?.shareLenderAnnotations)} onChange={(event) => onLoanTemplatePermissionChange?.("shareLenderAnnotations", event.target.checked)} />
+                Show lender existing notes/highlights to borrower
+              </label>
+            </div>
+            <div className="mt-4">
+              <button type="button" onClick={onSaveLoanTemplate} disabled={isSavingLoanTemplate} className="inline-flex h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60">
+                {isSavingLoanTemplate ? "Saving template..." : "Save lending template"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

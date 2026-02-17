@@ -65,19 +65,28 @@ import {
   Send,
 } from 'lucide-react';
 import {
+  approveLoanRenewal,
   acceptLoan,
   createBookShare,
+  denyLoanRenewal,
   exportLoanData,
   fetchBorrowedLoans,
   fetchLoanAudit,
   fetchLoanInbox,
+  fetchLoanRenewals,
+  fetchLoanTemplate,
+  fetchNotifications,
   fetchLentLoans,
   fetchShareInbox,
   isCollabMode,
+  markAllNotificationsRead,
+  patchNotification,
   rejectLoan,
+  requestLoanRenewal,
   requestBookLoan,
   returnLoan,
   revokeLoan,
+  updateLoanTemplate,
   updateMe,
   uploadMyAvatar
 } from '../services/collabApi';
@@ -681,6 +690,8 @@ export default function Home() {
   const [borrowedLoans, setBorrowedLoans] = useState([]);
   const [lentLoans, setLentLoans] = useState([]);
   const [loanAuditEvents, setLoanAuditEvents] = useState([]);
+  const [loanRenewals, setLoanRenewals] = useState([]);
+  const [remoteNotifications, setRemoteNotifications] = useState([]);
   const [shareDialogBook, setShareDialogBook] = useState(null);
   const [shareDialogMode, setShareDialogMode] = useState("share");
   const [shareRecipientEmail, setShareRecipientEmail] = useState("");
@@ -695,6 +706,22 @@ export default function Home() {
     annotationVisibility: "PRIVATE",
     shareLenderAnnotations: false
   });
+  const [loanTemplate, setLoanTemplate] = useState({
+    name: "Default lending template",
+    durationDays: 14,
+    graceDays: 0,
+    remindBeforeDays: 3,
+    permissions: {
+      canAddHighlights: true,
+      canEditHighlights: true,
+      canAddNotes: true,
+      canEditNotes: true,
+      annotationVisibility: "PRIVATE",
+      shareLenderAnnotations: false
+    }
+  });
+  const [isSavingLoanTemplate, setIsSavingLoanTemplate] = useState(false);
+  const [acceptLoanPreview, setAcceptLoanPreview] = useState(null);
   const [shareError, setShareError] = useState("");
   const [isSharingBook, setIsSharingBook] = useState(false);
   const [isLoanActionBusyId, setIsLoanActionBusyId] = useState("");
@@ -717,6 +744,7 @@ export default function Home() {
     const sessionEmail = (sessionUser.email || "").trim();
     const sessionDisplayName = (sessionUser.displayName || "").trim();
     const sessionAvatarUrl = (sessionUser.avatarUrl || "").trim();
+    const sessionLoanReminderDays = Math.max(0, Math.min(30, Number(sessionUser.loanReminderDays) || 3));
     const sessionFirstName = sessionDisplayName ? sessionDisplayName.split(/\s+/).filter(Boolean)[0] || "" : "";
     if (!sessionEmail && !sessionFirstName && !sessionAvatarUrl) return;
     setAccountProfile((current) => {
@@ -724,12 +752,14 @@ export default function Home() {
         ...current,
         email: sessionEmail || current?.email || "",
         firstName: sessionFirstName || current?.firstName || "",
-        avatarUrl: sessionAvatarUrl || current?.avatarUrl || ""
+        avatarUrl: sessionAvatarUrl || current?.avatarUrl || "",
+        loanReminderDays: Number.isInteger(sessionLoanReminderDays) ? sessionLoanReminderDays : (current?.loanReminderDays ?? 3)
       };
       if (
         (next.email || "") === (current?.email || "") &&
         (next.firstName || "") === (current?.firstName || "") &&
-        (next.avatarUrl || "") === (current?.avatarUrl || "")
+        (next.avatarUrl || "") === (current?.avatarUrl || "") &&
+        Number(next.loanReminderDays || 0) === Number(current?.loanReminderDays || 0)
       ) {
         return current;
       }
@@ -1170,26 +1200,36 @@ export default function Home() {
       setBorrowedLoans([]);
       setLentLoans([]);
       setLoanAuditEvents([]);
+      setLoanRenewals([]);
+      setRemoteNotifications([]);
       setLoanInboxCount(0);
       return;
     }
     try {
-      const [loanInboxRows, borrowedRows, lentRows, auditRows] = await Promise.all([
+      const [loanInboxRows, borrowedRows, lentRows, auditRows, renewalsRows, notificationsRows, template] = await Promise.all([
         fetchLoanInbox(),
         fetchBorrowedLoans(),
         fetchLentLoans(),
-        fetchLoanAudit()
+        fetchLoanAudit(),
+        fetchLoanRenewals(),
+        fetchNotifications(),
+        fetchLoanTemplate()
       ]);
       setLoanInbox(Array.isArray(loanInboxRows) ? loanInboxRows : []);
       setBorrowedLoans(Array.isArray(borrowedRows) ? borrowedRows : []);
       setLentLoans(Array.isArray(lentRows) ? lentRows : []);
       setLoanAuditEvents(Array.isArray(auditRows) ? auditRows : []);
+      setLoanRenewals(Array.isArray(renewalsRows) ? renewalsRows : []);
+      setRemoteNotifications(Array.isArray(notificationsRows) ? notificationsRows : []);
+      if (template) setLoanTemplate(template);
       setLoanInboxCount(Array.isArray(loanInboxRows) ? loanInboxRows.length : 0);
     } catch {
       setLoanInbox([]);
       setBorrowedLoans([]);
       setLentLoans([]);
       setLoanAuditEvents([]);
+      setLoanRenewals([]);
+      setRemoteNotifications([]);
       setLoanInboxCount(0);
     }
   };
@@ -1244,15 +1284,15 @@ export default function Home() {
     setShareDialogMode("share");
     setShareRecipientEmail("");
     setShareMessage("");
-    setLoanDurationDays(14);
-    setLoanGraceDays(0);
+    setLoanDurationDays(Math.max(1, Number(loanTemplate?.durationDays) || 14));
+    setLoanGraceDays(Math.max(0, Number(loanTemplate?.graceDays) || 0));
     setLoanPermissions({
-      canAddHighlights: true,
-      canEditHighlights: true,
-      canAddNotes: true,
-      canEditNotes: true,
-      annotationVisibility: "PRIVATE",
-      shareLenderAnnotations: false
+      canAddHighlights: loanTemplate?.permissions?.canAddHighlights ?? true,
+      canEditHighlights: loanTemplate?.permissions?.canEditHighlights ?? true,
+      canAddNotes: loanTemplate?.permissions?.canAddNotes ?? true,
+      canEditNotes: loanTemplate?.permissions?.canEditNotes ?? true,
+      annotationVisibility: loanTemplate?.permissions?.annotationVisibility || "PRIVATE",
+      shareLenderAnnotations: loanTemplate?.permissions?.shareLenderAnnotations ?? false
     });
     setShareError("");
   };
@@ -1329,6 +1369,17 @@ export default function Home() {
     }
   };
 
+  const handleOpenAcceptLoanPreview = (loan) => {
+    if (!loan?.id) return;
+    setAcceptLoanPreview(loan);
+  };
+
+  const handleConfirmAcceptLoan = async () => {
+    if (!acceptLoanPreview?.id) return;
+    await handleAcceptLoanRequest(acceptLoanPreview.id);
+    setAcceptLoanPreview(null);
+  };
+
   const handleRejectLoanRequest = async (loanId) => {
     if (!loanId) return;
     setIsLoanActionBusyId(`reject-${loanId}`);
@@ -1376,6 +1427,85 @@ export default function Home() {
     } finally {
       setIsLoanActionBusyId("");
     }
+  };
+
+  const handleRequestLoanRenewal = async (loan) => {
+    if (!loan?.id || loan?.status !== "ACTIVE") return;
+    const value = window.prompt("How many extra days do you want to request?", "7");
+    if (value === null) return;
+    const extraDays = Math.max(1, Number.parseInt(value, 10) || 0);
+    if (!extraDays) return;
+    setIsLoanActionBusyId(`renew-request-${loan.id}`);
+    try {
+      await requestLoanRenewal(loan.id, { extraDays });
+      await loadLoansData();
+      setShareError("");
+    } catch (err) {
+      console.error(err);
+      setShareError(err?.response?.data?.error || "Could not request renewal");
+    } finally {
+      setIsLoanActionBusyId("");
+    }
+  };
+
+  const handleApproveLoanRenewal = async (renewalId) => {
+    if (!renewalId) return;
+    setIsLoanActionBusyId(`renew-approve-${renewalId}`);
+    try {
+      await approveLoanRenewal(renewalId);
+      await loadLoansData();
+      setShareError("");
+    } catch (err) {
+      console.error(err);
+      setShareError(err?.response?.data?.error || "Could not approve renewal");
+    } finally {
+      setIsLoanActionBusyId("");
+    }
+  };
+
+  const handleDenyLoanRenewal = async (renewalId) => {
+    if (!renewalId) return;
+    setIsLoanActionBusyId(`renew-deny-${renewalId}`);
+    try {
+      await denyLoanRenewal(renewalId);
+      await loadLoansData();
+      setShareError("");
+    } catch (err) {
+      console.error(err);
+      setShareError(err?.response?.data?.error || "Could not deny renewal");
+    } finally {
+      setIsLoanActionBusyId("");
+    }
+  };
+
+  const handleSaveLoanTemplate = async () => {
+    if (!isCollabMode) return;
+    setIsSavingLoanTemplate(true);
+    setShareError("");
+    try {
+      const next = await updateLoanTemplate(loanTemplate);
+      setLoanTemplate(next || loanTemplate);
+      setAccountSaveMessage("Changes saved.");
+    } catch (err) {
+      console.error(err);
+      setShareError(err?.response?.data?.error || "Could not save lending defaults");
+    } finally {
+      setIsSavingLoanTemplate(false);
+    }
+  };
+
+  const handleLoanTemplateFieldChange = (field, value) => {
+    setLoanTemplate((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleLoanTemplatePermissionChange = (field, value) => {
+    setLoanTemplate((current) => ({
+      ...current,
+      permissions: {
+        ...(current.permissions || {}),
+        [field]: value
+      }
+    }));
   };
 
   const handleExportLoanData = async (loanId, format = "json") => {
@@ -2038,7 +2168,10 @@ export default function Home() {
 
     if (isCollabMode) {
       const name = nextProfile.firstName || "Reader";
-      updateMe({ displayName: name })
+      updateMe({
+        displayName: name,
+        loanReminderDays: nextProfile.loanReminderDays
+      })
         .then((user) => {
           if (user) setCurrentUser(user);
           if (typeof window !== "undefined") {
@@ -2046,14 +2179,16 @@ export default function Home() {
               ...nextProfile,
               firstName: user?.displayName ? user.displayName.split(/\s+/).filter(Boolean)[0] || nextProfile.firstName : nextProfile.firstName,
               email: user?.email || nextProfile.email,
-              avatarUrl: user?.avatarUrl || nextProfile.avatarUrl
+              avatarUrl: user?.avatarUrl || nextProfile.avatarUrl,
+              loanReminderDays: Number.isInteger(user?.loanReminderDays) ? user.loanReminderDays : nextProfile.loanReminderDays
             }));
           }
           setAccountProfile((current) => ({
             ...current,
             firstName: user?.displayName ? user.displayName.split(/\s+/).filter(Boolean)[0] || nextProfile.firstName : nextProfile.firstName,
             email: user?.email || nextProfile.email,
-            avatarUrl: user?.avatarUrl || nextProfile.avatarUrl
+            avatarUrl: user?.avatarUrl || nextProfile.avatarUrl,
+            loanReminderDays: Number.isInteger(user?.loanReminderDays) ? user.loanReminderDays : nextProfile.loanReminderDays
           }));
           setAccountSaveMessage("Changes saved.");
         })
@@ -3851,16 +3986,47 @@ const formatNotificationTimeAgo = (value) => {
       })
       .filter(Boolean);
   }, [borrowedLoans, loanReminderDays]);
+  const pendingRenewalsByLoanId = useMemo(() => {
+    const map = new Map();
+    (loanRenewals || []).forEach((renewal) => {
+      if (renewal?.status !== "PENDING" || !renewal?.loanId) return;
+      const rows = map.get(renewal.loanId) || [];
+      rows.push(renewal);
+      map.set(renewal.loanId, rows);
+    });
+    return map;
+  }, [loanRenewals]);
   const inboxTotalCount = shareInboxCount + loanInboxCount + loanReminderInboxItems.length;
+  const persistedLoanNotifications = useMemo(() => (
+    (remoteNotifications || []).map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      title: item.title,
+      message: item.message,
+      createdAt: item.createdAt,
+      actionType: item.actionType || null,
+      actionLabel: null,
+      bookId: item?.payload?.bookId || null,
+      author: "",
+      priority: 1,
+      __serverNotification: true,
+      __serverState: {
+        readAt: item.readAt || null,
+        archivedAt: item.archivedAt || null,
+        deletedAt: item.deletedAt || null
+      }
+    }))
+  ), [remoteNotifications]);
   const allNotifications = useMemo(
-    () => [...libraryNotifications, ...loanNotifications],
-    [libraryNotifications, loanNotifications]
+    () => [...libraryNotifications, ...(isCollabMode ? persistedLoanNotifications : loanNotifications)],
+    [libraryNotifications, loanNotifications, isCollabMode, persistedLoanNotifications]
   );
   useEffect(() => {
     setNotificationStateById((current) => {
       const nowIso = new Date().toISOString();
       const next = {};
       allNotifications.forEach((item) => {
+        if (item.__serverNotification) return;
         const previous = current[item.id] || {};
         next[item.id] = {
           firstSeenAt: previous.firstSeenAt || item.createdAt || nowIso,
@@ -3893,6 +4059,23 @@ const formatNotificationTimeAgo = (value) => {
 
   const libraryNotificationsWithState = useMemo(() => (
     allNotifications.map((item) => {
+      if (item.__serverNotification) {
+        const readAt = item.__serverState?.readAt || null;
+        const archivedAt = item.__serverState?.archivedAt || null;
+        const deletedAt = item.__serverState?.deletedAt || null;
+        return {
+          ...item,
+          firstSeenAt: item.createdAt || null,
+          readAt,
+          snoozedUntil: null,
+          archivedAt,
+          deletedAt,
+          isRead: Boolean(readAt),
+          isSnoozed: false,
+          isArchived: Boolean(archivedAt),
+          isDeleted: Boolean(deletedAt)
+        };
+      }
       const state = notificationStateById[item.id] || {};
       const firstSeenAt = state.firstSeenAt || null;
       const readAt = state.readAt || null;
@@ -3956,7 +4139,12 @@ const formatNotificationTimeAgo = (value) => {
     "loan-due-soon": { label: "Due soon", Icon: Clock, tone: "amber" },
     "loan-overdue": { label: "Overdue", Icon: Clock, tone: "rose" },
     "loan-returned": { label: "Returned", Icon: RotateCcw, tone: "green" },
-    "loan-revoked": { label: "Revoked", Icon: Archive, tone: "rose" }
+    "loan-revoked": { label: "Revoked", Icon: Archive, tone: "rose" },
+    "loan-expired": { label: "Expired", Icon: Archive, tone: "rose" },
+    "loan-renewal-request": { label: "Renewal", Icon: Calendar, tone: "blue" },
+    "loan-renewal-approved": { label: "Renewal", Icon: Check, tone: "green" },
+    "loan-renewal-denied": { label: "Renewal", Icon: X, tone: "rose" },
+    "loan-export-window": { label: "Export", Icon: FileText, tone: "amber" }
   };
   const notificationToneClasses = {
     amber: isDarkLibraryTheme ? "bg-amber-900/30 text-amber-300" : "bg-amber-100 text-amber-700",
@@ -3968,7 +4156,18 @@ const formatNotificationTimeAgo = (value) => {
     rose: isDarkLibraryTheme ? "bg-rose-900/30 text-rose-300" : "bg-rose-100 text-rose-700"
   };
 
-  const handleNotificationReadState = (id, read) => {
+  const handleNotificationReadState = (itemOrId, read) => {
+    const id = typeof itemOrId === "string" ? itemOrId : itemOrId?.id;
+    const isServerNotification = typeof itemOrId === "object" && Boolean(itemOrId?.__serverNotification);
+    if (!id) return;
+    if (isServerNotification) {
+      patchNotification(id, { read: Boolean(read) })
+        .then((updated) => {
+          setRemoteNotifications((current) => current.map((row) => (row.id === id ? updated : row)));
+        })
+        .catch((err) => console.error(err));
+      return;
+    }
     setNotificationStateById((current) => {
       const prev = current[id] || {};
       const nextReadAt = read ? (prev.readAt || new Date().toISOString()) : null;
@@ -3986,7 +4185,19 @@ const formatNotificationTimeAgo = (value) => {
     });
   };
 
-  const handleNotificationArchive = (id) => {
+  const handleNotificationArchive = (itemOrId) => {
+    const id = typeof itemOrId === "string" ? itemOrId : itemOrId?.id;
+    const isServerNotification = typeof itemOrId === "object" && Boolean(itemOrId?.__serverNotification);
+    if (!id) return;
+    if (isServerNotification) {
+      patchNotification(id, { archived: true, read: true })
+        .then((updated) => {
+          setRemoteNotifications((current) => current.map((row) => (row.id === id ? updated : row)));
+        })
+        .catch((err) => console.error(err));
+      if (activeNotificationMenuId === id) setActiveNotificationMenuId("");
+      return;
+    }
     const archivedAt = new Date().toISOString();
     setNotificationStateById((current) => {
       const previous = current[id] || {};
@@ -4004,7 +4215,19 @@ const formatNotificationTimeAgo = (value) => {
     if (activeNotificationMenuId === id) setActiveNotificationMenuId("");
   };
 
-  const handleNotificationDelete = (id) => {
+  const handleNotificationDelete = (itemOrId) => {
+    const id = typeof itemOrId === "string" ? itemOrId : itemOrId?.id;
+    const isServerNotification = typeof itemOrId === "object" && Boolean(itemOrId?.__serverNotification);
+    if (!id) return;
+    if (isServerNotification) {
+      patchNotification(id, { deleted: true, read: true })
+        .then((updated) => {
+          setRemoteNotifications((current) => current.map((row) => (row.id === id ? updated : row)));
+        })
+        .catch((err) => console.error(err));
+      if (activeNotificationMenuId === id) setActiveNotificationMenuId("");
+      return;
+    }
     const deletedAt = new Date().toISOString();
     setNotificationStateById((current) => {
       const previous = current[id] || {};
@@ -4023,6 +4246,16 @@ const formatNotificationTimeAgo = (value) => {
   };
 
   const handleMarkAllNotificationsRead = () => {
+    if (isCollabMode) {
+      markAllNotificationsRead()
+        .then(() => {
+          setRemoteNotifications((current) => current.map((row) => (row?.readAt ? row : {
+            ...row,
+            readAt: new Date().toISOString()
+          })));
+        })
+        .catch((err) => console.error(err));
+    }
     const nowIso = new Date().toISOString();
     setNotificationStateById((current) => {
       let changed = false;
@@ -4045,7 +4278,7 @@ const formatNotificationTimeAgo = (value) => {
 
   const handleOpenNotificationTarget = (item) => {
     if (!item) return;
-    handleNotificationReadState(item.id, true);
+    handleNotificationReadState(item, true);
     setIsNotificationsOpen(false);
     setActiveNotificationMenuId("");
 
@@ -4118,7 +4351,7 @@ const formatNotificationTimeAgo = (value) => {
 
   const handleNotificationCardClick = (item) => {
     if (!item) return;
-    handleNotificationReadState(item.id, true);
+    handleNotificationReadState(item, true);
     setActiveNotificationMenuId("");
     setIsNotificationsOpen(false);
 
@@ -4692,7 +4925,7 @@ const formatNotificationTimeAgo = (value) => {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                handleNotificationReadState(item.id, !item.isRead);
+                                handleNotificationReadState(item, !item.isRead);
                                 setActiveNotificationMenuId("");
                               }}
                               className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold ${
@@ -4710,7 +4943,7 @@ const formatNotificationTimeAgo = (value) => {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                handleNotificationArchive(item.id);
+                                handleNotificationArchive(item);
                               }}
                               className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold ${
                                 isDarkLibraryTheme ? "text-slate-200 hover:bg-slate-800" : "text-[#1A1A2E] hover:bg-gray-50"
@@ -4725,7 +4958,7 @@ const formatNotificationTimeAgo = (value) => {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                handleNotificationDelete(item.id);
+                                handleNotificationDelete(item);
                               }}
                               className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold ${
                                 isDarkLibraryTheme ? "text-rose-300 hover:bg-rose-900/20" : "text-rose-600 hover:bg-rose-50"
@@ -4752,9 +4985,14 @@ const formatNotificationTimeAgo = (value) => {
             accountProfile={accountProfile}
             accountSaveMessage={accountSaveMessage}
             isUploadingAvatar={isUploadingAvatar}
+            loanTemplate={isCollabMode ? loanTemplate : null}
+            isSavingLoanTemplate={isSavingLoanTemplate}
             onFieldChange={handleAccountFieldChange}
+            onLoanTemplateFieldChange={handleLoanTemplateFieldChange}
+            onLoanTemplatePermissionChange={handleLoanTemplatePermissionChange}
             onAvatarUpload={handleAccountAvatarUpload}
             onSave={handleSaveAccountProfile}
+            onSaveLoanTemplate={handleSaveLoanTemplate}
           />
         )}
 
@@ -5341,13 +5579,13 @@ const formatNotificationTimeAgo = (value) => {
                       <div className="mt-3 flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleAcceptLoanRequest(loan.id)}
+                          onClick={() => handleOpenAcceptLoanPreview(loan)}
                           disabled={isLoanActionBusyId === `accept-${loan.id}`}
                           className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
                             isDarkLibraryTheme ? "bg-emerald-700 text-emerald-50 hover:bg-emerald-600" : "bg-emerald-600 text-white"
                           }`}
                         >
-                          {isLoanActionBusyId === `accept-${loan.id}` ? "Accepting..." : "Accept"}
+                          {isLoanActionBusyId === `accept-${loan.id}` ? "Accepting..." : "Review & accept"}
                         </button>
                         <button
                           type="button"
@@ -5445,7 +5683,9 @@ const formatNotificationTimeAgo = (value) => {
               <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No borrowed books.</p>
             ) : (
               <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
-                {borrowedLoans.map((loan) => (
+                {borrowedLoans.map((loan) => {
+                  const pendingRenewals = pendingRenewalsByLoanId.get(loan.id) || [];
+                  return (
                   <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"} ${loanViewMode === "list" ? "" : "h-full"}`}>
                     <div className="flex items-start gap-3">
                       <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
@@ -5486,6 +5726,11 @@ const formatNotificationTimeAgo = (value) => {
                           {isLoanActionBusyId === `return-${loan.id}` ? "Returning..." : "Return"}
                         </button>
                       )}
+                      {loan.status === "ACTIVE" && (
+                        <button type="button" onClick={() => handleRequestLoanRenewal(loan)} disabled={isLoanActionBusyId === `renew-request-${loan.id}` || pendingRenewals.length > 0} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "border-blue-600/70 text-blue-200 hover:bg-blue-900/35" : "border-blue-200 text-blue-700 hover:bg-blue-50"}`}>
+                          {pendingRenewals.length > 0 ? "Renewal pending" : (isLoanActionBusyId === `renew-request-${loan.id}` ? "Requesting..." : "Request renewal")}
+                        </button>
+                      )}
                       {["REVOKED", "EXPIRED", "RETURNED"].includes(loan.status) && (
                         <>
                           <button type="button" onClick={() => handleExportLoanData(loan.id, "json")} disabled={isLoanActionBusyId === `export-${loan.id}-json`} className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "bg-blue-700 text-white hover:bg-blue-600" : "bg-blue-600 text-white"}`}>
@@ -5497,8 +5742,13 @@ const formatNotificationTimeAgo = (value) => {
                         </>
                       )}
                     </div>
+                    {pendingRenewals.length > 0 && (
+                      <div className={`mt-2 text-[11px] ${isDarkLibraryTheme ? "text-blue-300" : "text-blue-700"}`}>
+                        Renewal requested: +{pendingRenewals[0]?.requestedExtraDays || 0} day(s), proposed due {formatLoanDate(pendingRenewals[0]?.proposedDueAt)}
+                      </div>
+                    )}
                   </article>
-                ))}
+                )})}
               </div>
             )}
           </section>
@@ -5522,7 +5772,9 @@ const formatNotificationTimeAgo = (value) => {
               <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No lent books.</p>
             ) : (
               <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
-                {lentLoans.map((loan) => (
+                {lentLoans.map((loan) => {
+                  const pendingRenewals = pendingRenewalsByLoanId.get(loan.id) || [];
+                  return (
                   <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"} ${loanViewMode === "list" ? "" : "h-full"}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-start gap-3">
@@ -5553,14 +5805,29 @@ const formatNotificationTimeAgo = (value) => {
                       </span>
                     </div>
                     {loan.status === "ACTIVE" && (
-                      <div className="mt-3">
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <button type="button" onClick={() => handleRevokeLentLoan(loan.id)} disabled={isLoanActionBusyId === `revoke-${loan.id}`} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "border-rose-700/70 bg-rose-950/35 text-rose-200 hover:bg-rose-900/40" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
                           {isLoanActionBusyId === `revoke-${loan.id}` ? "Revoking..." : "Revoke"}
                         </button>
+                        {pendingRenewals[0] && (
+                          <>
+                            <button type="button" onClick={() => handleApproveLoanRenewal(pendingRenewals[0].id)} disabled={isLoanActionBusyId === `renew-approve-${pendingRenewals[0].id}`} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "border-emerald-700/70 bg-emerald-950/35 text-emerald-200 hover:bg-emerald-900/40" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                              {isLoanActionBusyId === `renew-approve-${pendingRenewals[0].id}` ? "Approving..." : `Approve +${pendingRenewals[0].requestedExtraDays}d`}
+                            </button>
+                            <button type="button" onClick={() => handleDenyLoanRenewal(pendingRenewals[0].id)} disabled={isLoanActionBusyId === `renew-deny-${pendingRenewals[0].id}`} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${isDarkLibraryTheme ? "border-slate-600 text-slate-100 hover:bg-slate-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}>
+                              {isLoanActionBusyId === `renew-deny-${pendingRenewals[0].id}` ? "Denying..." : "Deny renewal"}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
+                    {pendingRenewals[0] && (
+                      <p className={`mt-2 text-[11px] ${isDarkLibraryTheme ? "text-blue-300" : "text-blue-700"}`}>
+                        Pending renewal request: +{pendingRenewals[0].requestedExtraDays} day(s), proposed due {formatLoanDate(pendingRenewals[0].proposedDueAt)}
+                      </p>
+                    )}
                   </article>
-                ))}
+                )})}
               </div>
             )}
           </section>
@@ -6519,6 +6786,33 @@ const formatNotificationTimeAgo = (value) => {
                   className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {isSharingBook ? "Sending..." : shareDialogMode === "loan" ? "Send loan request" : "Send recommendation"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {acceptLoanPreview && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setAcceptLoanPreview(null)} />
+            <div className={`relative w-full max-w-xl rounded-2xl border p-5 shadow-2xl ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900 text-slate-100" : "border-gray-200 bg-white text-gray-900"}`}>
+              <h3 className="text-lg font-semibold">Accept loan</h3>
+              <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-600"}`}>
+                You are about to borrow <span className="font-semibold">{acceptLoanPreview?.book?.title || "this book"}</span>.
+              </p>
+              <div className={`mt-4 rounded-xl border p-3 text-sm ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800/60" : "border-gray-200 bg-gray-50"}`}>
+                <div className="font-semibold">Permission summary</div>
+                <ul className={`mt-2 space-y-1 text-xs ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}`}>
+                  <li>Notes: {acceptLoanPreview?.permissions?.canAddNotes ? "can add" : "cannot add"} / {acceptLoanPreview?.permissions?.canEditNotes ? "can edit/delete own" : "cannot edit/delete own"}</li>
+                  <li>Highlights: {acceptLoanPreview?.permissions?.canAddHighlights ? "can add" : "cannot add"} / {acceptLoanPreview?.permissions?.canEditHighlights ? "can edit/delete own" : "cannot edit/delete own"}</li>
+                  <li>Borrower annotations visibility: {acceptLoanPreview?.permissions?.annotationVisibility === "SHARED_WITH_LENDER" ? "shared with lender" : "private to borrower"}</li>
+                  <li>Lender existing annotations: {acceptLoanPreview?.permissions?.shareLenderAnnotations ? "visible to you" : "hidden from you"}</li>
+                  <li>Access ends at loan end/revocation/expiry. After end, reading is blocked and only export remains until deadline.</li>
+                </ul>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setAcceptLoanPreview(null)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${isDarkLibraryTheme ? "border-slate-600 text-slate-200 hover:bg-slate-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}>Cancel</button>
+                <button type="button" onClick={handleConfirmAcceptLoan} disabled={isLoanActionBusyId === `accept-${acceptLoanPreview?.id}`} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  {isLoanActionBusyId === `accept-${acceptLoanPreview?.id}` ? "Accepting..." : "Accept loan"}
                 </button>
               </div>
             </div>
