@@ -3903,6 +3903,19 @@ const formatNotificationTimeAgo = (value) => {
       .filter(Boolean)
       .map((part) => part[0].toUpperCase() + part.slice(1))
       .join(" ");
+  const getLoanActionToneClass = (action) => {
+    const value = String(action || "").toUpperCase();
+    if (value.includes("REVOKE") || value.includes("DENY") || value.includes("REJECT") || value.includes("EXPIRE")) {
+      return isDarkLibraryTheme ? "bg-rose-900/35 text-rose-200" : "bg-rose-100 text-rose-700";
+    }
+    if (value.includes("RETURN") || value.includes("ACCEPT") || value.includes("APPROVE")) {
+      return isDarkLibraryTheme ? "bg-emerald-900/35 text-emerald-200" : "bg-emerald-100 text-emerald-700";
+    }
+    if (value.includes("RENEW")) {
+      return isDarkLibraryTheme ? "bg-amber-900/35 text-amber-200" : "bg-amber-100 text-amber-700";
+    }
+    return isDarkLibraryTheme ? "bg-blue-900/35 text-blue-200" : "bg-blue-100 text-blue-700";
+  };
   const showReadingSnapshot = shouldShowLibraryHomeContent;
   const readingSnapshotProgress = readingSnapshot.totalBooks > 0
     ? Math.round((readingSnapshot.startedBooks / readingSnapshot.totalBooks) * 100)
@@ -5949,60 +5962,82 @@ const formatNotificationTimeAgo = (value) => {
                     acc[key].events.push(event);
                     return acc;
                   }, {})
-                ).map((group) => (
-                  <article key={group.key} className={`rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45 hover:border-slate-600" : "border-gray-200 hover:border-gray-300"}`}>
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className={`h-16 w-12 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
-                        {group.book?.cover ? (
-                          <img src={group.book.cover} alt={group.book?.title || "Book cover"} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
-                        )}
-                      </div>
-                      <div>
-                        <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{group.book?.title || "Book"}</p>
-                        <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>{group.events.length} event{group.events.length === 1 ? "" : "s"}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      {group.events.map((event) => (
-                        <div key={event.id} className={`rounded-lg border px-3 py-2 transition-colors ${isDarkLibraryTheme ? "border-slate-700/80 bg-slate-900/40 hover:border-slate-600" : "border-gray-200 bg-gray-50 hover:border-gray-300"}`}>
-                          {(() => {
-                            const statusMeta = getLoanStatusMeta(event.loan, loanReminderDays);
-                            return (
-                              <>
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <p className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-gray-800"}`}>{formatLoanActionLabel(event.action)}</p>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getLoanStatusChipClass(statusMeta.key)}`}>
-                                {statusMeta.label}
-                              </span>
+                )
+                  .map((group) => ({
+                    ...group,
+                    events: [...group.events].sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
+                  }))
+                  .sort((a, b) => {
+                    const aTime = new Date(a.events[0]?.createdAt || 0).getTime();
+                    const bTime = new Date(b.events[0]?.createdAt || 0).getTime();
+                    return bTime - aTime;
+                  })
+                  .map((group) => {
+                    const latestEvent = group.events[0];
+                    const latestStatusMeta = getLoanStatusMeta(latestEvent?.loan, loanReminderDays);
+                    return (
+                      <article key={group.key} className={`rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45 hover:border-slate-600" : "border-gray-200 hover:border-gray-300"}`}>
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`h-16 w-12 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                              {group.book?.cover ? (
+                                <img src={group.book.cover} alt={group.book?.title || "Book cover"} className="h-full w-full object-cover" />
+                              ) : (
+                                <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                              )}
                             </div>
-                            <p className={`text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>{formatLoanDate(event.createdAt)}</p>
+                            <div>
+                              <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{group.book?.title || "Book"}</p>
+                              <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                                {group.events.length} event{group.events.length === 1 ? "" : "s"} · latest {formatLoanDate(latestEvent?.createdAt)}
+                              </p>
+                            </div>
                           </div>
-                          <div className="mt-1 flex items-center gap-2 text-xs">
-                            <span className="inline-flex items-center gap-1">
-                              <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
-                                {event.actorUser?.avatarUrl ? <img src={event.actorUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.actorUser?.displayName || event.actorUser?.email || "S").charAt(0).toUpperCase()}</span>}
-                              </span>
-                              <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.actorUser?.displayName || event.actorUser?.email || "System"}</span>
-                            </span>
-                            <span className={isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}>{"->"}</span>
-                            <span className="inline-flex items-center gap-1">
-                              <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
-                                {event.targetUser?.avatarUrl ? <img src={event.targetUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.targetUser?.displayName || event.targetUser?.email || "N").charAt(0).toUpperCase()}</span>}
-                              </span>
-                              <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.targetUser?.displayName || event.targetUser?.email || "N/A"}</span>
-                            </span>
-                          </div>
-                              </>
-                            );
-                          })()}
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${getLoanStatusChipClass(latestStatusMeta.key)}`}>
+                            {latestStatusMeta.label}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  </article>
-                ))}
+                        <div className={`relative pl-5 ${isDarkLibraryTheme ? "before:bg-slate-700" : "before:bg-gray-200"} before:absolute before:left-2 before:top-1 before:h-[calc(100%-8px)] before:w-px before:content-['']`}>
+                          <div className="space-y-2">
+                            {group.events.map((event) => {
+                              const statusMeta = getLoanStatusMeta(event.loan, loanReminderDays);
+                              return (
+                                <div key={event.id} className={`relative rounded-lg border px-3 py-2 transition-colors ${isDarkLibraryTheme ? "border-slate-700/80 bg-slate-900/40 hover:border-slate-600" : "border-gray-200 bg-gray-50 hover:border-gray-300"}`}>
+                                  <span className={`absolute -left-[18px] top-4 h-2.5 w-2.5 rounded-full ${isDarkLibraryTheme ? "bg-slate-400" : "bg-gray-400"}`} />
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getLoanActionToneClass(event.action)}`}>
+                                        {formatLoanActionLabel(event.action)}
+                                      </span>
+                                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getLoanStatusChipClass(statusMeta.key)}`}>
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    <p className={`text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>{formatLoanDate(event.createdAt)}</p>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-2 text-xs">
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
+                                        {event.actorUser?.avatarUrl ? <img src={event.actorUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.actorUser?.displayName || event.actorUser?.email || "S").charAt(0).toUpperCase()}</span>}
+                                      </span>
+                                      <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.actorUser?.displayName || event.actorUser?.email || "System"}</span>
+                                    </span>
+                                    <span className={isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}>{"->"}</span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
+                                        {event.targetUser?.avatarUrl ? <img src={event.targetUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.targetUser?.displayName || event.targetUser?.email || "N").charAt(0).toUpperCase()}</span>}
+                                      </span>
+                                      <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.targetUser?.displayName || event.targetUser?.email || "N/A"}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
               </div>
             )}
           </section>
