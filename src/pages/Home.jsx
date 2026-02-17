@@ -69,7 +69,6 @@ import {
   acceptFriendRequest,
   approveLoanRenewal,
   acceptLoan,
-  cancelFriendRequest,
   borrowFromFriendLibrary,
   createLoanReview,
   createBookShare,
@@ -708,7 +707,6 @@ export default function Home() {
   const [outgoingFriendRequests, setOutgoingFriendRequests] = useState([]);
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [friendSearchResults, setFriendSearchResults] = useState([]);
-  const [isFriendsLoading, setIsFriendsLoading] = useState(false);
   const [isFriendSearchLoading, setIsFriendSearchLoading] = useState(false);
   const [friendActionBusyId, setFriendActionBusyId] = useState("");
   const [selectedFriendId, setSelectedFriendId] = useState("");
@@ -1316,7 +1314,6 @@ export default function Home() {
       setOutgoingFriendRequests([]);
       return;
     }
-    setIsFriendsLoading(true);
     try {
       const [friendsRows, incomingRows, outgoingRows] = await Promise.all([
         fetchFriends(),
@@ -1330,8 +1327,6 @@ export default function Home() {
       setFriends([]);
       setIncomingFriendRequests([]);
       setOutgoingFriendRequests([]);
-    } finally {
-      setIsFriendsLoading(false);
     }
   };
 
@@ -1479,27 +1474,6 @@ export default function Home() {
       showFeedbackToast({
         tone: "error",
         title: "Could not reject request",
-        message: err?.response?.data?.error || "Please try again."
-      });
-    } finally {
-      setFriendActionBusyId("");
-    }
-  };
-
-  const handleCancelFriendRequest = async (requestId) => {
-    if (!requestId || friendActionBusyId) return;
-    setFriendActionBusyId(`cancel-${requestId}`);
-    try {
-      await cancelFriendRequest(requestId);
-      showFeedbackToast({
-        title: "Request canceled",
-        message: "Outgoing friend request canceled."
-      });
-      await loadFriendsData();
-    } catch (err) {
-      showFeedbackToast({
-        tone: "error",
-        title: "Could not cancel request",
         message: err?.response?.data?.error || "Please try again."
       });
     } finally {
@@ -3997,17 +3971,17 @@ const formatNotificationTimeAgo = (value) => {
         <div data-testid="global-search-found-book-cover" className={`h-full bg-gray-100 ${FOUND_BOOK_COVER_PADDING_CLASS}`}>
           <div className="relative h-full w-full rounded-xl overflow-hidden bg-white border border-gray-100">
             {book.cover ? (
-              <img src={book.cover} alt={book.title} className="w-full h-full object-contain group-hover:scale-[1.01] transition-transform duration-500" />
+              <img src={book.cover} alt={getDisplayBookTitle(book)} className="w-full h-full object-contain group-hover:scale-[1.01] transition-transform duration-500" />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
                 <BookIcon size={40} className="mb-2 opacity-20" />
-                <span className="text-xs font-medium uppercase tracking-widest">{book.title}</span>
+                <span className="text-xs font-medium uppercase tracking-widest">{getDisplayBookTitle(book)}</span>
               </div>
             )}
 
             <div className="absolute inset-x-0 bottom-0 border-t border-gray-200 bg-white/95 backdrop-blur-sm px-3 py-2">
               <h3 data-testid="global-search-found-book-title" className="font-bold text-gray-900 text-xl leading-tight line-clamp-1 group-hover:text-blue-600 transition-colors">
-                {book.title}
+                {getDisplayBookTitle(book)}
               </h3>
               <div data-testid="global-search-found-book-author" className="mt-1 flex items-center gap-2 text-gray-600 text-sm">
                 <User size={14} />
@@ -4371,6 +4345,11 @@ const formatNotificationTimeAgo = (value) => {
     if (key === "ACTIVE" || key === "DUE_SOON") return formatLoanRemaining(loan);
     return "";
   };
+  const toTitleCaseWords = (value = "") => value
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.length <= 2 ? word.toLowerCase() : `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`)
+    .join(" ");
   const isLikelyFilenameTitle = (value) => {
     const title = String(value || "").trim();
     if (!title) return true;
@@ -4379,11 +4358,25 @@ const formatNotificationTimeAgo = (value) => {
     if (/^pg\d+(-images)?-\d+$/i.test(title)) return true;
     return false;
   };
+  const humanizeFilenameTitle = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const stripped = raw
+      .replace(/\.epub$/i, "")
+      .replace(/\(\d+\)$/g, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!stripped) return "";
+    return toTitleCaseWords(stripped);
+  };
   const getDisplayBookTitle = (book) => {
-    if (!book) return "Untitled";
+    if (!book) return "Book";
     const candidate = String(book.title || "").trim();
     if (candidate && !isLikelyFilenameTitle(candidate)) return candidate;
-    return "Untitled";
+    const metadataTitle = String(book?.epubMetadata?.title || "").trim();
+    if (metadataTitle && !isLikelyFilenameTitle(metadataTitle)) return metadataTitle;
+    return humanizeFilenameTitle(candidate) || "Book";
   };
   const getLoanPermissionChips = (loan, mode = "borrowed") => {
     const perms = loan?.permissions || {};
@@ -5727,7 +5720,7 @@ const formatNotificationTimeAgo = (value) => {
                           </span>
                         )}
                         {book.cover ? (
-                          <img src={book.cover} alt={book.title} className="h-full w-full object-cover" />
+                          <img src={book.cover} alt={getDisplayBookTitle(book)} className="h-full w-full object-cover" />
                         ) : (
                           <div className={`h-full w-full flex items-center justify-center ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-300"}`}>
                             <BookIcon size={18} />
@@ -5756,7 +5749,7 @@ const formatNotificationTimeAgo = (value) => {
                           ) : null}
                         </div>
                         <div className={`mt-1.5 text-[22px] sm:text-[24px] font-semibold leading-[1.12] tracking-tight line-clamp-2 ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                          {book.title}
+                          {getDisplayBookTitle(book)}
                         </div>
                         <div className="mt-3 inline-flex items-center gap-2 text-[#4CAF50]">
                           <span className="relative inline-flex h-8 w-8 items-center justify-center" data-testid="continue-reading-ring">
@@ -7068,11 +7061,11 @@ const formatNotificationTimeAgo = (value) => {
                 >
                   <div className={`${densityMode === "compact" ? "aspect-[5/6]" : "aspect-[3/4]"} ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-200"} overflow-hidden relative`}>
                     {book.cover ? (
-                      <img src={book.cover} alt={book.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      <img src={book.cover} alt={getDisplayBookTitle(book)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
                         <BookIcon size={40} className="mb-2 opacity-20" />
-                        <span className="text-xs font-medium uppercase tracking-widest">{book.title}</span>
+                        <span className="text-xs font-medium uppercase tracking-widest">{getDisplayBookTitle(book)}</span>
                       </div>
                     )}
                     {loanBadge && !inTrash && (
@@ -7317,7 +7310,7 @@ const formatNotificationTimeAgo = (value) => {
                     } ${
                       densityMode === "compact" ? "text-[17px]" : "text-[22px]"
                     }`}>
-                      {book.title}
+                      {getDisplayBookTitle(book)}
                     </h3>
                     
                     <div className={`flex items-center gap-2 mb-1 ${isDarkLibraryTheme ? "text-slate-300" : "text-[#666666]"} ${densityMode === "compact" ? "text-[14px]" : "text-[15px]"}`}>
@@ -7398,11 +7391,11 @@ const formatNotificationTimeAgo = (value) => {
                 >
                   <div className={`w-24 sm:w-28 md:w-32 ${isDarkLibraryTheme ? "bg-slate-800" : "bg-gray-200"} overflow-hidden relative shrink-0`}>
                     {book.cover ? (
-                      <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
+                      <img src={book.cover} alt={getDisplayBookTitle(book)} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-3 text-center">
                         <BookIcon size={24} className="mb-1 opacity-20" />
-                        <span className="text-[10px] font-medium uppercase tracking-widest line-clamp-2">{book.title}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-widest line-clamp-2">{getDisplayBookTitle(book)}</span>
                       </div>
                     )}
                     {loanBadge && !inTrash && (
@@ -7432,7 +7425,7 @@ const formatNotificationTimeAgo = (value) => {
                       <h3 className={`font-semibold text-[22px] leading-[1.12] line-clamp-1 transition-colors ${
                         isDarkLibraryTheme ? "text-slate-100 group-hover:text-blue-300" : "text-[#1A1A2E] group-hover:text-blue-600"
                       }`}>
-                        {book.title}
+                        {getDisplayBookTitle(book)}
                       </h3>
 
                       <div className={`mt-1 flex items-center gap-2 text-[15px] ${isDarkLibraryTheme ? "text-slate-300" : "text-[#666666]"}`}>
