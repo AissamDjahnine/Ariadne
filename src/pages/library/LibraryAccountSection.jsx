@@ -135,6 +135,29 @@ export default function LibraryAccountSection({
               <option value="no">No</option>
             </select>
           </div>
+
+          <div>
+            <label htmlFor="account-loan-reminder-days" className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-slate-700"}`}>
+              Borrow reminder (days before due)
+            </label>
+            <input
+              id="account-loan-reminder-days"
+              data-testid="library-account-loan-reminder-days"
+              type="number"
+              min={0}
+              max={30}
+              value={Number(accountProfile?.loanReminderDays ?? 3)}
+              onChange={(event) => onFieldChange("loanReminderDays", Math.max(0, Math.min(30, Number(event.target.value) || 0)))}
+              className={`mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                isDarkLibraryTheme
+                  ? "border-slate-600 bg-slate-800 text-slate-100 placeholder:text-slate-500"
+                  : "border-gray-200 bg-white text-slate-800"
+              }`}
+            />
+            <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-slate-500"}`}>
+              Set `0` to disable due-soon reminders.
+            </p>
+          </div>
         </div>
 
         <div className="mt-5 flex items-center gap-3">

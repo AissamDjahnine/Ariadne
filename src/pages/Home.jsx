@@ -177,7 +177,8 @@ const readStoredAccountProfile = () => {
       email: sessionEmail || ACCOUNT_DEFAULT_EMAIL,
       avatarUrl: sessionAvatarUrl,
       preferredLanguage: "en",
-      emailNotifications: "yes"
+      emailNotifications: "yes",
+      loanReminderDays: 3
     };
   }
   try {
@@ -198,7 +199,8 @@ const readStoredAccountProfile = () => {
         typeof parsed?.preferredLanguage === "string" && parsed.preferredLanguage.trim()
           ? parsed.preferredLanguage
           : fallbackLanguage,
-      emailNotifications: parsed?.emailNotifications === "no" ? "no" : "yes"
+      emailNotifications: parsed?.emailNotifications === "no" ? "no" : "yes",
+      loanReminderDays: Math.max(0, Math.min(30, Number(parsed?.loanReminderDays) || 3))
     };
   } catch (err) {
     console.error(err);
@@ -207,7 +209,8 @@ const readStoredAccountProfile = () => {
       email: sessionEmail || ACCOUNT_DEFAULT_EMAIL,
       avatarUrl: sessionAvatarUrl,
       preferredLanguage: "en",
-      emailNotifications: "yes"
+      emailNotifications: "yes",
+      loanReminderDays: 3
     };
   }
 };
@@ -627,6 +630,14 @@ export default function Home() {
     if (typeof window === "undefined") return "comfortable";
     return window.localStorage.getItem(LIBRARY_DENSITY_MODE_KEY) === "compact" ? "compact" : "comfortable";
   });
+  const [loanViewMode, setLoanViewMode] = useState(() => {
+    if (typeof window === "undefined") return "list";
+    return window.localStorage.getItem("loan-view-mode") === "grid" ? "grid" : "list";
+  });
+  const [loanDensityMode, setLoanDensityMode] = useState(() => {
+    if (typeof window === "undefined") return "comfortable";
+    return window.localStorage.getItem("loan-density-mode") === "compact" ? "compact" : "comfortable";
+  });
   const [libraryTheme, setLibraryTheme] = useState(() => {
     if (typeof window === "undefined") return "light";
     return window.localStorage.getItem(LIBRARY_THEME_KEY) === "dark" ? "dark" : "light";
@@ -770,6 +781,14 @@ export default function Home() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LIBRARY_DENSITY_MODE_KEY, densityMode);
   }, [densityMode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("loan-view-mode", loanViewMode);
+  }, [loanViewMode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("loan-density-mode", loanDensityMode);
+  }, [loanDensityMode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LIBRARY_THEME_KEY, libraryTheme);
@@ -2013,7 +2032,8 @@ export default function Home() {
       email: (accountProfile.email || fallbackEmail).trim() || fallbackEmail,
       avatarUrl: (accountProfile.avatarUrl || "").trim(),
       preferredLanguage: accountProfile.preferredLanguage || "en",
-      emailNotifications: accountProfile.emailNotifications === "no" ? "no" : "yes"
+      emailNotifications: accountProfile.emailNotifications === "no" ? "no" : "yes",
+      loanReminderDays: Math.max(0, Math.min(30, Number(accountProfile.loanReminderDays) || 0))
     };
 
     if (isCollabMode) {
@@ -2359,7 +2379,9 @@ export default function Home() {
     { value: "all", label: "All books" },
     { value: "to-read", label: "To read" },
     { value: "in-progress", label: "In progress" },
-    { value: "finished", label: "Finished" }
+    { value: "finished", label: "Finished" },
+    { value: "borrowed", label: "Borrowed books" },
+    { value: "lent", label: "Lent books" }
   ];
   const flagFilterOptions = [
     { value: "favorites", label: "Favorites" },
@@ -2721,12 +2743,16 @@ export default function Home() {
         ? book.highlights.filter((h) => (h?.note || "").trim()).length
         : 0;
       const progress = normalizeNumber(book.progress);
+      const hasBorrowedLoan = borrowedLoans.some((loan) => loan?.book?.id === book.id && loan?.status !== "PENDING");
+      const hasLentLoan = lentLoans.some((loan) => loan?.book?.id === book.id && loan?.status !== "PENDING");
 
       const matchesStatus =
         statusFilter === "all" ? true
         : statusFilter === "to-read" ? isBookToRead(book)
         : statusFilter === "in-progress" ? isBookStarted(book) && progress < 100
         : statusFilter === "finished" ? progress >= 100
+        : statusFilter === "borrowed" ? hasBorrowedLoan
+        : statusFilter === "lent" ? hasLentLoan
         : true;
 
       const matchesFlags = flagFilters.every((flag) => {
@@ -2763,6 +2789,8 @@ export default function Home() {
       collectionFilter,
       sortBy,
       isBookStarted,
+      borrowedLoans,
+      lentLoans,
       contentSearchMatches,
       searchIndexByBook
     ]
@@ -3464,10 +3492,11 @@ const formatNotificationTimeAgo = (value) => {
       };
     }
     if (isInboxSection) {
+      const pendingCount = shareInboxCount + loanInboxCount;
       return {
         title: "Inbox",
         subtitle: "Pending recommendations and loan requests.",
-        summary: `${shareInboxCount + loanInboxCount} pending item${shareInboxCount + loanInboxCount === 1 ? "" : "s"}`
+        summary: `${pendingCount} pending request${pendingCount === 1 ? "" : "s"}`
       };
     }
     if (isBorrowedSection) {
@@ -3626,6 +3655,24 @@ const formatNotificationTimeAgo = (value) => {
     });
     return map;
   }, [borrowedLoans]);
+  const activeLentLoanByBookId = useMemo(() => {
+    const map = new Map();
+    lentLoans.forEach((loan) => {
+      if (loan?.status !== "ACTIVE" || !loan?.book?.id) return;
+      map.set(loan.book.id, loan);
+    });
+    return map;
+  }, [lentLoans]);
+  const getBookLoanBadge = (bookId) => {
+    if (!bookId) return null;
+    if (activeBorrowedLoanByBookId.has(bookId)) {
+      return { label: "Borrowed", tone: "amber" };
+    }
+    if (activeLentLoanByBookId.has(bookId)) {
+      return { label: "Lent", tone: "blue" };
+    }
+    return null;
+  };
   const getLoanDeadline = (loan) => {
     if (!loan?.dueAt) return null;
     const dueMs = new Date(loan.dueAt).getTime();
@@ -3689,11 +3736,131 @@ const formatNotificationTimeAgo = (value) => {
     isDuplicateTitleBook,
     stripDuplicateTitleSuffix
   ]);
+  const loanReminderDays = Math.max(0, Math.min(30, Number(accountProfile?.loanReminderDays) || 0));
+  const loanNotifications = useMemo(() => {
+    const items = [];
+    const nowMs = Date.now();
+    loanInbox.forEach((loan) => {
+      if (!loan?.id) return;
+      items.push({
+        id: `loan-request-${loan.id}`,
+        kind: "loan-request",
+        bookId: loan?.book?.id || "",
+        title: "Borrow request received",
+        author: loan?.book?.author || "",
+        message: `${loan.lender?.displayName || loan.lender?.email || "Someone"} invited you to borrow ${loan?.book?.title || "a book"}.`,
+        createdAt: loan.requestedAt || new Date().toISOString(),
+        priority: 0,
+        actionType: "open-inbox",
+        actionLabel: "Open inbox"
+      });
+    });
+    borrowedLoans.forEach((loan) => {
+      if (!loan?.id || loan?.status !== "ACTIVE") return;
+      const deadline = getLoanDeadline(loan);
+      if (!deadline) return;
+      const diffDays = Math.ceil((deadline.getTime() - nowMs) / (24 * 60 * 60 * 1000));
+      if (diffDays < 0) {
+        items.push({
+          id: `loan-overdue-${loan.id}`,
+          kind: "loan-overdue",
+          bookId: loan?.book?.id || "",
+          title: "Borrowed book overdue",
+          author: loan?.book?.author || "",
+          message: `${loan?.book?.title || "This book"} is overdue. Return it or export if revoked/ended.`,
+          createdAt: loan.updatedAt || loan.dueAt || new Date().toISOString(),
+          priority: 0,
+          actionType: "open-borrowed",
+          actionLabel: "Open borrowed"
+        });
+        return;
+      }
+      if (loanReminderDays > 0 && diffDays <= loanReminderDays) {
+        items.push({
+          id: `loan-due-soon-${loan.id}`,
+          kind: "loan-due-soon",
+          bookId: loan?.book?.id || "",
+          title: "Borrow period ending soon",
+          author: loan?.book?.author || "",
+          message: `${loan?.book?.title || "Book"} is due in ${diffDays} day${diffDays === 1 ? "" : "s"}.`,
+          createdAt: loan.updatedAt || loan.dueAt || new Date().toISOString(),
+          priority: 1,
+          actionType: "open-borrowed",
+          actionLabel: "Review loan"
+        });
+      }
+    });
+    lentLoans.forEach((loan) => {
+      if (!loan?.id) return;
+      if (loan.status === "RETURNED") {
+        items.push({
+          id: `loan-returned-${loan.id}`,
+          kind: "loan-returned",
+          bookId: loan?.book?.id || "",
+          title: "Borrow returned",
+          author: loan?.book?.author || "",
+          message: `${loan.borrower?.displayName || loan.borrower?.email || "Borrower"} returned ${loan?.book?.title || "a book"}.`,
+          createdAt: loan.returnedAt || loan.updatedAt || new Date().toISOString(),
+          priority: 2,
+          actionType: "open-lent",
+          actionLabel: "Open lent"
+        });
+      }
+      if (loan.status === "REVOKED") {
+        items.push({
+          id: `loan-revoked-${loan.id}`,
+          kind: "loan-revoked",
+          bookId: loan?.book?.id || "",
+          title: "Loan revoked",
+          author: loan?.book?.author || "",
+          message: `You revoked ${loan?.book?.title || "a loaned book"}.`,
+          createdAt: loan.revokedAt || loan.updatedAt || new Date().toISOString(),
+          priority: 2,
+          actionType: "open-lent",
+          actionLabel: "Open lent"
+        });
+      }
+    });
+    return items;
+  }, [loanInbox, borrowedLoans, lentLoans, loanReminderDays]);
+  const loanReminderInboxItems = useMemo(() => {
+    const nowMs = Date.now();
+    return borrowedLoans
+      .filter((loan) => loan?.id && loan?.status === "ACTIVE")
+      .map((loan) => {
+        const deadline = getLoanDeadline(loan);
+        if (!deadline) return null;
+        const diffDays = Math.ceil((deadline.getTime() - nowMs) / (24 * 60 * 60 * 1000));
+        if (diffDays < 0) {
+          return {
+            id: `loan-reminder-overdue-${loan.id}`,
+            loan,
+            kind: "overdue",
+            diffDays
+          };
+        }
+        if (loanReminderDays > 0 && diffDays <= loanReminderDays) {
+          return {
+            id: `loan-reminder-due-soon-${loan.id}`,
+            loan,
+            kind: "due-soon",
+            diffDays
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }, [borrowedLoans, loanReminderDays]);
+  const inboxTotalCount = shareInboxCount + loanInboxCount + loanReminderInboxItems.length;
+  const allNotifications = useMemo(
+    () => [...libraryNotifications, ...loanNotifications],
+    [libraryNotifications, loanNotifications]
+  );
   useEffect(() => {
     setNotificationStateById((current) => {
       const nowIso = new Date().toISOString();
       const next = {};
-      libraryNotifications.forEach((item) => {
+      allNotifications.forEach((item) => {
         const previous = current[item.id] || {};
         next[item.id] = {
           firstSeenAt: previous.firstSeenAt || item.createdAt || nowIso,
@@ -3722,10 +3889,10 @@ const formatNotificationTimeAgo = (value) => {
       }
       return current;
     });
-  }, [libraryNotifications]);
+  }, [allNotifications]);
 
   const libraryNotificationsWithState = useMemo(() => (
-    libraryNotifications.map((item) => {
+    allNotifications.map((item) => {
       const state = notificationStateById[item.id] || {};
       const firstSeenAt = state.firstSeenAt || null;
       const readAt = state.readAt || null;
@@ -3746,7 +3913,7 @@ const formatNotificationTimeAgo = (value) => {
         isDeleted: Boolean(deletedAt)
       };
     })
-  ), [libraryNotifications, notificationStateById]);
+  ), [allNotifications, notificationStateById]);
 
   const visibleNotifications = useMemo(
     () => libraryNotificationsWithState.filter((item) => !item.isSnoozed && !item.isArchived && !item.isDeleted),
@@ -3784,7 +3951,12 @@ const formatNotificationTimeAgo = (value) => {
     "daily-goal": { label: "Daily goal", Icon: Target, tone: "indigo" },
     milestone: { label: "Milestone", Icon: Trophy, tone: "violet" },
     "to-read-nudge": { label: "To Read", Icon: Tag, tone: "pink" },
-    "duplicate-cleanup": { label: "Duplicates", Icon: Trash2, tone: "rose" }
+    "duplicate-cleanup": { label: "Duplicates", Icon: Trash2, tone: "rose" },
+    "loan-request": { label: "Loan", Icon: Mail, tone: "blue" },
+    "loan-due-soon": { label: "Due soon", Icon: Clock, tone: "amber" },
+    "loan-overdue": { label: "Overdue", Icon: Clock, tone: "rose" },
+    "loan-returned": { label: "Returned", Icon: RotateCcw, tone: "green" },
+    "loan-revoked": { label: "Revoked", Icon: Archive, tone: "rose" }
   };
   const notificationToneClasses = {
     amber: isDarkLibraryTheme ? "bg-amber-900/30 text-amber-300" : "bg-amber-100 text-amber-700",
@@ -3907,6 +4079,21 @@ const formatNotificationTimeAgo = (value) => {
       return;
     }
 
+    if (item.actionType === "open-inbox") {
+      handleSidebarSectionSelect("inbox");
+      return;
+    }
+
+    if (item.actionType === "open-borrowed") {
+      handleSidebarSectionSelect("borrowed");
+      return;
+    }
+
+    if (item.actionType === "open-lent") {
+      handleSidebarSectionSelect("lent");
+      return;
+    }
+
     handleSidebarSectionSelect("library");
   };
 
@@ -3934,6 +4121,11 @@ const formatNotificationTimeAgo = (value) => {
     handleNotificationReadState(item.id, true);
     setActiveNotificationMenuId("");
     setIsNotificationsOpen(false);
+
+    if (item.actionType === "open-inbox" || item.actionType === "open-borrowed" || item.actionType === "open-lent") {
+      handleOpenNotificationTarget(item);
+      return;
+    }
 
     if (item.bookId) {
       handleSidebarSectionSelect("library");
@@ -4073,7 +4265,7 @@ const formatNotificationTimeAgo = (value) => {
             isCollabMode={isCollabMode}
             notesCount={notesCenterEntries.length}
             highlightsCount={highlightsCenterEntries.length}
-            inboxCount={shareInboxCount + loanInboxCount}
+            inboxCount={inboxTotalCount}
             trashCount={trashedBooksCount}
             onSelectSection={handleSidebarSectionSelect}
             className={showReadingSnapshot ? "mt-4" : ""}
@@ -4107,7 +4299,7 @@ const formatNotificationTimeAgo = (value) => {
                   { key: "borrowed", label: "Borrowed" },
                   { key: "lent", label: "Lent" },
                   { key: "history", label: "History" },
-                  { key: "inbox", label: `Inbox (${shareInboxCount + loanInboxCount})` }
+                  { key: "inbox", label: `Inbox (${inboxTotalCount})` }
                 ].map((tab) => {
                   const isActive = librarySection === tab.key;
                   return (
@@ -4625,6 +4817,7 @@ const formatNotificationTimeAgo = (value) => {
             <div className="grid [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))] gap-x-4 gap-y-10 pb-3 pr-2">
               {continueReadingBooks.map((book) => {
                 const progress = Math.max(0, Math.min(100, normalizeNumber(book.progress)));
+                const loanBadge = getBookLoanBadge(book.id);
                 const estimatedRemainingSeconds = Number.isFinite(book?.__estimatedRemainingSeconds)
                   ? book.__estimatedRemainingSeconds
                   : getEstimatedRemainingSeconds(book);
@@ -4656,6 +4849,17 @@ const formatNotificationTimeAgo = (value) => {
                             : "bg-gray-200 shadow-[0_14px_26px_rgba(15,23,42,0.18)]"
                         }`}
                       >
+                        {loanBadge && (
+                          <span
+                            className={`absolute left-2 top-2 z-20 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              loanBadge.tone === "amber"
+                                ? "bg-amber-500 text-white"
+                                : "bg-blue-600 text-white"
+                            }`}
+                          >
+                            {loanBadge.label}
+                          </span>
+                        )}
                         {book.cover ? (
                           <img src={book.cover} alt={book.title} className="h-full w-full object-cover" />
                         ) : (
@@ -5095,10 +5299,21 @@ const formatNotificationTimeAgo = (value) => {
                       key={loan.id}
                       className={`rounded-xl border p-3 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}
                     >
-                      <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{loan.book?.title || "Book"}</p>
-                      <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
-                        from {loan.lender?.displayName || loan.lender?.email} · {loan.durationDays}d + {loan.graceDays}d grace
-                      </p>
+                      <div className="flex items-start gap-3">
+                        <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                          {loan.book?.cover ? (
+                            <img src={loan.book.cover} alt={loan.book?.title || "Book cover"} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{loan.book?.title || "Book"}</p>
+                          <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                            from {loan.lender?.displayName || loan.lender?.email} · {loan.durationDays}d + {loan.graceDays}d grace
+                          </p>
+                        </div>
+                      </div>
                       {loan.message ? (
                         <p className={`mt-2 text-xs ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}`}>"{loan.message}"</p>
                       ) : null}
@@ -5135,20 +5350,88 @@ const formatNotificationTimeAgo = (value) => {
                 </div>
               )}
             </section>
+            <section
+              className={`rounded-2xl border p-5 ${
+                isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "border-gray-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Borrow Reminders</h2>
+                <button
+                  type="button"
+                  className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}
+                  onClick={() => handleSidebarSectionSelect("borrowed")}
+                >
+                  Open borrowed
+                </button>
+              </div>
+              {!loanReminderInboxItems.length ? (
+                <p className={`mt-3 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                  No due reminders right now.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {loanReminderInboxItems.map((item) => {
+                    const loan = item.loan;
+                    const isOverdue = item.kind === "overdue";
+                    return (
+                      <article
+                        key={item.id}
+                        className={`rounded-xl border p-3 ${
+                          isOverdue
+                            ? (isDarkLibraryTheme ? "border-rose-700/70 bg-rose-950/30" : "border-rose-200 bg-rose-50")
+                            : (isDarkLibraryTheme ? "border-amber-700/60 bg-amber-950/20" : "border-amber-200 bg-amber-50")
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                            {loan.book?.cover ? (
+                              <img src={loan.book.cover} alt={loan.book?.title || "Book cover"} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{loan.book?.title || "Book"}</p>
+                            <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}`}>
+                              {isOverdue
+                                ? `Overdue since ${formatLoanDate(getLoanDeadline(loan))}`
+                                : `Due in ${item.diffDays} day${item.diffDays === 1 ? "" : "s"} (${formatLoanDate(getLoanDeadline(loan))})`}
+                            </p>
+                            <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                              Lender: {loan.lender?.displayName || loan.lender?.email || "Unknown"}
+                            </p>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
         {isBorrowedSection && !isTrashSection && (
           <section className={`rounded-2xl border p-5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "border-gray-200 bg-white"}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Borrowed Books</h2>
-              <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
+              <div className="flex items-center gap-2">
+                <div className={`flex h-[38px] w-[132px] items-center rounded-xl border p-1 ${
+                  isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-50"
+                }`}>
+                  <button type="button" onClick={() => { setLoanViewMode("grid"); setLoanDensityMode("comfortable"); }} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "grid" && loanDensityMode !== "compact" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>Grid</button>
+                  <button type="button" onClick={() => { setLoanViewMode("grid"); setLoanDensityMode("compact"); }} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "grid" && loanDensityMode === "compact" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>Compact</button>
+                  <button type="button" onClick={() => setLoanViewMode("list")} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "list" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>List</button>
+                </div>
+                <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
+              </div>
             </div>
             {!borrowedLoans.length ? (
               <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No borrowed books.</p>
             ) : (
-              <div className="space-y-3">
+              <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
                 {borrowedLoans.map((loan) => (
-                  <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}>
+                  <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"} ${loanViewMode === "list" ? "" : "h-full"}`}>
                     <div className="flex items-start gap-3">
                       <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
                         {loan.book?.cover ? (
@@ -5209,20 +5492,42 @@ const formatNotificationTimeAgo = (value) => {
           <section className={`rounded-2xl border p-5 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/35" : "border-gray-200 bg-white"}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className={`text-lg font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>Lent Books</h2>
-              <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
+              <div className="flex items-center gap-2">
+                <div className={`flex h-[38px] w-[132px] items-center rounded-xl border p-1 ${
+                  isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-50"
+                }`}>
+                  <button type="button" onClick={() => { setLoanViewMode("grid"); setLoanDensityMode("comfortable"); }} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "grid" && loanDensityMode !== "compact" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>Grid</button>
+                  <button type="button" onClick={() => { setLoanViewMode("grid"); setLoanDensityMode("compact"); }} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "grid" && loanDensityMode === "compact" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>Compact</button>
+                  <button type="button" onClick={() => setLoanViewMode("list")} className={`flex-1 rounded-lg px-1 py-1 text-xs font-semibold ${loanViewMode === "list" ? "bg-blue-600 text-white" : (isDarkLibraryTheme ? "text-slate-300" : "text-gray-600")}`}>List</button>
+                </div>
+                <button type="button" onClick={loadLoansData} className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-blue-300 hover:text-blue-200" : "text-blue-700"}`}>Refresh</button>
+              </div>
             </div>
             {!lentLoans.length ? (
               <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No lent books.</p>
             ) : (
-              <div className="space-y-3">
+              <div className={loanViewMode === "list" ? "space-y-3" : `grid gap-3 ${loanDensityMode === "compact" ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`}>
                 {lentLoans.map((loan) => (
-                  <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}>
+                  <article key={loan.id} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"} ${loanViewMode === "list" ? "" : "h-full"}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
+                      <div className="flex items-start gap-3">
+                        <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                          {loan.book?.cover ? (
+                            <img
+                              src={loan.book.cover}
+                              alt={loan.book?.title || "Book cover"}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                          )}
+                        </div>
+                        <div>
                         <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{loan.book?.title || "Book"}</p>
                         <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
                           to {loan.borrower?.displayName || loan.borrower?.email} · due {formatLoanDate(getLoanDeadline(loan))}
                         </p>
+                        </div>
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
                         loan.status === "ACTIVE"
@@ -5254,15 +5559,60 @@ const formatNotificationTimeAgo = (value) => {
             {!loanAuditEvents.length ? (
               <p className={`text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>No audit events yet.</p>
             ) : (
-              <div className="space-y-3">
-                {loanAuditEvents.map((event) => (
-                  <article key={event.id} className={`rounded-xl border p-3 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}>
-                    <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
-                      {formatLoanActionLabel(event.action)} · {event.loan?.book?.title || "Book"}
-                    </p>
-                    <p className={`mt-1 text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
-                      {event.actorUser?.email || "System"} {"->"} {event.targetUser?.email || "N/A"} · {formatLoanDate(event.createdAt)}
-                    </p>
+              <div className="space-y-4">
+                {Object.values(
+                  loanAuditEvents.reduce((acc, event) => {
+                    const key = event?.loan?.book?.id || `unknown-${event.id}`;
+                    if (!acc[key]) {
+                      acc[key] = {
+                        key,
+                        book: event?.loan?.book || null,
+                        events: []
+                      };
+                    }
+                    acc[key].events.push(event);
+                    return acc;
+                  }, {})
+                ).map((group) => (
+                  <article key={group.key} className={`rounded-xl border p-4 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}>
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className={`h-16 w-12 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                        {group.book?.cover ? (
+                          <img src={group.book.cover} alt={group.book?.title || "Book cover"} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                        )}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{group.book?.title || "Book"}</p>
+                        <p className={`text-xs ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>{group.events.length} event{group.events.length === 1 ? "" : "s"}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {group.events.map((event) => (
+                        <div key={event.id} className={`rounded-lg border px-3 py-2 ${isDarkLibraryTheme ? "border-slate-700/80 bg-slate-900/40" : "border-gray-200 bg-gray-50"}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className={`text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-200" : "text-gray-800"}`}>{formatLoanActionLabel(event.action)}</p>
+                            <p className={`text-[11px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>{formatLoanDate(event.createdAt)}</p>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-xs">
+                            <span className="inline-flex items-center gap-1">
+                              <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
+                                {event.actorUser?.avatarUrl ? <img src={event.actorUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.actorUser?.displayName || event.actorUser?.email || "S").charAt(0).toUpperCase()}</span>}
+                              </span>
+                              <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.actorUser?.displayName || event.actorUser?.email || "System"}</span>
+                            </span>
+                            <span className={isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}>{"->"}</span>
+                            <span className="inline-flex items-center gap-1">
+                              <span className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full ${isDarkLibraryTheme ? "bg-slate-700 text-slate-200" : "bg-gray-200 text-gray-700"}`}>
+                                {event.targetUser?.avatarUrl ? <img src={event.targetUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span>{(event.targetUser?.displayName || event.targetUser?.email || "N").charAt(0).toUpperCase()}</span>}
+                              </span>
+                              <span className={isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}>{event.targetUser?.displayName || event.targetUser?.email || "N/A"}</span>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -5350,6 +5700,8 @@ const formatNotificationTimeAgo = (value) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
               const borrowedLoan = activeBorrowedLoanByBookId.get(book.id);
+              const lentLoan = activeLentLoanByBookId.get(book.id);
+              const loanBadge = getBookLoanBadge(book.id);
               return (
                 <Link 
                   to={inTrash ? "#" : buildReaderPath(book.id)} 
@@ -5376,6 +5728,17 @@ const formatNotificationTimeAgo = (value) => {
                         <BookIcon size={40} className="mb-2 opacity-20" />
                         <span className="text-xs font-medium uppercase tracking-widest">{book.title}</span>
                       </div>
+                    )}
+                    {loanBadge && !inTrash && (
+                      <span
+                        className={`absolute left-3 top-3 z-10 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          loanBadge.tone === "amber"
+                            ? "bg-amber-500 text-white"
+                            : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        {loanBadge.label}
+                      </span>
                     )}
 
                     <div
@@ -5624,6 +5987,15 @@ const formatNotificationTimeAgo = (value) => {
                         Borrowed · {formatLoanRemaining(borrowedLoan)}
                       </div>
                     )}
+                    {!borrowedLoan && lentLoan && (
+                      <div className={`mb-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        isDarkLibraryTheme
+                          ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
+                          : "border-blue-300 bg-blue-50 text-blue-700"
+                      }`}>
+                        Lent · {formatLoanRemaining(lentLoan)}
+                      </div>
+                    )}
 
                     {densityMode !== "compact" ? (
                       <>
@@ -5658,6 +6030,8 @@ const formatNotificationTimeAgo = (value) => {
               const inTrash = Boolean(book.isDeleted);
               const isRecent = book.id === recentlyAddedBookId;
               const borrowedLoan = activeBorrowedLoanByBookId.get(book.id);
+              const lentLoan = activeLentLoanByBookId.get(book.id);
+              const loanBadge = getBookLoanBadge(book.id);
               return (
                 <Link
                   to={inTrash ? "#" : buildReaderPath(book.id)}
@@ -5684,6 +6058,17 @@ const formatNotificationTimeAgo = (value) => {
                         <BookIcon size={24} className="mb-1 opacity-20" />
                         <span className="text-[10px] font-medium uppercase tracking-widest line-clamp-2">{book.title}</span>
                       </div>
+                    )}
+                    {loanBadge && !inTrash && (
+                      <span
+                        className={`absolute left-2 top-2 z-10 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          loanBadge.tone === "amber"
+                            ? "bg-amber-500 text-white"
+                            : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        {loanBadge.label}
+                      </span>
                     )}
                     <div
                       className={`absolute bottom-2 right-2 text-[10px] font-bold px-2 py-1 rounded-lg ${
@@ -5715,6 +6100,15 @@ const formatNotificationTimeAgo = (value) => {
                             : "border-amber-300 bg-amber-50 text-amber-700"
                         }`}>
                           Borrowed · {formatLoanRemaining(borrowedLoan)}
+                        </div>
+                      )}
+                      {!borrowedLoan && lentLoan && (
+                        <div className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                          isDarkLibraryTheme
+                            ? "border-blue-500/40 bg-blue-500/10 text-blue-300"
+                            : "border-blue-300 bg-blue-50 text-blue-700"
+                        }`}>
+                          Lent · {formatLoanRemaining(lentLoan)}
                         </div>
                       )}
 

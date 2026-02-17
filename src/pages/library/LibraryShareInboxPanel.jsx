@@ -84,10 +84,21 @@ export default function LibraryShareInboxPanel({ onAccepted, isDarkLibraryTheme 
             key={share.id}
             className={`rounded-xl border p-3 ${isDarkLibraryTheme ? "border-slate-700 bg-slate-900/45" : "border-gray-200"}`}
           >
-            <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{share.book?.title || 'Book'}</p>
-            <p className={`text-xs mt-1 ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
-              from {share.fromUser?.displayName || share.fromUser?.email}
-            </p>
+            <div className="flex items-start gap-3">
+              <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-md border ${isDarkLibraryTheme ? "border-slate-700 bg-slate-800" : "border-gray-200 bg-gray-100"}`}>
+                {share.book?.cover ? (
+                  <img src={share.book.cover} alt={share.book?.title || "Book cover"} className="h-full w-full object-cover" />
+                ) : (
+                  <div className={`flex h-full w-full items-center justify-center text-[10px] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-400"}`}>No cover</div>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>{share.book?.title || 'Book'}</p>
+                <p className={`text-xs mt-1 ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                  from {share.fromUser?.displayName || share.fromUser?.email}
+                </p>
+              </div>
+            </div>
             {share.message ? (
               <p className={`mt-2 text-xs ${isDarkLibraryTheme ? "text-slate-300" : "text-gray-700"}`}>"{share.message}"</p>
             ) : null}
