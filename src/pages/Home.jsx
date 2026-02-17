@@ -4676,134 +4676,146 @@ const formatNotificationTimeAgo = (value) => {
           isCollabMode={isCollabMode}
           onSelectSection={handleSidebarSectionSelect}
         />
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
-          <div>
-            <div className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-500"}`}>
-              Workspace
-            </div>
-            <h1 className={`mt-1 text-4xl font-extrabold tracking-tight ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
-              {sectionHeader.title}
-            </h1>
-            <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-              {sectionHeader.subtitle}
-            </p>
-            <p className={`mt-1 text-xs font-semibold ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-600"}`}>
-              {sectionHeader.summary}
-            </p>
-            {isCollabMode && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {[
-                  { key: "library", label: "My library" },
-                  { key: "borrowed", label: "Borrowed" },
-                  { key: "lent", label: "Lent" },
-                  { key: "history", label: "History" },
-                  { key: "inbox", label: `Inbox (${inboxTotalCount})` }
-                ].map((tab) => {
-                  const isActive = librarySection === tab.key;
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => handleSidebarSectionSelect(tab.key)}
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                        isActive
-                          ? (isDarkLibraryTheme
-                              ? "border-blue-500 bg-blue-950/55 text-blue-200"
-                              : "border-blue-200 bg-blue-50 text-blue-700")
-                          : (isDarkLibraryTheme
-                              ? "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50")
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
+        <header
+          className={`mb-8 rounded-3xl border p-4 md:p-5 ${
+            isDarkLibraryTheme
+              ? "border-slate-700 bg-slate-900/35"
+              : "border-gray-200 bg-white/90 shadow-sm"
+          }`}
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${isDarkLibraryTheme ? "text-slate-500" : "text-gray-500"}`}>
+                Workspace
               </div>
-            )}
+              <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+                <h1 className={`text-4xl font-extrabold tracking-tight ${isDarkLibraryTheme ? "text-slate-100" : "text-gray-900"}`}>
+                  {sectionHeader.title}
+                </h1>
+                <span className={`text-sm font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-600"}`}>
+                  · {sectionHeader.summary}
+                </span>
+              </div>
+              <p className={`mt-1 text-sm ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                {sectionHeader.subtitle}
+              </p>
 
-            {shouldShowLibraryHomeContent && (
-              <>
-                <div
-                  data-testid="library-streak-badge"
-                  className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
-                    streakCount > 0
-                      ? (isDarkLibraryTheme
-                          ? "border-amber-800/70 bg-amber-900/35 text-amber-200"
-                          : "border-orange-200 bg-orange-50 text-orange-700")
-                      : (isDarkLibraryTheme
-                          ? "border-slate-700 bg-slate-800 text-slate-400"
-                          : "border-gray-200 bg-white text-gray-500")
-                  }`}
-                  title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
-                >
-                  <Flame
-                    size={14}
-                    className={
-                      streakCount > 0
-                        ? (isDarkLibraryTheme ? "text-amber-300" : "text-orange-500")
-                        : (isDarkLibraryTheme ? "text-slate-500" : "text-gray-400")
-                    }
-                  />
-                  <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
-                </div>
-
-                <div data-testid="library-quick-filters" className="mt-3 flex flex-wrap gap-2">
-                  {quickFilterStats.map((stat) => {
-                    const isQuickActive =
-                      stat.key === "favorites"
-                        ? isFlagFilterActive("favorites")
-                        : statusFilter === stat.key;
+              {isCollabMode && (
+                <div className={`mt-3 inline-flex flex-wrap items-center gap-1 rounded-xl border p-1 ${
+                  isDarkLibraryTheme ? "border-slate-700 bg-slate-900/70" : "border-gray-200 bg-gray-50"
+                }`}>
+                  {[
+                    { key: "library", label: "My library", Icon: BookIcon },
+                    { key: "borrowed", label: "Borrowed", Icon: Clock },
+                    { key: "lent", label: "Lent", Icon: Send },
+                    { key: "history", label: "History", Icon: History },
+                    { key: "inbox", label: `Inbox (${inboxTotalCount})`, Icon: Mail }
+                  ].map((tab) => {
+                    const isActive = librarySection === tab.key;
+                    const TabIcon = tab.Icon;
                     return (
-                    <button
-                      key={stat.key}
-                      type="button"
-                      data-testid={`library-quick-filter-${stat.key}`}
-                      aria-pressed={isQuickActive}
-                      onClick={() => {
-                        if (stat.key === "favorites") {
-                          toggleFlagFilter("favorites");
-                          return;
-                        }
-                        setStatusFilter(stat.key);
-                      }}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                        isQuickActive
-                          ? (isDarkLibraryTheme
-                              ? "border-blue-700 bg-blue-950/45 text-blue-200"
-                              : "border-blue-200 bg-blue-50 text-blue-700")
-                          : (isDarkLibraryTheme
-                              ? "border-slate-700 bg-slate-800 text-slate-300 hover:border-blue-600 hover:text-blue-300"
-                              : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700")
-                      }`}
-                      title={`Show ${stat.label.toLowerCase()} books`}
-                    >
-                      <span>{stat.label}</span>
-                      <span
-                        data-testid={`library-quick-filter-${stat.key}-count`}
-                        className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
-                          isQuickActive
-                            ? (isDarkLibraryTheme ? "bg-blue-900/70 text-blue-200" : "bg-blue-100 text-blue-700")
-                            : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-gray-100 text-gray-600")
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => handleSidebarSectionSelect(tab.key)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                          isActive
+                            ? (isDarkLibraryTheme
+                                ? "bg-blue-900/60 text-blue-100"
+                                : "bg-white text-blue-700 shadow-sm")
+                            : (isDarkLibraryTheme
+                                ? "text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                                : "text-gray-600 hover:bg-white hover:text-gray-900")
                         }`}
                       >
-                        {stat.count}
-                      </span>
-                    </button>
+                        <TabIcon size={13} />
+                        <span>{tab.label}</span>
+                      </button>
                     );
                   })}
                 </div>
-              </>
-            )}
-          </div>
+              )}
 
-          {!isAccountSection && (
-          <div className="relative flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end" ref={notificationsMenuRef}>
+              {shouldShowLibraryHomeContent && (
+                <>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div
+                      data-testid="library-streak-badge"
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                        streakCount > 0
+                          ? (isDarkLibraryTheme ? "bg-amber-900/35 text-amber-200 ring-1 ring-amber-800/70" : "bg-orange-100 text-orange-700 ring-1 ring-orange-200")
+                          : (isDarkLibraryTheme ? "bg-slate-800 text-slate-400 ring-1 ring-slate-700" : "bg-gray-100 text-gray-600 ring-1 ring-gray-200")
+                      }`}
+                      title={streakCount > 0 && !readToday ? 'Read today to keep your streak alive.' : 'Daily reading streak'}
+                    >
+                      <Flame
+                        size={14}
+                        className={
+                          streakCount > 0
+                            ? (isDarkLibraryTheme ? "text-amber-300" : "text-orange-500")
+                            : (isDarkLibraryTheme ? "text-slate-500" : "text-gray-400")
+                        }
+                      />
+                      <span>{streakCount > 0 ? `${streakCount}-day streak` : 'No streak yet'}</span>
+                    </div>
+                  </div>
+
+                  <div data-testid="library-quick-filters" className="mt-2 flex flex-wrap gap-2">
+                    {quickFilterStats.map((stat) => {
+                      const isQuickActive =
+                        stat.key === "favorites"
+                          ? isFlagFilterActive("favorites")
+                          : statusFilter === stat.key;
+                      return (
+                        <button
+                          key={stat.key}
+                          type="button"
+                          data-testid={`library-quick-filter-${stat.key}`}
+                          aria-pressed={isQuickActive}
+                          onClick={() => {
+                            if (stat.key === "favorites") {
+                              toggleFlagFilter("favorites");
+                              return;
+                            }
+                            setStatusFilter(stat.key);
+                          }}
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            isQuickActive
+                              ? (isDarkLibraryTheme
+                                  ? "bg-blue-900/55 text-blue-100 ring-1 ring-blue-700"
+                                  : "bg-blue-100 text-blue-700 ring-1 ring-blue-200")
+                              : (isDarkLibraryTheme
+                                  ? "bg-slate-800 text-slate-300 ring-1 ring-slate-700 hover:bg-slate-700"
+                                  : "bg-gray-100 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-200")
+                          }`}
+                          title={`Show ${stat.label.toLowerCase()} books`}
+                        >
+                          <span>{stat.label}</span>
+                          <span
+                            data-testid={`library-quick-filter-${stat.key}-count`}
+                            className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                              isQuickActive
+                                ? (isDarkLibraryTheme ? "bg-blue-800 text-blue-100" : "bg-white text-blue-700")
+                                : (isDarkLibraryTheme ? "bg-slate-700 text-slate-300" : "bg-white text-gray-600")
+                            }`}
+                          >
+                            {stat.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {!isAccountSection && (
+          <div className="relative flex w-full flex-wrap items-center gap-3 lg:w-auto lg:justify-end" ref={notificationsMenuRef}>
             <div
               className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 ${
                 isDarkLibraryTheme
-                  ? "border-slate-700 bg-slate-900/50 shadow-[0_10px_22px_rgba(2,8,23,0.35)]"
-                  : "border-gray-200 bg-white/90"
+                  ? "border-slate-600 bg-slate-900/70 shadow-[0_12px_24px_rgba(2,8,23,0.35)]"
+                  : "border-gray-200 bg-white shadow-sm"
               }`}
             >
             <button
@@ -4813,7 +4825,7 @@ const formatNotificationTimeAgo = (value) => {
                 setActiveNotificationMenuId("");
                 setIsNotificationsOpen((open) => !open);
               }}
-              className={`relative inline-flex h-12 w-12 items-center justify-center rounded-full border transition ${
+              className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full border transition ${
                 isDarkLibraryTheme
                   ? "border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700"
                   : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
@@ -4826,7 +4838,7 @@ const formatNotificationTimeAgo = (value) => {
               {notificationCount > 0 && (
                 <span
                   data-testid="library-notifications-badge"
-                  className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
+                  className="absolute -top-1 -right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white"
                 >
                   {notificationCount}
                 </span>
@@ -4837,7 +4849,7 @@ const formatNotificationTimeAgo = (value) => {
               type="button"
               data-testid="library-theme-toggle"
               onClick={() => setLibraryTheme((current) => (current === "dark" ? "light" : "dark"))}
-              className={`inline-flex h-12 w-12 items-center justify-center rounded-full border transition ${
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border transition ${
                 isDarkLibraryTheme
                   ? "border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700"
                   : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:text-blue-700"
@@ -4855,7 +4867,7 @@ const formatNotificationTimeAgo = (value) => {
                 setIsNotificationsOpen(false);
                 setIsProfileMenuOpen((open) => !open);
               }}
-              className={`inline-flex h-12 w-12 items-center justify-center rounded-full border text-sm font-bold transition ${
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border text-sm font-bold transition ${
                 isDarkLibraryTheme
                   ? "border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700"
                   : "border-gray-200 bg-white text-[#1A1A2E] hover:border-blue-200 hover:text-blue-700"
@@ -5142,6 +5154,7 @@ const formatNotificationTimeAgo = (value) => {
             )}
           </div>
           )}
+          </div>
         </header>
 
         {isAccountSection && (
