@@ -4429,10 +4429,10 @@ const formatNotificationTimeAgo = (value) => {
     return false;
   };
   const getDisplayBookTitle = (book) => {
-    const metadataTitle = String(book?.epubMetadata?.title || "").trim();
-    if (metadataTitle) return metadataTitle;
     const title = String(book?.title || "").trim();
-    return title || "Untitled";
+    if (title) return title;
+    const metadataTitle = String(book?.epubMetadata?.title || "").trim();
+    return metadataTitle || "Untitled";
   };
   const getLoanPermissionChips = (loan, mode = "borrowed") => {
     const perms = loan?.permissions || {};
