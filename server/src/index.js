@@ -124,10 +124,148 @@ const addLoanAuditEvent = async (tx, payload) => {
 const toUserResponse = (user) => ({
   id: user.id,
   email: user.email,
+  username: user.username || null,
   displayName: user.displayName || null,
   avatarUrl: user.avatarUrl || null,
   loanReminderDays: Number.isInteger(user.loanReminderDays) ? user.loanReminderDays : 3
 });
+
+const normalizeUsername = (value = '') => {
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '');
+  return normalized.slice(0, 32);
+};
+
+const buildUsernameBaseFromUser = ({ displayName = '', email = '' }) => {
+  const fromDisplayName = normalizeUsername(displayName);
+  if (fromDisplayName.length >= 3) return fromDisplayName;
+  const emailLocal = String(email || '').split('@')[0] || 'reader';
+  const fromEmail = normalizeUsername(emailLocal);
+  if (fromEmail.length >= 3) return fromEmail;
+  return `reader-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const ensureUniqueUsername = async (db, preferredUsername, excludeUserId = null) => {
+  const baseRaw = normalizeUsername(preferredUsername);
+  const base = baseRaw.length >= 3 ? baseRaw : `reader-${Math.random().toString(36).slice(2, 8)}`;
+  let candidate = base;
+  let suffix = 1;
+
+  while (suffix <= 999) {
+    // eslint-disable-next-line no-await-in-loop
+    const existing = await db.user.findUnique({
+      where: { username: candidate },
+      select: { id: true }
+    });
+    if (!existing || (excludeUserId && existing.id === excludeUserId)) return candidate;
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+    if (candidate.length > 32) {
+      candidate = `${base.slice(0, Math.max(3, 32 - String(suffix).length - 1))}-${suffix}`;
+    }
+  }
+
+  return `${base.slice(0, 24)}-${Date.now().toString(36).slice(-6)}`;
+};
+
+const toFriendRequestResponse = (request) => ({
+  id: request.id,
+  status: request.status,
+  createdAt: request.createdAt,
+  updatedAt: request.updatedAt,
+  respondedAt: request.respondedAt || null,
+  fromUser: request.fromUser ? toUserResponse(request.fromUser) : null,
+  toUser: request.toUser ? toUserResponse(request.toUser) : null
+});
+
+const toFriendshipResponse = ({ friendship, currentUserId }) => {
+  const friendUser = friendship.userAId === currentUserId ? friendship.userB : friendship.userA;
+  return {
+    id: friendship.id,
+    createdAt: friendship.createdAt,
+    friend: friendUser ? toUserResponse(friendUser) : null
+  };
+};
+
+const sortPair = (leftUserId, rightUserId) => (
+  leftUserId < rightUserId ? [leftUserId, rightUserId] : [rightUserId, leftUserId]
+);
+
+const areUsersBlocked = async (db, leftUserId, rightUserId) => {
+  if (!leftUserId || !rightUserId) return false;
+  const block = await db.friendBlock.findFirst({
+    where: {
+      OR: [
+        { blockerUserId: leftUserId, blockedUserId: rightUserId },
+        { blockerUserId: rightUserId, blockedUserId: leftUserId }
+      ]
+    },
+    select: { id: true }
+  });
+  return Boolean(block);
+};
+
+const ensureNotBlocked = async (db, leftUserId, rightUserId) => {
+  const blocked = await areUsersBlocked(db, leftUserId, rightUserId);
+  if (blocked) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Action blocked due to a block relationship'
+    };
+  }
+  return { ok: true };
+};
+
+const ensureFriendPrivacySetting = async (db, ownerUserId, friendUserId) => {
+  if (!ownerUserId || !friendUserId || ownerUserId === friendUserId) return null;
+  const existing = await db.friendPrivacySetting.findUnique({
+    where: {
+      ownerUserId_friendUserId: {
+        ownerUserId,
+        friendUserId
+      }
+    }
+  });
+  if (existing) return existing;
+  return db.friendPrivacySetting.create({
+    data: {
+      ownerUserId,
+      friendUserId
+    }
+  });
+};
+
+const getFriendshipByUsers = async (db, leftUserId, rightUserId) => {
+  const [userAId, userBId] = sortPair(leftUserId, rightUserId);
+  return db.friendship.findUnique({
+    where: { userAId_userBId: { userAId, userBId } }
+  });
+};
+
+const requireFriendship = async (db, leftUserId, rightUserId) => {
+  const friendship = await getFriendshipByUsers(db, leftUserId, rightUserId);
+  if (!friendship) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Friendship required'
+    };
+  }
+  return { ok: true, friendship };
+};
+
+const getFriendPrivacyForViewer = async (db, ownerUserId, viewerUserId) => {
+  const setting = await ensureFriendPrivacySetting(db, ownerUserId, viewerUserId);
+  return {
+    canViewLibrary: Boolean(setting?.canViewLibrary ?? true),
+    canBorrow: Boolean(setting?.canBorrow ?? true),
+    canViewActivity: Boolean(setting?.canViewActivity ?? true)
+  };
+};
 
 const parseExpectedRevision = (req) => {
   const header = req.headers['if-match-revision'];
@@ -163,6 +301,94 @@ const toTemplateResponse = (row) => ({
     shareLenderAnnotations: Boolean(row.shareLenderAnnotations)
   }
 });
+
+const toLoanReviewMessageResponse = (row) => ({
+  id: row.id,
+  loanId: row.loanId,
+  rating: row.rating,
+  comment: row.comment,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  author: row.author ? toUserResponse(row.author) : null
+});
+
+const parseJsonSafe = (value = null) => {
+  try {
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+};
+
+const toLoanAuditEventResponse = (event) => ({
+  id: event.id,
+  action: event.action,
+  createdAt: event.createdAt,
+  details: parseJsonSafe(event.detailsJson),
+  actorUser: event.actorUser ? toUserResponse(event.actorUser) : null,
+  targetUser: event.targetUser ? toUserResponse(event.targetUser) : null,
+  loan: event.loan ? toLoanResponse(event.loan) : null
+});
+
+const ensureLoanParticipant = (loan, userId) => loan && (loan.borrowerId === userId || loan.lenderId === userId);
+
+const getLoanDiscussionSummary = async (db, loanId, userId) => {
+  const [lastReadRow, latestMessage] = await Promise.all([
+    db.loanDiscussionReadState.findUnique({
+      where: { loanId_userId: { loanId, userId } },
+      select: { lastReadAt: true }
+    }),
+    db.loanReviewMessage.findFirst({
+      where: { loanId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true }
+    })
+  ]);
+
+  const unreadCount = await db.loanReviewMessage.count({
+    where: {
+      loanId,
+      authorUserId: { not: userId },
+      ...(lastReadRow?.lastReadAt ? { createdAt: { gt: lastReadRow.lastReadAt } } : {})
+    }
+  });
+
+  return {
+    unreadCount,
+    lastReadAt: lastReadRow?.lastReadAt || null,
+    lastMessageAt: latestMessage?.createdAt || null
+  };
+};
+
+const startOfDayUtc = (value = new Date()) => {
+  const day = new Date(value);
+  day.setUTCHours(0, 0, 0, 0);
+  return day;
+};
+
+const computeStreakDaysFromRows = (rows = []) => {
+  const daySet = new Set(
+    rows
+      .map((row) => startOfDayUtc(row?.dayDate).getTime())
+      .filter((value) => Number.isFinite(value))
+  );
+  if (!daySet.size) return 0;
+
+  let streak = 0;
+  let cursor = startOfDayUtc(new Date()).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  while (daySet.has(cursor)) {
+    streak += 1;
+    cursor -= oneDayMs;
+  }
+  if (streak > 0) return streak;
+  cursor = startOfDayUtc(new Date(Date.now() - oneDayMs)).getTime();
+  while (daySet.has(cursor)) {
+    streak += 1;
+    cursor -= oneDayMs;
+  }
+  return streak;
+};
 
 const emitLoanNotification = async (db, payload) => {
   const {
@@ -238,10 +464,15 @@ app.post('/auth/register', async (req, res) => {
   if (existing) return res.status(409).json({ error: 'Email already registered' });
 
   const passwordHash = await hashPassword(parsed.data.password);
+  const username = await ensureUniqueUsername(prisma, buildUsernameBaseFromUser({
+    displayName: parsed.data.displayName,
+    email
+  }));
   const user = await prisma.user.create({
     data: {
       email,
       passwordHash,
+      username,
       displayName: (parsed.data.displayName || '').trim()
     }
   });
@@ -277,7 +508,7 @@ app.post('/auth/login', async (req, res) => {
 app.get('/auth/me', requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.auth.userId },
-    select: { id: true, email: true, displayName: true, avatarUrl: true, loanReminderDays: true, createdAt: true }
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true, createdAt: true }
   });
   if (!user) return res.status(404).json({ error: 'User not found' });
   return res.json({ user: toUserResponse(user) });
@@ -286,7 +517,7 @@ app.get('/auth/me', requireAuth, async (req, res) => {
 app.get('/users/me', requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.auth.userId },
-    select: { id: true, email: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
   });
   if (!user) return res.status(404).json({ error: 'User not found' });
   return res.json({ user: toUserResponse(user) });
@@ -306,9 +537,89 @@ app.patch('/users/me', requireAuth, async (req, res) => {
       displayName: parsed.data.displayName.trim(),
       loanReminderDays: parsed.data.loanReminderDays === undefined ? undefined : parsed.data.loanReminderDays
     },
-    select: { id: true, email: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
   });
   return res.json({ user: toUserResponse(user) });
+});
+
+app.patch('/users/me/username', requireAuth, async (req, res) => {
+  const schema = z.object({
+    username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9._-]+$/)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid payload. Username must be 3-32 chars using letters, numbers, dot, underscore, or dash.'
+    });
+  }
+
+  const requestedUsername = normalizeUsername(parsed.data.username);
+  if (requestedUsername.length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters after normalization' });
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { username: requestedUsername },
+    select: { id: true }
+  });
+  if (existing && existing.id !== req.auth.userId) {
+    return res.status(409).json({ error: 'Username is already taken' });
+  }
+
+  const user = await prisma.user.update({
+    where: { id: req.auth.userId },
+    data: { username: requestedUsername },
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+  });
+
+  return res.json({ user: toUserResponse(user) });
+});
+
+app.get('/users/search', requireAuth, async (req, res) => {
+  const query = String(req.query?.q || '').trim();
+  if (!query) return res.json({ users: [] });
+
+  const blockedRows = await prisma.friendBlock.findMany({
+    where: {
+      OR: [
+        { blockerUserId: req.auth.userId },
+        { blockedUserId: req.auth.userId }
+      ]
+    },
+    select: {
+      blockerUserId: true,
+      blockedUserId: true
+    }
+  });
+  const blockedUserIds = new Set();
+  blockedRows.forEach((row) => {
+    if (row.blockerUserId !== req.auth.userId) blockedUserIds.add(row.blockerUserId);
+    if (row.blockedUserId !== req.auth.userId) blockedUserIds.add(row.blockedUserId);
+  });
+
+  const users = await prisma.user.findMany({
+    where: {
+      id: { not: req.auth.userId, notIn: [...blockedUserIds] },
+      OR: [
+        { id: { contains: query } },
+        { email: { contains: query, mode: 'insensitive' } },
+        { displayName: { contains: query, mode: 'insensitive' } },
+        { username: { contains: query, mode: 'insensitive' } }
+      ]
+    },
+    select: {
+      id: true,
+      email: true,
+      username: true,
+      displayName: true,
+      avatarUrl: true,
+      loanReminderDays: true
+    },
+    orderBy: [{ displayName: 'asc' }, { email: 'asc' }],
+    take: 20
+  });
+
+  return res.json({ users: users.map(toUserResponse) });
 });
 
 app.post('/users/me/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
@@ -320,9 +631,901 @@ app.post('/users/me/avatar', requireAuth, avatarUpload.single('avatar'), async (
   const user = await prisma.user.update({
     where: { id: req.auth.userId },
     data: { avatarUrl },
-    select: { id: true, email: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
   });
   return res.json({ user: toUserResponse(user) });
+});
+
+app.post('/friends/requests', requireAuth, async (req, res) => {
+  const schema = z.object({
+    toUserId: z.string().min(1)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+  const fromUserId = req.auth.userId;
+  const toUserId = parsed.data.toUserId;
+  if (fromUserId === toUserId) {
+    return res.status(400).json({ error: 'Cannot send friend request to yourself' });
+  }
+
+  const recipient = await prisma.user.findUnique({
+    where: { id: toUserId },
+    select: { id: true }
+  });
+  if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
+
+  const blockCheck = await ensureNotBlocked(prisma, fromUserId, toUserId);
+  if (!blockCheck.ok) return res.status(blockCheck.status).json({ error: blockCheck.error });
+
+  const [userAId, userBId] = sortPair(fromUserId, toUserId);
+  const existingFriendship = await prisma.friendship.findUnique({
+    where: { userAId_userBId: { userAId, userBId } },
+    select: { id: true }
+  });
+  if (existingFriendship) return res.status(409).json({ error: 'Already friends' });
+
+  const existingRequest = await prisma.friendRequest.findUnique({
+    where: {
+      fromUserId_toUserId: {
+        fromUserId,
+        toUserId
+      }
+    }
+  });
+  if (existingRequest && existingRequest.status === 'PENDING') {
+    return res.status(409).json({ error: 'Friend request already pending' });
+  }
+
+  const inversePendingRequest = await prisma.friendRequest.findUnique({
+    where: {
+      fromUserId_toUserId: {
+        fromUserId: toUserId,
+        toUserId: fromUserId
+      }
+    }
+  });
+  if (inversePendingRequest && inversePendingRequest.status === 'PENDING') {
+    return res.status(409).json({ error: 'This user already sent you a friend request' });
+  }
+
+  const friendRequest = existingRequest
+    ? await prisma.friendRequest.update({
+      where: { id: existingRequest.id },
+      data: {
+        status: 'PENDING',
+        respondedAt: null
+      },
+      include: {
+        fromUser: true,
+        toUser: true
+      }
+    })
+    : await prisma.friendRequest.create({
+      data: {
+        fromUserId,
+        toUserId,
+        status: 'PENDING'
+      },
+      include: {
+        fromUser: true,
+        toUser: true
+      }
+    });
+
+  await emitLoanNotification(prisma, {
+    userId: toUserId,
+    eventKey: `friend-request-${friendRequest.id}-${new Date(friendRequest.updatedAt || friendRequest.createdAt).toISOString()}`,
+    kind: 'friend-request',
+    title: 'New friend request',
+    message: `${friendRequest.fromUser?.displayName || friendRequest.fromUser?.email || 'A reader'} sent you a friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: friendRequest.fromUserId,
+    meta: {
+      requestId: friendRequest.id
+    }
+  });
+
+  return res.status(201).json({
+    request: toFriendRequestResponse(friendRequest)
+  });
+});
+
+app.get('/friends/requests/incoming', requireAuth, async (req, res) => {
+  const requests = await prisma.friendRequest.findMany({
+    where: {
+      toUserId: req.auth.userId,
+      status: 'PENDING'
+    },
+    include: {
+      fromUser: true,
+      toUser: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  return res.json({ requests: requests.map(toFriendRequestResponse) });
+});
+
+app.get('/friends/requests/outgoing', requireAuth, async (req, res) => {
+  const requests = await prisma.friendRequest.findMany({
+    where: {
+      fromUserId: req.auth.userId,
+      status: 'PENDING'
+    },
+    include: {
+      fromUser: true,
+      toUser: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  return res.json({ requests: requests.map(toFriendRequestResponse) });
+});
+
+app.post('/friends/requests/:requestId/accept', requireAuth, async (req, res) => {
+  const request = await prisma.friendRequest.findUnique({
+    where: { id: req.params.requestId },
+    include: { fromUser: true, toUser: true }
+  });
+  if (!request) return res.status(404).json({ error: 'Friend request not found' });
+  if (request.toUserId !== req.auth.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (request.status !== 'PENDING') return res.status(409).json({ error: 'Friend request is not pending' });
+
+  const blockCheck = await ensureNotBlocked(prisma, request.fromUserId, request.toUserId);
+  if (!blockCheck.ok) return res.status(blockCheck.status).json({ error: blockCheck.error });
+
+  const [userAId, userBId] = sortPair(request.fromUserId, request.toUserId);
+  const result = await prisma.$transaction(async (tx) => {
+    const friendship = await tx.friendship.upsert({
+      where: { userAId_userBId: { userAId, userBId } },
+      update: {},
+      create: { userAId, userBId },
+      include: {
+        userA: true,
+        userB: true
+      }
+    });
+    const updatedRequest = await tx.friendRequest.update({
+      where: { id: request.id },
+      data: {
+        status: 'ACCEPTED',
+        respondedAt: new Date()
+      },
+      include: {
+        fromUser: true,
+        toUser: true
+      }
+    });
+    await ensureFriendPrivacySetting(tx, request.fromUserId, request.toUserId);
+    await ensureFriendPrivacySetting(tx, request.toUserId, request.fromUserId);
+    return { friendship, request: updatedRequest };
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: result.request.fromUserId,
+    eventKey: `friend-request-accepted-${result.request.id}-${new Date(result.request.respondedAt || result.request.updatedAt).toISOString()}`,
+    kind: 'friend-request-accepted',
+    title: 'Friend request accepted',
+    message: `${result.request.toUser?.displayName || result.request.toUser?.email || 'A reader'} accepted your friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: result.request.toUserId,
+    meta: {
+      requestId: result.request.id
+    }
+  });
+
+  return res.json({
+    request: toFriendRequestResponse(result.request),
+    friendship: toFriendshipResponse({ friendship: result.friendship, currentUserId: req.auth.userId })
+  });
+});
+
+app.post('/friends/requests/:requestId/reject', requireAuth, async (req, res) => {
+  const request = await prisma.friendRequest.findUnique({
+    where: { id: req.params.requestId },
+    include: { fromUser: true, toUser: true }
+  });
+  if (!request) return res.status(404).json({ error: 'Friend request not found' });
+  if (request.toUserId !== req.auth.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (request.status !== 'PENDING') return res.status(409).json({ error: 'Friend request is not pending' });
+
+  const updated = await prisma.friendRequest.update({
+    where: { id: request.id },
+    data: {
+      status: 'REJECTED',
+      respondedAt: new Date()
+    },
+    include: { fromUser: true, toUser: true }
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: updated.fromUserId,
+    eventKey: `friend-request-rejected-${updated.id}-${new Date(updated.respondedAt || updated.updatedAt).toISOString()}`,
+    kind: 'friend-request-rejected',
+    title: 'Friend request declined',
+    message: `${updated.toUser?.displayName || updated.toUser?.email || 'A reader'} declined your friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: updated.toUserId,
+    meta: {
+      requestId: updated.id
+    }
+  });
+
+  return res.json({ request: toFriendRequestResponse(updated) });
+});
+
+app.post('/friends/requests/:requestId/cancel', requireAuth, async (req, res) => {
+  const request = await prisma.friendRequest.findUnique({
+    where: { id: req.params.requestId },
+    include: { fromUser: true, toUser: true }
+  });
+  if (!request) return res.status(404).json({ error: 'Friend request not found' });
+  if (request.fromUserId !== req.auth.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (request.status !== 'PENDING') return res.status(409).json({ error: 'Friend request is not pending' });
+
+  const updated = await prisma.friendRequest.update({
+    where: { id: request.id },
+    data: {
+      status: 'CANCELED',
+      respondedAt: new Date()
+    },
+    include: { fromUser: true, toUser: true }
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: updated.toUserId,
+    eventKey: `friend-request-cancelled-${updated.id}-${new Date(updated.respondedAt || updated.updatedAt).toISOString()}`,
+    kind: 'friend-request-cancelled',
+    title: 'Friend request canceled',
+    message: `${updated.fromUser?.displayName || updated.fromUser?.email || 'A reader'} canceled a friend request.`,
+    actionType: 'open-friends',
+    actionTargetId: updated.fromUserId,
+    meta: {
+      requestId: updated.id
+    }
+  });
+
+  return res.json({ request: toFriendRequestResponse(updated) });
+});
+
+app.get('/friends', requireAuth, async (req, res) => {
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { userAId: req.auth.userId },
+        { userBId: req.auth.userId }
+      ]
+    },
+    include: {
+      userA: true,
+      userB: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const friends = await Promise.all(
+    friendships.map(async (friendship) => {
+      const shaped = toFriendshipResponse({ friendship, currentUserId: req.auth.userId });
+      const friendId = shaped.friend?.id;
+      if (!friendId) return shaped;
+      const permissions = await getFriendPrivacyForViewer(prisma, friendId, req.auth.userId);
+      return {
+        ...shaped,
+        permissions
+      };
+    })
+  );
+
+  return res.json({
+    friends
+  });
+});
+
+app.get('/friends/leaderboard', requireAuth, async (req, res) => {
+  const metricSchema = z.enum(['pagesRead', 'readingMinutes', 'finishedBooks', 'inProgressBooks', 'streakDays']);
+  const metricParsed = metricSchema.safeParse(req.query?.metric || 'pagesRead');
+  const metric = metricParsed.success ? metricParsed.data : 'pagesRead';
+
+  const myId = req.auth.userId;
+  const directEdges = await prisma.friendship.findMany({
+    where: {
+      OR: [{ userAId: myId }, { userBId: myId }]
+    },
+    select: { userAId: true, userBId: true }
+  });
+
+  const directFriendIds = new Set();
+  directEdges.forEach((edge) => {
+    if (edge.userAId !== myId) directFriendIds.add(edge.userAId);
+    if (edge.userBId !== myId) directFriendIds.add(edge.userBId);
+  });
+
+  const viaMap = new Map();
+  if (directFriendIds.size > 0) {
+    const secondEdges = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { userAId: { in: [...directFriendIds] } },
+          { userBId: { in: [...directFriendIds] } }
+        ]
+      },
+      select: { userAId: true, userBId: true }
+    });
+
+    secondEdges.forEach((edge) => {
+      if (directFriendIds.has(edge.userAId) && edge.userBId !== myId && !directFriendIds.has(edge.userBId)) {
+        const list = viaMap.get(edge.userBId) || [];
+        list.push(edge.userAId);
+        viaMap.set(edge.userBId, [...new Set(list)]);
+      }
+      if (directFriendIds.has(edge.userBId) && edge.userAId !== myId && !directFriendIds.has(edge.userAId)) {
+        const list = viaMap.get(edge.userAId) || [];
+        list.push(edge.userBId);
+        viaMap.set(edge.userAId, [...new Set(list)]);
+      }
+    });
+  }
+
+  const blockedRows = await prisma.friendBlock.findMany({
+    where: {
+      OR: [{ blockerUserId: myId }, { blockedUserId: myId }]
+    },
+    select: { blockerUserId: true, blockedUserId: true }
+  });
+  const blockedUserIds = new Set();
+  blockedRows.forEach((row) => {
+    if (row.blockerUserId !== myId) blockedUserIds.add(row.blockerUserId);
+    if (row.blockedUserId !== myId) blockedUserIds.add(row.blockedUserId);
+  });
+
+  const candidateIds = new Set([myId, ...directFriendIds, ...viaMap.keys()]);
+  blockedUserIds.forEach((id) => candidateIds.delete(id));
+  const ids = [...candidateIds];
+
+  const [users, readingStats, readingDays, bookStatusRows] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+    }),
+    prisma.userReadingStat.findMany({
+      where: { userId: { in: ids } },
+      select: { userId: true, totalReadingSeconds: true, totalPagesRead: true }
+    }),
+    prisma.userReadingDay.findMany({
+      where: {
+        userId: { in: ids },
+        readingSeconds: { gt: 0 }
+      },
+      select: { userId: true, dayDate: true }
+    }),
+    prisma.userBook.groupBy({
+      by: ['userId', 'status'],
+      where: {
+        userId: { in: ids },
+        isDeleted: false
+      },
+      _count: { _all: true }
+    })
+  ]);
+
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const statByUserId = new Map(readingStats.map((row) => [row.userId, row]));
+  const readingDaysByUserId = new Map();
+  readingDays.forEach((row) => {
+    const list = readingDaysByUserId.get(row.userId) || [];
+    list.push(row);
+    readingDaysByUserId.set(row.userId, list);
+  });
+  const statusCountsByUserId = new Map();
+  bookStatusRows.forEach((row) => {
+    const existing = statusCountsByUserId.get(row.userId) || { FINISHED: 0, IN_PROGRESS: 0 };
+    existing[row.status] = row._count?._all || 0;
+    statusCountsByUserId.set(row.userId, existing);
+  });
+
+  const rows = ids
+    .map((userId) => {
+      const user = userById.get(userId);
+      if (!user) return null;
+      const stat = statByUserId.get(userId);
+      const statusCounts = statusCountsByUserId.get(userId) || { FINISHED: 0, IN_PROGRESS: 0 };
+      const minutes = Math.floor(Math.max(0, Number(stat?.totalReadingSeconds || 0)) / 60);
+      const finishedBooks = Number(statusCounts.FINISHED || 0);
+      const inProgressBooks = Number(statusCounts.IN_PROGRESS || 0);
+      const streakDays = computeStreakDaysFromRows(readingDaysByUserId.get(userId) || []);
+      const relation = userId === myId ? 'SELF' : (directFriendIds.has(userId) ? 'FRIEND' : 'FRIEND_OF_FRIEND');
+      const sharedViaIds = viaMap.get(userId) || [];
+
+      return {
+        user: toUserResponse(user),
+        relation,
+        canAddFriend: relation === 'FRIEND_OF_FRIEND',
+        mutualVia: sharedViaIds
+          .map((id) => userById.get(id))
+          .filter(Boolean)
+          .map(toUserResponse),
+        metrics: {
+          pagesRead: Math.max(
+            Math.max(0, Number(stat?.totalPagesRead || 0)),
+            0
+          ),
+          readingMinutes: minutes,
+          finishedBooks,
+          inProgressBooks,
+          streakDays
+        }
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const diff = Number(right.metrics?.[metric] || 0) - Number(left.metrics?.[metric] || 0);
+      if (diff !== 0) return diff;
+      return (left.user?.displayName || left.user?.email || '').localeCompare(right.user?.displayName || right.user?.email || '');
+    })
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  return res.json({ metric, rows, generatedAt: new Date().toISOString() });
+});
+
+app.delete('/friends/:friendUserId', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  if (!friendUserId) return res.status(400).json({ error: 'friendUserId is required' });
+  if (friendUserId === req.auth.userId) return res.status(400).json({ error: 'Cannot unfriend yourself' });
+
+  const [userAId, userBId] = sortPair(req.auth.userId, friendUserId);
+  await prisma.$transaction(async (tx) => {
+    await tx.friendship.deleteMany({
+      where: {
+        userAId,
+        userBId
+      }
+    });
+    await tx.friendPrivacySetting.deleteMany({
+      where: {
+        OR: [
+          { ownerUserId: req.auth.userId, friendUserId },
+          { ownerUserId: friendUserId, friendUserId: req.auth.userId }
+        ]
+      }
+    });
+  });
+
+  return res.json({ ok: true });
+});
+
+app.post('/friends/block', requireAuth, async (req, res) => {
+  const schema = z.object({
+    userId: z.string().min(1)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+  if (parsed.data.userId === req.auth.userId) return res.status(400).json({ error: 'Cannot block yourself' });
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: { id: true }
+  });
+  if (!targetUser) return res.status(404).json({ error: 'User not found' });
+
+  const [userAId, userBId] = sortPair(req.auth.userId, parsed.data.userId);
+  await prisma.$transaction(async (tx) => {
+    await tx.friendBlock.upsert({
+      where: {
+        blockerUserId_blockedUserId: {
+          blockerUserId: req.auth.userId,
+          blockedUserId: parsed.data.userId
+        }
+      },
+      update: {},
+      create: {
+        blockerUserId: req.auth.userId,
+        blockedUserId: parsed.data.userId
+      }
+    });
+    await tx.friendship.deleteMany({
+      where: {
+        userAId,
+        userBId
+      }
+    });
+    await tx.friendRequest.updateMany({
+      where: {
+        OR: [
+          { fromUserId: req.auth.userId, toUserId: parsed.data.userId, status: 'PENDING' },
+          { fromUserId: parsed.data.userId, toUserId: req.auth.userId, status: 'PENDING' }
+        ]
+      },
+      data: {
+        status: 'CANCELED',
+        respondedAt: new Date()
+      }
+    });
+    await tx.friendPrivacySetting.deleteMany({
+      where: {
+        OR: [
+          { ownerUserId: req.auth.userId, friendUserId: parsed.data.userId },
+          { ownerUserId: parsed.data.userId, friendUserId: req.auth.userId }
+        ]
+      }
+    });
+  });
+
+  return res.json({ ok: true });
+});
+
+app.post('/friends/unblock', requireAuth, async (req, res) => {
+  const schema = z.object({
+    userId: z.string().min(1)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+  await prisma.friendBlock.deleteMany({
+    where: {
+      blockerUserId: req.auth.userId,
+      blockedUserId: parsed.data.userId
+    }
+  });
+  return res.json({ ok: true });
+});
+
+app.patch('/friends/:friendUserId/privacy', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  if (!friendUserId) return res.status(400).json({ error: 'friendUserId is required' });
+  if (friendUserId === req.auth.userId) return res.status(400).json({ error: 'Cannot set privacy for yourself' });
+
+  const schema = z.object({
+    canViewLibrary: z.boolean().optional(),
+    canBorrow: z.boolean().optional(),
+    canViewActivity: z.boolean().optional()
+  }).refine((data) => (
+    data.canViewLibrary !== undefined || data.canBorrow !== undefined || data.canViewActivity !== undefined
+  ), { message: 'At least one privacy field is required' });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+  const friendshipCheck = await requireFriendship(prisma, req.auth.userId, friendUserId);
+  if (!friendshipCheck.ok) return res.status(friendshipCheck.status).json({ error: friendshipCheck.error });
+
+  const updated = await prisma.friendPrivacySetting.upsert({
+    where: {
+      ownerUserId_friendUserId: {
+        ownerUserId: req.auth.userId,
+        friendUserId
+      }
+    },
+    update: {
+      canViewLibrary: parsed.data.canViewLibrary === undefined ? undefined : parsed.data.canViewLibrary,
+      canBorrow: parsed.data.canBorrow === undefined ? undefined : parsed.data.canBorrow,
+      canViewActivity: parsed.data.canViewActivity === undefined ? undefined : parsed.data.canViewActivity
+    },
+    create: {
+      ownerUserId: req.auth.userId,
+      friendUserId,
+      canViewLibrary: parsed.data.canViewLibrary ?? true,
+      canBorrow: parsed.data.canBorrow ?? true,
+      canViewActivity: parsed.data.canViewActivity ?? true
+    }
+  });
+
+  return res.json({
+    privacy: {
+      canViewLibrary: updated.canViewLibrary,
+      canBorrow: updated.canBorrow,
+      canViewActivity: updated.canViewActivity
+    }
+  });
+});
+
+app.get('/friends/:friendUserId/profile', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  if (!friendUserId) return res.status(400).json({ error: 'friendUserId is required' });
+  if (friendUserId === req.auth.userId) return res.status(400).json({ error: 'Use /users/me for your own profile' });
+
+  const friendshipCheck = await requireFriendship(prisma, req.auth.userId, friendUserId);
+  if (!friendshipCheck.ok) return res.status(friendshipCheck.status).json({ error: friendshipCheck.error });
+
+  const friend = await prisma.user.findUnique({
+    where: { id: friendUserId },
+    select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true }
+  });
+  if (!friend) return res.status(404).json({ error: 'Friend not found' });
+
+  const [myFriends, friendFriends, friendUserBooks, incomingPrivacy, outgoingPrivacy] = await Promise.all([
+    prisma.friendship.findMany({
+      where: {
+        OR: [{ userAId: req.auth.userId }, { userBId: req.auth.userId }]
+      },
+      select: { userAId: true, userBId: true }
+    }),
+    prisma.friendship.findMany({
+      where: {
+        OR: [{ userAId: friendUserId }, { userBId: friendUserId }]
+      },
+      select: { userAId: true, userBId: true }
+    }),
+    prisma.userBook.findMany({
+      where: {
+        userId: friendUserId,
+        isDeleted: false
+      },
+      select: {
+        progressPercent: true,
+        status: true,
+        lastOpenedAt: true
+      }
+    }),
+    prisma.friendPrivacySetting.findUnique({
+      where: {
+        ownerUserId_friendUserId: {
+          ownerUserId: friendUserId,
+          friendUserId: req.auth.userId
+        }
+      }
+    }),
+    prisma.friendPrivacySetting.findUnique({
+      where: {
+        ownerUserId_friendUserId: {
+          ownerUserId: req.auth.userId,
+          friendUserId
+        }
+      }
+    })
+  ]);
+
+  const toFriendIdSet = (rows, selfId) => {
+    const ids = new Set();
+    rows.forEach((row) => {
+      const friendId = row.userAId === selfId ? row.userBId : row.userAId;
+      if (friendId && friendId !== selfId) ids.add(friendId);
+    });
+    return ids;
+  };
+  const myFriendIds = toFriendIdSet(myFriends, req.auth.userId);
+  const friendFriendIds = toFriendIdSet(friendFriends, friendUserId);
+  let mutualCount = 0;
+  friendFriendIds.forEach((id) => {
+    if (myFriendIds.has(id)) mutualCount += 1;
+  });
+
+  const lastReadAt = friendUserBooks
+    .map((row) => row.lastOpenedAt ? new Date(row.lastOpenedAt).getTime() : 0)
+    .reduce((max, value) => (value > max ? value : max), 0);
+  const startedCount = friendUserBooks.filter((row) => Number(row.progressPercent || 0) > 0).length;
+  const finishedCount = friendUserBooks.filter((row) => Number(row.progressPercent || 0) >= 100).length;
+
+  const permissionsForViewer = {
+    canViewLibrary: incomingPrivacy?.canViewLibrary ?? true,
+    canBorrow: incomingPrivacy?.canBorrow ?? true,
+    canViewActivity: incomingPrivacy?.canViewActivity ?? true
+  };
+  const myPolicyForFriend = {
+    canViewLibrary: outgoingPrivacy?.canViewLibrary ?? true,
+    canBorrow: outgoingPrivacy?.canBorrow ?? true,
+    canViewActivity: outgoingPrivacy?.canViewActivity ?? true
+  };
+
+  return res.json({
+    profile: {
+      user: toUserResponse(friend),
+      stats: {
+        totalBooks: friendUserBooks.length,
+        startedBooks: startedCount,
+        finishedBooks: finishedCount,
+        lastReadAt: lastReadAt ? new Date(lastReadAt).toISOString() : null,
+        mutualFriends: mutualCount
+      },
+      permissionsForViewer,
+      myPolicyForFriend
+    }
+  });
+});
+
+app.get('/friends/:friendUserId/library', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  if (!friendUserId) return res.status(400).json({ error: 'friendUserId is required' });
+  const friendshipCheck = await requireFriendship(prisma, req.auth.userId, friendUserId);
+  if (!friendshipCheck.ok) return res.status(friendshipCheck.status).json({ error: friendshipCheck.error });
+
+  const permissions = await getFriendPrivacyForViewer(prisma, friendUserId, req.auth.userId);
+  if (!permissions.canViewLibrary) return res.status(403).json({ error: 'Friend has hidden their library from you' });
+
+  const rows = await prisma.userBook.findMany({
+    where: {
+      userId: friendUserId,
+      isDeleted: false
+    },
+    include: { book: true },
+    orderBy: [{ lastOpenedAt: 'desc' }, { updatedAt: 'desc' }]
+  });
+
+  const books = rows.map((row) => ({
+    ...toBookResponse({ ...row.book, userBooks: [row] }, friendUserId, getBaseUrl(req)),
+    isBorrowable: Boolean(permissions.canBorrow)
+  }));
+
+  return res.json({ books, permissions });
+});
+
+app.get('/friends/:friendUserId/history', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  if (!friendUserId) return res.status(400).json({ error: 'friendUserId is required' });
+  const friendshipCheck = await requireFriendship(prisma, req.auth.userId, friendUserId);
+  if (!friendshipCheck.ok) return res.status(friendshipCheck.status).json({ error: friendshipCheck.error });
+
+  const permissions = await getFriendPrivacyForViewer(prisma, friendUserId, req.auth.userId);
+  if (!permissions.canViewActivity) return res.status(403).json({ error: 'Friend has hidden activity from you' });
+
+  const [recentReads, loanEvents] = await Promise.all([
+    prisma.userBook.findMany({
+      where: { userId: friendUserId, isDeleted: false, lastOpenedAt: { not: null } },
+      include: { book: true },
+      orderBy: { lastOpenedAt: 'desc' },
+      take: 12
+    }),
+    prisma.loanAuditEvent.findMany({
+      where: {
+        OR: [
+          { actorUserId: friendUserId },
+          { targetUserId: friendUserId }
+        ]
+      },
+      include: {
+        loan: {
+          include: {
+            book: true,
+            lender: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } },
+            borrower: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+          }
+        },
+        actorUser: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } },
+        targetUser: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    })
+  ]);
+
+  return res.json({
+    activity: {
+      recentReads: recentReads.map((row) => ({
+        book: toBookResponse({ ...row.book, userBooks: [row] }, friendUserId, getBaseUrl(req)),
+        lastOpenedAt: row.lastOpenedAt,
+        progressPercent: row.progressPercent
+      })),
+      loanEvents: loanEvents.map((event) => ({
+        id: event.id,
+        action: event.action,
+        createdAt: event.createdAt,
+        actorUser: event.actorUser ? toUserResponse(event.actorUser) : null,
+        targetUser: event.targetUser ? toUserResponse(event.targetUser) : null,
+        loan: event.loan ? toLoanResponse(event.loan) : null
+      }))
+    },
+    permissions
+  });
+});
+
+app.post('/friends/:friendUserId/borrow/:bookId', requireAuth, async (req, res) => {
+  const friendUserId = req.params.friendUserId;
+  const { bookId } = req.params;
+  if (!friendUserId || !bookId) return res.status(400).json({ error: 'friendUserId and bookId are required' });
+  if (friendUserId === req.auth.userId) return res.status(400).json({ error: 'Cannot borrow from yourself' });
+
+  const friendshipCheck = await requireFriendship(prisma, req.auth.userId, friendUserId);
+  if (!friendshipCheck.ok) return res.status(friendshipCheck.status).json({ error: friendshipCheck.error });
+  const permissions = await getFriendPrivacyForViewer(prisma, friendUserId, req.auth.userId);
+  if (!permissions.canViewLibrary) return res.status(403).json({ error: 'Friend library is not visible' });
+  if (!permissions.canBorrow) return res.status(403).json({ error: 'Borrowing is disabled by this friend' });
+
+  const lenderAccess = await prisma.userBook.findUnique({
+    where: {
+      userId_bookId: {
+        userId: friendUserId,
+        bookId
+      }
+    },
+    include: { book: true }
+  });
+  if (!lenderAccess || lenderAccess.isDeleted) return res.status(404).json({ error: 'Book not available from this friend' });
+
+  const existingActive = await prisma.bookLoan.findFirst({
+    where: {
+      bookId,
+      lenderId: friendUserId,
+      borrowerId: req.auth.userId,
+      status: 'ACTIVE'
+    }
+  });
+  if (existingActive) {
+    return res.status(409).json({ error: 'You already have an active loan for this book from this friend' });
+  }
+
+  const template = await ensureLoanTemplate(prisma, friendUserId);
+  const acceptedAt = new Date();
+  const dueAt = new Date(acceptedAt.getTime() + template.durationDays * 24 * 60 * 60 * 1000);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const borrowerAccess = await tx.userBook.upsert({
+      where: {
+        userId_bookId: {
+          userId: req.auth.userId,
+          bookId
+        }
+      },
+      update: {
+        isDeleted: false,
+        deletedAt: null
+      },
+      create: {
+        userId: req.auth.userId,
+        bookId,
+        status: 'TO_READ',
+        progressPercent: 0,
+        progressCfi: null,
+        lastOpenedAt: null,
+        isDeleted: false,
+        deletedAt: null
+      }
+    });
+
+    const loan = await tx.bookLoan.create({
+      data: {
+        bookId,
+        lenderId: friendUserId,
+        borrowerId: req.auth.userId,
+        status: 'ACTIVE',
+        message: `Borrowed from friend library`,
+        durationDays: template.durationDays,
+        graceDays: template.graceDays,
+        requestedAt: acceptedAt,
+        acceptedAt,
+        dueAt,
+        createdUserBookOnAccept: !borrowerAccess?.id,
+        canAddHighlights: template.canAddHighlights,
+        canEditHighlights: template.canEditHighlights,
+        canAddNotes: template.canAddNotes,
+        canEditNotes: template.canEditNotes,
+        annotationVisibility: template.annotationVisibility,
+        shareLenderAnnotations: template.shareLenderAnnotations
+      },
+      include: includeLoanGraph
+    });
+
+    await addLoanAuditEvent(tx, {
+      loanId: loan.id,
+      actorUserId: req.auth.userId,
+      targetUserId: friendUserId,
+      action: 'FRIEND_BORROW_START',
+      details: {
+        source: 'friend-library'
+      }
+    });
+
+    return loan;
+  });
+
+  await emitLoanNotification(prisma, {
+    userId: req.auth.userId,
+    loanId: created.id,
+    eventKey: `friend-borrow-start-${created.id}`,
+    kind: 'friend-borrow-start',
+    title: 'Borrow started',
+    message: `You borrowed "${created.book?.title || 'book'}" from ${created.lender?.displayName || created.lender?.email || 'your friend'}.`,
+    actionType: 'open-borrowed',
+    actionTargetId: created.id
+  });
+  await emitLoanNotification(prisma, {
+    userId: friendUserId,
+    loanId: created.id,
+    eventKey: `friend-book-borrowed-${created.id}`,
+    kind: 'friend-book-borrowed',
+    title: 'A friend borrowed your book',
+    message: `${created.borrower?.displayName || created.borrower?.email || 'A friend'} borrowed "${created.book?.title || 'your book'}".`,
+    actionType: 'open-lent',
+    actionTargetId: created.id
+  });
+
+  return res.status(201).json({ loan: toLoanResponse(created) });
 });
 
 app.get('/books', requireAuth, async (req, res) => {
@@ -429,6 +1632,35 @@ app.get('/books/:bookId', requireAuth, requireBookAccess, async (req, res) => {
     include: includeBookGraph
   });
   if (!book) return res.status(404).json({ error: 'Book not found' });
+  return res.json({ book: toBookResponse(book, req.auth.userId, getBaseUrl(req)) });
+});
+
+app.patch('/books/:bookId/metadata', requireAuth, requireBookAccess, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(512).optional(),
+    author: z.string().max(512).optional().nullable(),
+    language: z.string().max(64).optional().nullable(),
+    cover: z.string().max(2_000_000).optional().nullable()
+  }).refine((value) => (
+    value.title !== undefined ||
+    value.author !== undefined ||
+    value.language !== undefined ||
+    value.cover !== undefined
+  ), { message: 'At least one metadata field is required' });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const book = await prisma.book.update({
+    where: { id: req.params.bookId },
+    data: {
+      title: parsed.data.title === undefined ? undefined : parsed.data.title.trim(),
+      author: parsed.data.author === undefined ? undefined : (parsed.data.author || null),
+      language: parsed.data.language === undefined ? undefined : (parsed.data.language || null),
+      cover: parsed.data.cover === undefined ? undefined : (parsed.data.cover || null)
+    },
+    include: includeBookGraph
+  });
+
   return res.json({ book: toBookResponse(book, req.auth.userId, getBaseUrl(req)) });
 });
 
@@ -596,6 +1828,56 @@ app.patch('/books/:bookId/progress', requireAuth, requireBookAccess, async (req,
   return res.json({
     book: toBookResponse({ ...updated.book, userBooks: [updated] }, req.auth.userId, getBaseUrl(req))
   });
+});
+
+app.post('/books/:bookId/activity', requireAuth, requireBookAccess, async (req, res) => {
+  const schema = z.object({
+    secondsRead: z.number().int().min(0).max(3600).optional(),
+    pagesRead: z.number().int().min(0).max(2000).optional()
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const secondsRead = Math.max(0, Number(parsed.data.secondsRead || 0));
+  const pagesRead = Math.max(0, Number(parsed.data.pagesRead || 0));
+  if (!secondsRead && !pagesRead) return res.json({ ok: true });
+
+  const dayDate = startOfDayUtc(new Date());
+  await prisma.$transaction(async (tx) => {
+    await tx.userReadingStat.upsert({
+      where: { userId: req.auth.userId },
+      create: {
+        userId: req.auth.userId,
+        totalReadingSeconds: secondsRead,
+        totalPagesRead: pagesRead
+      },
+      update: {
+        totalReadingSeconds: { increment: secondsRead },
+        totalPagesRead: { increment: pagesRead }
+      }
+    });
+
+    await tx.userReadingDay.upsert({
+      where: {
+        userId_dayDate: {
+          userId: req.auth.userId,
+          dayDate
+        }
+      },
+      create: {
+        userId: req.auth.userId,
+        dayDate,
+        readingSeconds: secondsRead,
+        pagesRead
+      },
+      update: {
+        readingSeconds: { increment: secondsRead },
+        pagesRead: { increment: pagesRead }
+      }
+    });
+  });
+
+  return res.json({ ok: true });
 });
 
 app.get('/books/:bookId/highlights', requireAuth, requireBookAccess, async (req, res) => {
@@ -1236,6 +2518,19 @@ app.post('/loans/books', requireAuth, async (req, res) => {
       status: 'PENDING'
     }
   });
+  const existingActive = await prisma.bookLoan.findFirst({
+    where: {
+      bookId: book.id,
+      lenderId: req.auth.userId,
+      borrowerId: borrower.id,
+      status: 'ACTIVE'
+    }
+  });
+  if (existingActive) {
+    return res.status(409).json({
+      error: 'Active loan already exists for this friend and book'
+    });
+  }
 
   const loan = existingPending
     ? await prisma.bookLoan.update({
@@ -1466,6 +2761,186 @@ app.get('/loans/lent', requireAuth, async (req, res) => {
     orderBy: { requestedAt: 'desc' }
   });
   return res.json({ loans: loans.map(toLoanResponse) });
+});
+
+app.get('/loans/:loanId/reviews', requireAuth, async (req, res) => {
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    include: includeLoanGraph
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (!ensureLoanParticipant(loan, req.auth.userId)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const messages = await prisma.loanReviewMessage.findMany({
+    where: { loanId: loan.id },
+    include: {
+      author: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+  return res.json({ loan: toLoanResponse(loan), messages: messages.map(toLoanReviewMessageResponse) });
+});
+
+app.get('/loans/discussions/unread', requireAuth, async (req, res) => {
+  const loans = await prisma.bookLoan.findMany({
+    where: {
+      OR: [
+        { lenderId: req.auth.userId },
+        { borrowerId: req.auth.userId }
+      ],
+      status: { not: 'PENDING' }
+    },
+    select: { id: true }
+  });
+
+  const rows = await Promise.all(
+    loans.map(async (loan) => {
+      const summary = await getLoanDiscussionSummary(prisma, loan.id, req.auth.userId);
+      return {
+        loanId: loan.id,
+        unreadCount: summary.unreadCount,
+        lastReadAt: summary.lastReadAt,
+        lastMessageAt: summary.lastMessageAt
+      };
+    })
+  );
+
+  return res.json({ items: rows });
+});
+
+app.get('/loans/:loanId/discussion', requireAuth, async (req, res) => {
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    include: includeLoanGraph
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (!ensureLoanParticipant(loan, req.auth.userId)) return res.status(403).json({ error: 'Forbidden' });
+
+  const [messages, auditEvents, summary] = await Promise.all([
+    prisma.loanReviewMessage.findMany({
+      where: { loanId: loan.id },
+      include: {
+        author: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+      },
+      orderBy: { createdAt: 'asc' }
+    }),
+    prisma.loanAuditEvent.findMany({
+      where: { loanId: loan.id },
+      include: {
+        actorUser: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } },
+        targetUser: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } },
+        loan: { include: includeLoanGraph }
+      },
+      orderBy: { createdAt: 'asc' }
+    }),
+    getLoanDiscussionSummary(prisma, loan.id, req.auth.userId)
+  ]);
+
+  const reviewMessages = messages.map(toLoanReviewMessageResponse);
+  const timeline = [
+    ...auditEvents.map((event) => ({
+      id: `event-${event.id}`,
+      kind: 'event',
+      createdAt: event.createdAt,
+      event: toLoanAuditEventResponse(event)
+    })),
+    ...reviewMessages.map((message) => ({
+      id: `review-${message.id}`,
+      kind: 'review',
+      createdAt: message.createdAt,
+      message
+    }))
+  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  return res.json({
+    loan: toLoanResponse(loan),
+    readState: {
+      unreadCount: summary.unreadCount,
+      lastReadAt: summary.lastReadAt,
+      lastMessageAt: summary.lastMessageAt
+    },
+    messages: reviewMessages,
+    events: auditEvents.map(toLoanAuditEventResponse),
+    timeline
+  });
+});
+
+app.post('/loans/:loanId/discussion/read', requireAuth, async (req, res) => {
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    select: { id: true, lenderId: true, borrowerId: true }
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (!ensureLoanParticipant(loan, req.auth.userId)) return res.status(403).json({ error: 'Forbidden' });
+
+  const now = new Date();
+  const row = await prisma.loanDiscussionReadState.upsert({
+    where: {
+      loanId_userId: {
+        loanId: loan.id,
+        userId: req.auth.userId
+      }
+    },
+    create: {
+      loanId: loan.id,
+      userId: req.auth.userId,
+      lastReadAt: now
+    },
+    update: {
+      lastReadAt: now
+    }
+  });
+
+  return res.json({ readState: { loanId: row.loanId, userId: row.userId, lastReadAt: row.lastReadAt } });
+});
+
+app.post('/loans/:loanId/reviews', requireAuth, async (req, res) => {
+  const schema = z.object({
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().min(1).max(3000)
+  });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+  const loan = await prisma.bookLoan.findUnique({
+    where: { id: req.params.loanId },
+    include: includeLoanGraph
+  });
+  if (!loan) return res.status(404).json({ error: 'Loan not found' });
+  if (!ensureLoanParticipant(loan, req.auth.userId)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const message = await prisma.loanReviewMessage.create({
+    data: {
+      loanId: loan.id,
+      authorUserId: req.auth.userId,
+      rating: parsed.data.rating,
+      comment: parsed.data.comment.trim()
+    },
+    include: {
+      author: { select: { id: true, email: true, username: true, displayName: true, avatarUrl: true, loanReminderDays: true } }
+    }
+  });
+
+  const otherUserId = loan.borrowerId === req.auth.userId ? loan.lenderId : loan.borrowerId;
+  await emitLoanNotification(prisma, {
+    userId: otherUserId,
+    eventKey: `loan-review-${message.id}`,
+    kind: 'loan-review',
+    title: 'New loan review',
+    message: `${message.author?.displayName || message.author?.email || 'A reader'} reviewed "${loan.book?.title || 'book'}" (${message.rating}/5).`,
+    loanId: loan.id,
+    actionType: 'open-loan-activity',
+    actionTargetId: loan.id,
+    meta: {
+      reviewId: message.id
+    }
+  });
+
+  return res.status(201).json({ message: toLoanReviewMessageResponse(message) });
 });
 
 const includeRenewalGraph = {

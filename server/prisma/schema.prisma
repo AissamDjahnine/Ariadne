@@ -53,9 +53,17 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
+  username     String?     @unique
   passwordHash String
   displayName  String?
   avatarUrl    String?
@@ -78,6 +86,18 @@ model User {
   renewalReviews LoanRenewalRequest[] @relation("loan_renewal_reviewer")
   renewalLenderRecords LoanRenewalRequest[] @relation("loan_renewal_lender")
   renewalBorrowerRecords LoanRenewalRequest[] @relation("loan_renewal_borrower")
+  sentFriendRequests FriendRequest[] @relation("friend_requests_sent")
+  receivedFriendRequests FriendRequest[] @relation("friend_requests_received")
+  friendshipsA Friendship[] @relation("friendship_user_a")
+  friendshipsB Friendship[] @relation("friendship_user_b")
+  blocksInitiated FriendBlock[] @relation("friend_blocks_initiated")
+  blocksReceived FriendBlock[] @relation("friend_blocks_received")
+  privacySettingsOwned FriendPrivacySetting[] @relation("friend_privacy_owner")
+  privacySettingsForOwner FriendPrivacySetting[] @relation("friend_privacy_friend")
+  readingStat UserReadingStat?
+  readingDays UserReadingDay[]
+  loanReviewMessages LoanReviewMessage[]
+  loanDiscussionReads LoanDiscussionReadState[]
 }
 
 model InviteCode {
@@ -221,6 +241,8 @@ model BookLoan {
   auditEvents                   LoanAuditEvent[]
   renewalRequests               LoanRenewalRequest[]
   notifications                 UserNotification[]
+  reviewMessages                LoanReviewMessage[]
+  discussionReads               LoanDiscussionReadState[]
 
   @@index([borrowerId, status])
   @@index([lenderId, status])
@@ -317,4 +339,121 @@ model UserNotification {
   @@unique([userId, eventKey])
   @@index([userId, createdAt])
   @@index([loanId])
+}
+
+model FriendRequest {
+  id          String              @id @default(cuid())
+  fromUserId  String
+  toUserId    String
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  respondedAt DateTime?
+
+  fromUser    User @relation("friend_requests_sent", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser      User @relation("friend_requests_received", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+  @@unique([fromUserId, toUserId])
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+
+  userA     User @relation("friendship_user_a", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User @relation("friendship_user_b", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model FriendBlock {
+  id            String   @id @default(cuid())
+  blockerUserId String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+
+  blocker       User @relation("friend_blocks_initiated", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blocked       User @relation("friend_blocks_received", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerUserId, blockedUserId])
+  @@index([blockedUserId])
+}
+
+model FriendPrivacySetting {
+  id              String   @id @default(cuid())
+  ownerUserId     String
+  friendUserId    String
+  canViewLibrary  Boolean  @default(true)
+  canBorrow       Boolean  @default(true)
+  canViewActivity Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner           User @relation("friend_privacy_owner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  friend          User @relation("friend_privacy_friend", fields: [friendUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerUserId, friendUserId])
+  @@index([friendUserId])
+}
+
+model UserReadingStat {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  totalReadingSeconds Int     @default(0)
+  totalPagesRead     Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserReadingDay {
+  id            String   @id @default(cuid())
+  userId        String
+  dayDate       DateTime
+  readingSeconds Int     @default(0)
+  pagesRead     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayDate])
+  @@index([dayDate])
+}
+
+model LoanReviewMessage {
+  id            String   @id @default(cuid())
+  loanId        String
+  authorUserId  String
+  rating        Int
+  comment       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  loan          BookLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  author        User     @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, createdAt])
+}
+
+model LoanDiscussionReadState {
+  id         String   @id @default(cuid())
+  loanId      String
+  userId      String
+  lastReadAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  loan        BookLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, userId])
+  @@index([userId, updatedAt])
 }

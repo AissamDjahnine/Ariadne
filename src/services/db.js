@@ -13,7 +13,8 @@ import {
   createHighlight,
   updateHighlightById,
   deleteHighlightById,
-  getFileUrl
+  getFileUrl,
+  recordBookActivity
 } from './collabApi';
 import { getCurrentUser } from './session';
 
@@ -366,12 +367,19 @@ const needsMetadataBackfill = (book) => {
 export const addBook = async (file, options = {}) => {
   if (isCollabMode) {
     const epubHash = options?.epubHash || (await computeEpubHash(file));
+    const preparedMetadata = options?.preparedMetadata?.metadata || {};
+    const resolvedTitle = (
+      options?.titleOverride ||
+      preparedMetadata?.title ||
+      file?.name?.replace('.epub', '') ||
+      "Untitled"
+    );
     const book = await createOrAttachBook({
       file,
       epubHash,
-      title: options?.titleOverride || file?.name?.replace('.epub', '') || "Untitled",
-      author: options?.preparedMetadata?.metadata?.creator || "Unknown Author",
-      language: options?.preparedMetadata?.metadata?.language || "",
+      title: resolvedTitle,
+      author: preparedMetadata?.creator || "Unknown Author",
+      language: preparedMetadata?.language || "",
       cover: options?.preparedMetadata?.cover || null
     });
     return normalizeRemoteBook(book);
@@ -580,10 +588,16 @@ export const updateBookReaderSettings = async (id, readerSettings) => {
 
 export const updateReadingStats = async (id, secondsToAdd) => {
   if (isCollabMode) {
+    const safeSeconds = Math.max(0, Number(secondsToAdd) || 0);
+    if (safeSeconds > 0) {
+      recordBookActivity(id, { secondsRead: safeSeconds }).catch((err) => {
+        console.error(err);
+      });
+    }
     const current = await getBook(id);
     return {
       ...current,
-      readingTime: (current?.readingTime || 0) + Math.max(0, Number(secondsToAdd) || 0),
+      readingTime: (current?.readingTime || 0) + safeSeconds,
       lastRead: new Date().toISOString()
     };
   }

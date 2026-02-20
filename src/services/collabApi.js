@@ -100,6 +100,11 @@ export const saveProgress = async (bookId, progressPercent, progressCfi) => {
   return data.book;
 };
 
+export const updateBookMetadata = async (bookId, payload) => {
+  const { data } = await client.patch(`/books/${bookId}/metadata`, payload);
+  return data.book;
+};
+
 export const fetchHighlights = async (bookId) => {
   const { data } = await client.get(`/books/${bookId}/highlights`);
   return data.highlights || [];
@@ -274,6 +279,119 @@ export const markAllNotificationsRead = async () => {
 export const patchNotification = async (notificationId, payload) => {
   const { data } = await client.patch(`/notifications/${notificationId}`, payload);
   return data.notification;
+};
+
+export const searchUsers = async (query) => {
+  const { data } = await client.get('/users/search', {
+    params: { q: query }
+  });
+  return data.users || [];
+};
+
+export const updateUsername = async (username) => {
+  const { data } = await client.patch('/users/me/username', { username });
+  if (data?.user) setCurrentUser(data.user);
+  return data.user;
+};
+
+export const sendFriendRequest = async (toUserId) => {
+  const { data } = await client.post('/friends/requests', { toUserId });
+  return data.request;
+};
+
+export const fetchIncomingFriendRequests = async () => {
+  const { data } = await client.get('/friends/requests/incoming');
+  return data.requests || [];
+};
+
+export const fetchOutgoingFriendRequests = async () => {
+  const { data } = await client.get('/friends/requests/outgoing');
+  return data.requests || [];
+};
+
+export const acceptFriendRequest = async (requestId) => {
+  const { data } = await client.post(`/friends/requests/${requestId}/accept`);
+  return data;
+};
+
+export const rejectFriendRequest = async (requestId) => {
+  const { data } = await client.post(`/friends/requests/${requestId}/reject`);
+  return data.request;
+};
+
+export const cancelFriendRequest = async (requestId) => {
+  const { data } = await client.post(`/friends/requests/${requestId}/cancel`);
+  return data.request;
+};
+
+export const fetchFriends = async () => {
+  const { data } = await client.get('/friends');
+  return data.friends || [];
+};
+
+export const removeFriend = async (friendUserId) => {
+  const { data } = await client.delete(`/friends/${friendUserId}`);
+  return data.ok;
+};
+
+export const fetchFriendProfile = async (friendUserId) => {
+  const { data } = await client.get(`/friends/${friendUserId}/profile`);
+  return data.profile;
+};
+
+export const fetchFriendLibrary = async (friendUserId) => {
+  const { data } = await client.get(`/friends/${friendUserId}/library`);
+  return data;
+};
+
+export const fetchFriendHistory = async (friendUserId) => {
+  const { data } = await client.get(`/friends/${friendUserId}/history`);
+  return data;
+};
+
+export const updateFriendPrivacy = async (friendUserId, payload) => {
+  const { data } = await client.patch(`/friends/${friendUserId}/privacy`, payload);
+  return data.privacy;
+};
+
+export const borrowFromFriendLibrary = async (friendUserId, bookId) => {
+  const { data } = await client.post(`/friends/${friendUserId}/borrow/${bookId}`);
+  return data.loan;
+};
+
+export const fetchFriendsLeaderboard = async (metric = 'pagesRead') => {
+  const { data } = await client.get('/friends/leaderboard', { params: { metric } });
+  return data;
+};
+
+export const fetchLoanReviews = async (loanId) => {
+  const { data } = await client.get(`/loans/${loanId}/reviews`);
+  return data.messages || [];
+};
+
+export const fetchLoanDiscussion = async (loanId) => {
+  const { data } = await client.get(`/loans/${loanId}/discussion`);
+  return data;
+};
+
+export const markLoanDiscussionRead = async (loanId) => {
+  const { data } = await client.post(`/loans/${loanId}/discussion/read`);
+  return data.readState;
+};
+
+export const fetchLoanDiscussionUnread = async () => {
+  const { data } = await client.get('/loans/discussions/unread');
+  return data.items || [];
+};
+
+export const createLoanReview = async (loanId, payload) => {
+  const { data } = await client.post(`/loans/${loanId}/reviews`, payload);
+  return data.message;
+};
+
+export const recordBookActivity = async (bookId, payload) => {
+  const { data } = await client.post(`/books/${bookId}/activity`, payload);
+  return data.ok;
 };
 
 export const getFileUrl = (bookId) => {

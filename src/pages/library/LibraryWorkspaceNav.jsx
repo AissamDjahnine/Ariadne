@@ -7,7 +7,8 @@ import {
   Highlighter,
   CircleUserRound,
   Trash2,
-  Inbox
+  Inbox,
+  UserPlus
 } from "lucide-react";
 
 export function LibraryWorkspaceSidebar({
@@ -55,6 +56,23 @@ export function LibraryWorkspaceSidebar({
         </button>
         {isCollabMode && (
           <>
+            <button
+              type="button"
+              data-testid="sidebar-friends"
+              onClick={() => onSelectSection("friends")}
+              className={`${sidebarButtonBase} ${librarySection === "friends" ? sidebarButtonActive : sidebarButtonIdle}`}
+            >
+              {librarySection === "friends" && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-0 top-2.5 h-6 w-1 rounded-r-full ${
+                    isDarkLibraryTheme ? "bg-blue-400" : "bg-blue-500"
+                  }`}
+                />
+              )}
+              <UserPlus size={17} className={librarySection === "friends" ? "" : (isDarkLibraryTheme ? "text-slate-400 group-hover:text-blue-300" : "text-gray-500 group-hover:text-blue-600")} />
+              <span>Friends</span>
+            </button>
             <button
               type="button"
               data-testid="sidebar-borrowed"
@@ -288,6 +306,18 @@ export function LibraryWorkspaceMobileNav({ librarySection, onSelectSection, isC
         </button>
         {isCollabMode && (
           <>
+            <button
+              type="button"
+              onClick={() => onSelectSection("friends")}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                librarySection === "friends"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-700"
+              }`}
+            >
+              <UserPlus size={13} />
+              <span>Friends</span>
+            </button>
             <button
               type="button"
               onClick={() => onSelectSection("borrowed")}
