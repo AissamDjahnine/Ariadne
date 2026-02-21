@@ -1,52 +1,66 @@
 services:
   db:
     image: postgres:16-alpine
+    container_name: ariadne-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ariadne
-      POSTGRES_USER: ariadne
-      POSTGRES_PASSWORD: ariadne
+      POSTGRES_DB: ${POSTGRES_DB:-ariadne}
+      POSTGRES_USER: ${POSTGRES_USER:-ariadne}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ariadne}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      # CasaOS-friendly bind mount (adjust host path if your CasaOS uses another base)
+      - ${ARIADNE_DATA_DIR:-/DATA/AppData/ariadne}/postgres:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Optional: expose only if you need DB access from outside Docker.
+      # If not needed, you can remove this mapping.
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
 
   backend:
+    image: ariadne-backend:latest
     build:
       context: ./server
+    container_name: ariadne-backend
     restart: unless-stopped
+    init: true
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://ariadne:ariadne@db:5432/ariadne
-      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ariadne:ariadne@db:5432/ariadne}
+      PORT: ${BACKEND_PORT_IN_CONTAINER:-4000}
       JWT_SECRET: ${JWT_SECRET:-change-me}
-      JWT_EXPIRES_IN: 7d
-      APP_BUILD_REF: ${APP_BUILD_REF:-dev}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       APP_BASE_URL: ${APP_BASE_URL:-http://127.0.0.1:4000}
-      EPUB_UPLOAD_DIR: /app/uploads/epubs
+      EPUB_UPLOAD_DIR: ${EPUB_UPLOAD_DIR:-/app/uploads/epubs}
       LOAN_SCHEDULER_ENABLED: ${LOAN_SCHEDULER_ENABLED:-true}
       LOAN_SCHEDULER_INTERVAL_MS: ${LOAN_SCHEDULER_INTERVAL_MS:-60000}
     volumes:
-      - epub_data:/app/uploads/epubs
+      - ${ARIADNE_DATA_DIR:-/DATA/AppData/ariadne}/epubs:${EPUB_UPLOAD_DIR:-/app/uploads/epubs}
     ports:
-      - "4000:4000"
+      - "${BACKEND_PORT:-4000}:4000"
+    stop_grace_period: 30s
 
   frontend:
     profiles: ["frontend"]
+    image: ariadne-frontend:latest
     build:
       context: .
       dockerfile: Dockerfile.frontend
-      args:
-        VITE_BUILD_STAMP: ${VITE_BUILD_STAMP:-dev}
+    container_name: ariadne-frontend
     restart: unless-stopped
+    init: true
     depends_on:
       - backend
     environment:
+      # IMPORTANT: For other devices on your LAN, don't use 127.0.0.1.
+      # Set VITE_API_BASE_URL in .env to http://192.168.1.116:4000 (or your server IP)
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:4000}
     ports:
-      - "5173:5173"
-
-volumes:
-  pg_data:
-  epub_data:
+      - "${FRONTEND_PORT:-5173}:5173"
+    stop_grace_period: 20s
