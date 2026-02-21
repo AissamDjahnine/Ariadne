@@ -34,7 +34,7 @@ const booksPayload = [
   }
 ];
 
-test('collab mode keeps library books visible through transient /books failures after refresh', async ({ page }) => {
+test('@collab collab mode keeps library books visible through transient /books failures after refresh', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     indexedDB.deleteDatabase('SmartReaderLib');
