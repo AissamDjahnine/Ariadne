@@ -42,7 +42,8 @@ test('collab mode keeps library books visible through transient /books failures 
   });
   await page.reload();
 
-  let booksRequestCount = 0;
+  let failNextBooksRequest = false;
+  let injectedBooksFailureCount = 0;
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const { pathname } = url;
@@ -58,8 +59,9 @@ test('collab mode keeps library books visible through transient /books failures 
     }
 
     if (pathname === '/api/books' && method === 'GET') {
-      booksRequestCount += 1;
-      if (booksRequestCount === 4) {
+      if (failNextBooksRequest) {
+        failNextBooksRequest = false;
+        injectedBooksFailureCount += 1;
         await route.abort('connectionrefused');
         return;
       }
@@ -207,12 +209,15 @@ test('collab mode keeps library books visible through transient /books failures 
   await expect(page.getByRole('link', { name: /Neuromancer/i })).toBeVisible();
   await expect(page.getByRole('link', { name: /The Aesop for Children/i })).toBeVisible();
 
+  // Force a deterministic transient books failure on next refresh.
+  failNextBooksRequest = true;
   await page.reload();
 
   await expect(page.getByRole('heading', { name: 'My Library' })).toBeVisible();
   await expect(page.getByText(/You have 2 books/i)).toBeVisible();
   await expect(page.getByRole('link', { name: /Neuromancer/i })).toBeVisible();
   await expect(page.getByRole('link', { name: /The Aesop for Children/i })).toBeVisible();
+  expect(injectedBooksFailureCount).toBe(1);
 
   await page.reload();
 
