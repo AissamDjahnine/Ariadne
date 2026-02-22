@@ -5404,40 +5404,63 @@ const formatNotificationTimeAgo = (value) => {
                   <span>{streakCount > 0 ? `${streakCount}-day streak` : "No streak yet"}</span>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-[78px_minmax(0,1fr)] items-center gap-3">
-                <div
-                  className="relative h-[78px] w-[78px] shrink-0 rounded-full"
-                  style={{
-                    background: `conic-gradient(${isDarkLibraryTheme ? "#60a5fa" : "#2563eb"} ${readingSnapshotProgress}%, ${isDarkLibraryTheme ? "#334155" : "#e5e7eb"} ${readingSnapshotProgress}% 100%)`
-                  }}
-                >
-                  <div className={`absolute inset-[7px] rounded-full ${isDarkLibraryTheme ? "bg-slate-900" : "bg-white"}`} />
+              <div className="mt-4 grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[112px_minmax(0,1fr)] sm:gap-4">
+                <div className="relative h-[104px] w-[104px] shrink-0 sm:h-[112px] sm:w-[112px]">
+                  <svg className="h-full w-full -rotate-90" viewBox="0 0 112 112" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="readingSnapshotRing" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor={isDarkLibraryTheme ? "#38bdf8" : "#0ea5e9"} />
+                        <stop offset="100%" stopColor={isDarkLibraryTheme ? "#3b82f6" : "#2563eb"} />
+                      </linearGradient>
+                    </defs>
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r="45"
+                      fill="none"
+                      stroke={isDarkLibraryTheme ? "#334155" : "#e5e7eb"}
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r="45"
+                      fill="none"
+                      stroke="url(#readingSnapshotRing)"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 45}
+                      strokeDashoffset={(2 * Math.PI * 45) * (1 - (readingSnapshotProgress / 100))}
+                    />
+                  </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
-                    <span className={`text-[17px] font-extrabold ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                    <span className={`text-[26px] font-bold tracking-tight tabular-nums sm:text-[30px] ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
                       {readingSnapshot.startedBooks}
+                      <span className={`text-[14px] font-semibold sm:text-[16px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                        / {readingSnapshot.totalBooks || 0}
+                      </span>
                     </span>
-                    <span className={`text-[10px] font-semibold ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
-                      / {readingSnapshot.totalBooks || 0}
+                    <span className={`mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                      Finished
                     </span>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className={`rounded-lg px-2 py-1.5 ${isDarkLibraryTheme ? "bg-slate-900/55" : "bg-white/70"}`}>
-                    <div className="inline-flex items-center gap-1.5">
-                      <Clock size={13} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-                      <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Overall time passed (hours)</div>
+                <div className="space-y-3 sm:space-y-4">
+                  <div>
+                    <div className={`text-[34px] leading-none font-bold tracking-tight tabular-nums whitespace-nowrap sm:text-[40px] ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                      {formatSnapshotDuration(readingSnapshot.totalSeconds)}
                     </div>
-                    <div className={`mt-1 text-[34px] leading-none font-extrabold tracking-tight tabular-nums whitespace-nowrap ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {formatSnapshotDuration(readingSnapshot.totalSeconds)}
+                    <div className={`mt-1 text-[12px] font-medium sm:text-[13px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                      hours
                     </div>
                   </div>
-                  <div className={`rounded-lg px-2 py-1.5 ${isDarkLibraryTheme ? "bg-slate-900/55" : "bg-white/70"}`}>
-                    <div className="inline-flex items-center gap-1.5">
-                      <FileText size={13} className={isDarkLibraryTheme ? "text-slate-400" : "text-gray-400"} />
-                      <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>Pages done</div>
+                  <div>
+                    <div className={`text-[30px] leading-none font-bold tracking-tight tabular-nums sm:text-[36px] ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
+                      {readingSnapshot.pagesDone}
                     </div>
-                    <div className={`mt-1 text-[26px] leading-none font-bold tracking-tight tabular-nums ${isDarkLibraryTheme ? "text-slate-100" : "text-[#1A1A2E]"}`}>
-                        {readingSnapshot.pagesDone}
+                    <div className={`mt-1 text-[12px] font-medium sm:text-[13px] ${isDarkLibraryTheme ? "text-slate-400" : "text-gray-500"}`}>
+                      pages
                     </div>
                   </div>
                 </div>
