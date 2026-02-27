@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom';
 import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote, updateBookReaderSettings, markBookStarted, saveCharacterRelationshipMap } from '../services/db';
 import BookView from '../components/BookView';
-import { summarizeChapter, extractCharacterRelationshipMap, mergeCharacterRelationshipMaps } from '../services/ai';
+import {
+  summarizeChapter,
+  extractCharacterRelationshipMap,
+  inferCharacterRelationshipsFromEvidence,
+  mergeCharacterRelationshipMaps
+} from '../services/ai';
 import FeedbackToast from '../components/FeedbackToast';
 import { getCurrentUser } from '../services/session';
 
@@ -2554,6 +2559,8 @@ export default function Reader() {
 
       let aggregate = mergeCharacterRelationshipMaps(currentBook.characterRelationshipMap || null);
       let firstError = '';
+      const relationshipEvidence = [];
+      const excludeNames = [currentBook.author || '', currentBook.title || ''].filter(Boolean);
       setCharacterMapProgress({ current: 0, total: chapters.length });
       if (aggregate.characters?.length || aggregate.relationships?.length) {
         appendCharacterMapLog(
@@ -2582,6 +2589,11 @@ export default function Reader() {
             chapterHref: section.href || '',
             chapterLabel: resolveChapterLabelByHref(section.href || '', i + offset)
           });
+          relationshipEvidence.push({
+            chapterHref: section.href || '',
+            chapterLabel: resolveChapterLabelByHref(section.href || '', i + offset),
+            text: rawText
+          });
         }
 
         if (chapterPayloads.length) {
@@ -2592,6 +2604,8 @@ export default function Reader() {
               extractCharacterRelationshipMap(payload.text, {
                 chapterHref: payload.chapterHref,
                 chapterLabel: payload.chapterLabel
+              }, {
+                excludeNames
               })
             )
           );
@@ -2635,6 +2649,25 @@ export default function Reader() {
           current: Math.min(chapters.length, i + batch.length),
           total: chapters.length
         });
+      }
+
+      if (aggregate.characters?.length >= 2) {
+        appendCharacterMapLog(runId, 'Running final relationship reconciliation pass.');
+        const reconciliation = await inferCharacterRelationshipsFromEvidence(
+          relationshipEvidence,
+          aggregate.characters,
+          { excludeNames }
+        );
+        if (reconciliation?.map) {
+          const relationshipsBefore = aggregate.relationships?.length || 0;
+          aggregate = mergeCharacterRelationshipMaps(aggregate, reconciliation.map);
+          const relationshipsAfter = aggregate.relationships?.length || 0;
+          appendCharacterMapLog(
+            runId,
+            `Reconciliation added ${Math.max(0, relationshipsAfter - relationshipsBefore)} relationship candidates.`
+          );
+        }
+        if (!firstError && reconciliation?.error) firstError = reconciliation.error;
       }
 
       let finalMap = null;

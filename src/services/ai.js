@@ -28,6 +28,50 @@ const clamp01 = (value, fallback = 0.5) => {
 };
 
 const createEmptyCharacterMap = () => ({ characters: [], relationships: [] });
+const NAME_STOPWORDS = new Set([
+  'Chapter',
+  'CHAPTER',
+  'The',
+  'A',
+  'An',
+  'And',
+  'But',
+  'Or',
+  'In',
+  'On',
+  'At',
+  'To',
+  'From',
+  'He',
+  'She',
+  'They',
+  'His',
+  'Her',
+  'Their',
+  'I',
+  'We',
+  'You',
+  'It',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December'
+]);
 
 const callOllama = async (prompt) => {
   if (!OLLAMA_MODEL) {
@@ -83,6 +127,75 @@ const parseJsonObject = (rawText) => {
     } catch (_) {}
   }
   return null;
+};
+
+const buildExcludeSet = (excludeNames = []) => {
+  const excludeSet = new Set();
+  (Array.isArray(excludeNames) ? excludeNames : []).forEach((item) => {
+    const normalized = normalizeText(item).toLowerCase();
+    if (!normalized) return;
+    excludeSet.add(normalized);
+    normalized.split(' ').forEach((token) => {
+      if (token.length >= 3) excludeSet.add(token);
+    });
+  });
+  return excludeSet;
+};
+
+const filterCharacterMap = (map, excludeNames = []) => {
+  const excludeSet = buildExcludeSet(excludeNames);
+  if (!excludeSet.size) return map;
+
+  const allowedCharacters = (map.characters || []).filter((character) => {
+    const name = normalizeText(character?.name).toLowerCase();
+    if (!name) return false;
+    if (excludeSet.has(name)) return false;
+    const tokens = name.split(' ');
+    return !tokens.every((token) => excludeSet.has(token));
+  });
+  const allowedNames = new Set(allowedCharacters.map((character) => character.name.toLowerCase()));
+
+  const allowedRelationships = (map.relationships || []).filter((relationship) => {
+    const source = normalizeText(relationship?.source).toLowerCase();
+    const target = normalizeText(relationship?.target).toLowerCase();
+    if (!source || !target) return false;
+    return allowedNames.has(source) && allowedNames.has(target);
+  });
+
+  return {
+    characters: allowedCharacters,
+    relationships: allowedRelationships
+  };
+};
+
+const extractFallbackCharacters = (rawText, limit = 12, excludeNames = []) => {
+  const text = normalizeText(rawText).slice(0, 12000);
+  if (!text) return [];
+  const excludeSet = buildExcludeSet(excludeNames);
+
+  const counts = new Map();
+  const pattern = /\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,2})\b/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const candidate = normalizeText(match[1]);
+    if (!candidate) continue;
+    if (candidate.length < 3 || candidate.length > 40) continue;
+    const candidateLower = candidate.toLowerCase();
+    if (excludeSet.has(candidateLower)) continue;
+    const tokens = candidate.split(' ');
+    if (!tokens.length) continue;
+    if (tokens.every((token) => NAME_STOPWORDS.has(token))) continue;
+    if (NAME_STOPWORDS.has(tokens[0])) continue;
+    if (tokens.every((token) => excludeSet.has(token.toLowerCase()))) continue;
+    const key = candidate.toLowerCase();
+    counts.set(key, { name: candidate, count: (counts.get(key)?.count || 0) + 1 });
+  }
+
+  return [...counts.values()]
+    .filter((item) => item.count >= 2 || item.name.split(' ').length > 1)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, limit)
+    .map((item) => ({ name: item.name, aliases: [] }));
 };
 
 const sanitizeCharacterMap = (raw, chapterFallback = {}) => {
@@ -228,7 +341,7 @@ export const mergeCharacterRelationshipMaps = (...maps) => {
   };
 };
 
-export async function extractCharacterRelationshipMap(chapterText, chapterMeta = {}) {
+export async function extractCharacterRelationshipMap(chapterText, chapterMeta = {}, options = {}) {
   const safeText = typeof chapterText === 'string' ? chapterText : '';
   const trimmed = safeText.trim();
   if (!trimmed) return { map: createEmptyCharacterMap(), error: '' };
@@ -236,6 +349,7 @@ export async function extractCharacterRelationshipMap(chapterText, chapterMeta =
   const truncatedText = trimmed.slice(0, MAX_CHARACTER_MAP_TEXT);
   const chapterHref = normalizeText(chapterMeta.chapterHref || '');
   const chapterLabel = normalizeText(chapterMeta.chapterLabel || '');
+  const excludeNames = Array.isArray(options?.excludeNames) ? options.excludeNames : [];
 
   const prompt = `
 You extract character entities and relationships from fiction text.
@@ -284,10 +398,125 @@ ${truncatedText}
   if (result.error) return { map: createEmptyCharacterMap(), error: result.error };
 
   const parsed = parseJsonObject(result.text);
-  if (!parsed) return { map: createEmptyCharacterMap(), error: 'Character map JSON parse failed.' };
+  if (!parsed) {
+    const fallbackCharacters = extractFallbackCharacters(truncatedText, 12, excludeNames);
+    if (fallbackCharacters.length) {
+      return {
+        map: filterCharacterMap(
+          sanitizeCharacterMap(
+            {
+              characters: fallbackCharacters,
+              relationships: []
+            },
+            { chapterHref, chapterLabel }
+          ),
+          excludeNames
+        ),
+        error: 'Character map JSON parse failed. Used fallback name extraction.'
+      };
+    }
+    return { map: createEmptyCharacterMap(), error: 'Character map JSON parse failed.' };
+  }
 
+  const sanitized = filterCharacterMap(
+    sanitizeCharacterMap(parsed, { chapterHref, chapterLabel }),
+    excludeNames
+  );
+  if (!sanitized.characters.length && !sanitized.relationships.length) {
+    const fallbackCharacters = extractFallbackCharacters(truncatedText, 12, excludeNames);
+    if (fallbackCharacters.length) {
+      return {
+        map: filterCharacterMap(
+          sanitizeCharacterMap(
+            {
+              characters: fallbackCharacters,
+              relationships: []
+            },
+            { chapterHref, chapterLabel }
+          ),
+          excludeNames
+        ),
+        error: 'Model returned empty extraction. Used fallback name extraction.'
+      };
+    }
+  }
+
+  return { map: sanitized, error: '' };
+}
+
+export async function inferCharacterRelationshipsFromEvidence(chapters = [], knownCharacters = [], options = {}) {
+  const normalizedCharacters = (Array.isArray(knownCharacters) ? knownCharacters : [])
+    .map((item) => normalizeText(item?.name || item))
+    .filter(Boolean)
+    .slice(0, 80);
+  if (normalizedCharacters.length < 2) {
+    return { map: createEmptyCharacterMap(), error: '' };
+  }
+
+  const condensedChapters = (Array.isArray(chapters) ? chapters : [])
+    .map((item) => ({
+      chapterHref: normalizeText(item?.chapterHref || ''),
+      chapterLabel: normalizeText(item?.chapterLabel || ''),
+      text: normalizeText(item?.text || '').slice(0, 1200)
+    }))
+    .filter((item) => item.text);
+  if (!condensedChapters.length) {
+    return { map: createEmptyCharacterMap(), error: '' };
+  }
+
+  const evidenceBlock = condensedChapters
+    .slice(0, 40)
+    .map((item, index) => `CHAPTER ${index + 1} | href=${item.chapterHref} | label=${item.chapterLabel}\n${item.text}`)
+    .join('\n\n');
+
+  const prompt = `
+Infer character relationships from chapter evidence.
+Use only these known characters:
+${normalizedCharacters.join(', ')}
+
+Return STRICT JSON only:
+{
+  "relationships": [
+    {
+      "source": "Character A",
+      "target": "Character B",
+      "type": "friend",
+      "confidence": 0.68,
+      "evidence": "short reason",
+      "citations": [
+        {
+          "chapterHref": "ch01.xhtml",
+          "chapterLabel": "Chapter 1",
+          "position": "middle",
+          "quote": "short quote"
+        }
+      ]
+    }
+  ]
+}
+
+Only include relationships with direct evidence in provided chapters.
+Allowed types: friend, enemy, family, romantic, mentor, rival, ally, colleague, leader, follower, guardian, unknown.
+If no reliable relationships, return an empty array.
+
+EVIDENCE:
+${evidenceBlock}
+  `;
+
+  const result = await callOllama(prompt);
+  if (result.error) return { map: createEmptyCharacterMap(), error: result.error };
+  const parsed = parseJsonObject(result.text);
+  if (!parsed || !Array.isArray(parsed.relationships)) {
+    return { map: createEmptyCharacterMap(), error: 'Relationship reconciliation parse failed.' };
+  }
+
+  const baseCharacters = normalizedCharacters.map((name) => ({ name, aliases: [] }));
+  const map = sanitizeCharacterMap({
+    characters: baseCharacters,
+    relationships: parsed.relationships
+  });
   return {
-    map: sanitizeCharacterMap(parsed, { chapterHref, chapterLabel }),
+    map: filterCharacterMap(map, options?.excludeNames || []),
     error: ''
   };
 }

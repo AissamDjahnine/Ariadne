@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { summarizeChapter, extractCharacterRelationshipMap, mergeCharacterRelationshipMaps } from '../../src/services/ai';
+import {
+  summarizeChapter,
+  extractCharacterRelationshipMap,
+  inferCharacterRelationshipsFromEvidence,
+  mergeCharacterRelationshipMaps
+} from '../../src/services/ai';
 
 describe('summarizeChapter (Ollama)', () => {
   afterEach(() => {
@@ -111,6 +116,39 @@ describe('character relationship map extraction', () => {
     expect(result.error).toBe('Character map JSON parse failed.');
     expect(result.map).toEqual({ characters: [], relationships: [] });
   });
+
+  it('uses fallback character extraction when model returns empty map', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: '{"characters":[],"relationships":[]}' })
+    });
+
+    const result = await extractCharacterRelationshipMap(
+      'Hamnet met Agnes. Agnes spoke to Hamnet again while Judith listened. Hamnet and Judith walked away.'
+    );
+
+    expect(result.error).toContain('fallback name extraction');
+    expect(result.map.characters.length).toBeGreaterThan(0);
+    const names = result.map.characters.map((item) => item.name);
+    expect(names).toContain('Hamnet');
+  });
+
+  it('filters excluded metadata names from extraction', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: '{"characters":[],"relationships":[]}' })
+    });
+
+    const result = await extractCharacterRelationshipMap(
+      "Maggie O'Farrell wrote Hamnet. Hamnet spoke to Agnes. Hamnet met Agnes again.",
+      {},
+      { excludeNames: ["Maggie O'Farrell"] }
+    );
+
+    const names = result.map.characters.map((item) => item.name);
+    expect(names).not.toContain("Maggie O'Farrell");
+    expect(names).toContain('Hamnet');
+  });
 });
 
 describe('mergeCharacterRelationshipMaps', () => {
@@ -149,5 +187,39 @@ describe('mergeCharacterRelationshipMaps', () => {
     expect(merged.relationships).toHaveLength(1);
     expect(merged.relationships[0].confidence).toBe(0.87);
     expect(merged.relationships[0].citations).toHaveLength(2);
+  });
+});
+
+describe('inferCharacterRelationshipsFromEvidence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('parses reconciliation relationships', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: JSON.stringify({
+          relationships: [
+            {
+              source: 'Hamnet',
+              target: 'Agnes',
+              type: 'family',
+              confidence: 0.82,
+              citations: [{ chapterLabel: 'Chapter 2', position: 'middle', quote: 'their son' }]
+            }
+          ]
+        })
+      })
+    });
+
+    const result = await inferCharacterRelationshipsFromEvidence(
+      [{ chapterLabel: 'Chapter 2', text: 'Agnes mourned with Hamnet nearby.' }],
+      ['Hamnet', 'Agnes']
+    );
+
+    expect(result.error).toBe('');
+    expect(result.map.relationships).toHaveLength(1);
+    expect(result.map.relationships[0].type).toBe('family');
   });
 });
