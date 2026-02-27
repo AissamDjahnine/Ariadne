@@ -149,6 +149,26 @@ describe('character relationship map extraction', () => {
     expect(names).not.toContain("Maggie O'Farrell");
     expect(names).toContain('Hamnet');
   });
+
+  it('filters organization/publication entities in strict story mode', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: JSON.stringify({
+          characters: [
+            { name: 'British Library', aliases: [] },
+            { name: 'Agnes', aliases: [] }
+          ],
+          relationships: []
+        })
+      })
+    });
+
+    const result = await extractCharacterRelationshipMap('text', {}, { strictStoryCharacters: true });
+    const names = result.map.characters.map((item) => item.name);
+    expect(names).not.toContain('British Library');
+    expect(names).toContain('Agnes');
+  });
 });
 
 describe('mergeCharacterRelationshipMaps', () => {

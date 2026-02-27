@@ -98,6 +98,41 @@ const READER_HIGHLIGHT_COLOR_ORDER_KEY = 'reader-highlight-color-order-v1';
 const CHARACTER_MAP_BATCH_SIZE = 3;
 const MAX_RECENT_QUERIES = 8;
 const normalizeHref = (href = '') => href.split('#')[0];
+const NON_NARRATIVE_HINTS = [
+  'copyright',
+  'acknowledg',
+  'contents',
+  'toc',
+  'titlepage',
+  'imprint',
+  'about',
+  'author',
+  'bibliography',
+  'index',
+  'notes',
+  'isbn',
+  'publisher',
+  'credits',
+  'license',
+  'legal'
+];
+
+const isLikelyNarrativeChapter = (section, chapterLabel, rawText = '') => {
+  const href = (section?.href || '').toLowerCase();
+  const label = (chapterLabel || '').toLowerCase();
+  const text = (rawText || '').slice(0, 1800).toLowerCase();
+  const joined = `${href} ${label}`;
+  if (NON_NARRATIVE_HINTS.some((hint) => joined.includes(hint))) return false;
+  const metadataSignals = [
+    'all rights reserved',
+    'copyright',
+    'isbn',
+    'published by',
+    'publication data'
+  ];
+  if (metadataSignals.some((signal) => text.includes(signal))) return false;
+  return true;
+};
 
 const parseStoredQueryHistory = (raw) => {
   if (!raw) return [];
@@ -2584,14 +2619,23 @@ export default function Reader() {
           const rawText = section?.document?.body?.innerText || '';
           section.unload();
           if (!rawText.trim()) continue;
+          const chapterLabel = resolveChapterLabelByHref(section.href || '', i + offset);
+          if (!isLikelyNarrativeChapter(section, chapterLabel, rawText)) {
+            appendCharacterMapLog(
+              runId,
+              `Skipped non-story section: ${chapterLabel || section.href || `Section ${i + offset + 1}`}.`,
+              'warning'
+            );
+            continue;
+          }
           chapterPayloads.push({
             text: rawText,
             chapterHref: section.href || '',
-            chapterLabel: resolveChapterLabelByHref(section.href || '', i + offset)
+            chapterLabel
           });
           relationshipEvidence.push({
             chapterHref: section.href || '',
-            chapterLabel: resolveChapterLabelByHref(section.href || '', i + offset),
+            chapterLabel,
             text: rawText
           });
         }
@@ -2605,7 +2649,8 @@ export default function Reader() {
                 chapterHref: payload.chapterHref,
                 chapterLabel: payload.chapterLabel
               }, {
-                excludeNames
+                excludeNames,
+                strictStoryCharacters: true
               })
             )
           );

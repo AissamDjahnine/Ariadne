@@ -72,6 +72,31 @@ const NAME_STOPWORDS = new Set([
   'November',
   'December'
 ]);
+const NON_CHARACTER_KEYWORDS = [
+  'copyright',
+  'licensing',
+  'agency',
+  'press',
+  'publishing',
+  'publication',
+  'newspaper',
+  'magazine',
+  'times',
+  'telegraph',
+  'library',
+  'patents',
+  'act',
+  'isbn',
+  'headline',
+  'design',
+  'group',
+  'company',
+  'house',
+  'data',
+  'embankment',
+  'london',
+  'rights reserved'
+];
 
 const callOllama = async (prompt) => {
   if (!OLLAMA_MODEL) {
@@ -142,13 +167,25 @@ const buildExcludeSet = (excludeNames = []) => {
   return excludeSet;
 };
 
-const filterCharacterMap = (map, excludeNames = []) => {
+const looksLikeNonCharacterEntity = (value, strictStoryCharacters = false) => {
+  const clean = normalizeText(value).toLowerCase();
+  if (!clean) return false;
+  if (NON_CHARACTER_KEYWORDS.some((term) => clean.includes(term))) return true;
+  if (!strictStoryCharacters) return false;
+  const tokenCount = clean.split(/\s+/).length;
+  if (tokenCount >= 4) return true;
+  if (/\b(inc|ltd|llc|corp|co)\b/.test(clean)) return true;
+  return false;
+};
+
+const filterCharacterMap = (map, excludeNames = [], options = {}) => {
   const excludeSet = buildExcludeSet(excludeNames);
-  if (!excludeSet.size) return map;
+  const strictStoryCharacters = Boolean(options?.strictStoryCharacters);
 
   const allowedCharacters = (map.characters || []).filter((character) => {
     const name = normalizeText(character?.name).toLowerCase();
     if (!name) return false;
+    if (looksLikeNonCharacterEntity(name, strictStoryCharacters)) return false;
     if (excludeSet.has(name)) return false;
     const tokens = name.split(' ');
     return !tokens.every((token) => excludeSet.has(token));
@@ -350,10 +387,13 @@ export async function extractCharacterRelationshipMap(chapterText, chapterMeta =
   const chapterHref = normalizeText(chapterMeta.chapterHref || '');
   const chapterLabel = normalizeText(chapterMeta.chapterLabel || '');
   const excludeNames = Array.isArray(options?.excludeNames) ? options.excludeNames : [];
+  const strictStoryCharacters = options?.strictStoryCharacters !== false;
 
   const prompt = `
 You extract character entities and relationships from fiction text.
 Return STRICT JSON only (no markdown, no prose).
+Only include in-story people/creatures/entities acting as characters.
+Never include author names, publishers, organizations, publications, legal terms, locations, metadata, chapter labels, or template placeholders.
 
 Allowed relationship type values:
 friend, enemy, family, romantic, mentor, rival, ally, colleague, leader, follower, guardian, unknown
@@ -410,7 +450,8 @@ ${truncatedText}
             },
             { chapterHref, chapterLabel }
           ),
-          excludeNames
+          excludeNames,
+          { strictStoryCharacters }
         ),
         error: 'Character map JSON parse failed. Used fallback name extraction.'
       };
@@ -420,7 +461,8 @@ ${truncatedText}
 
   const sanitized = filterCharacterMap(
     sanitizeCharacterMap(parsed, { chapterHref, chapterLabel }),
-    excludeNames
+    excludeNames,
+    { strictStoryCharacters }
   );
   if (!sanitized.characters.length && !sanitized.relationships.length) {
     const fallbackCharacters = extractFallbackCharacters(truncatedText, 12, excludeNames);
@@ -434,7 +476,8 @@ ${truncatedText}
             },
             { chapterHref, chapterLabel }
           ),
-          excludeNames
+          excludeNames,
+          { strictStoryCharacters }
         ),
         error: 'Model returned empty extraction. Used fallback name extraction.'
       };
@@ -516,7 +559,7 @@ ${evidenceBlock}
     relationships: parsed.relationships
   });
   return {
-    map: filterCharacterMap(map, options?.excludeNames || []),
+    map: filterCharacterMap(map, options?.excludeNames || [], { strictStoryCharacters: true }),
     error: ''
   };
 }
