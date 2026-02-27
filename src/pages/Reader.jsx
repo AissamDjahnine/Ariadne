@@ -240,6 +240,9 @@ export default function Reader() {
   const [characterMapError, setCharacterMapError] = useState('');
   const [isGeneratingCharacterMap, setIsGeneratingCharacterMap] = useState(false);
   const [characterMapProgress, setCharacterMapProgress] = useState({ current: 0, total: 0 });
+  const [characterMapLogs, setCharacterMapLogs] = useState([]);
+  const [characterMapDiscovered, setCharacterMapDiscovered] = useState([]);
+  const characterMapRunIdRef = useRef(0);
   const currentUserId = getCurrentUser()?.id || "";
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [rebuildProgress, setRebuildProgress] = useState({ current: 0, total: 0 });
@@ -451,6 +454,23 @@ export default function Reader() {
         readerToastTimerRef.current = null;
       }, duration);
     }
+  }, []);
+
+  const appendCharacterMapLog = useCallback((runId, message, tone = 'info') => {
+    if (!message) return;
+    setCharacterMapLogs((prev) => {
+      if (characterMapRunIdRef.current !== runId) return prev;
+      const next = [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          time: new Date().toLocaleTimeString(),
+          message,
+          tone
+        }
+      ];
+      return next.slice(-80);
+    });
   }, []);
 
   useEffect(() => {
@@ -2500,10 +2520,14 @@ export default function Reader() {
   const generateCharacterMap = async () => {
     const currentBook = bookRef.current;
     if (!currentBook || !rendition || isGeneratingCharacterMap) return;
+    const runId = Date.now();
+    characterMapRunIdRef.current = runId;
 
     setIsGeneratingCharacterMap(true);
     setCharacterMapError('');
     setCharacterMapProgress({ current: 0, total: 0 });
+    setCharacterMapLogs([]);
+    setCharacterMapDiscovered([]);
     showReaderToast(
       {
         tone: 'info',
@@ -2512,6 +2536,7 @@ export default function Reader() {
       },
       { duration: 3200 }
     );
+    appendCharacterMapLog(runId, 'Queued whole-book character extraction.');
 
     try {
       const epubBook = rendition.book;
@@ -2523,16 +2548,28 @@ export default function Reader() {
 
       if (!chapters.length) {
         setCharacterMapError('No readable chapters found.');
+        appendCharacterMapLog(runId, 'No readable chapters found.', 'warning');
         return;
       }
 
       let aggregate = mergeCharacterRelationshipMaps(currentBook.characterRelationshipMap || null);
       let firstError = '';
       setCharacterMapProgress({ current: 0, total: chapters.length });
+      if (aggregate.characters?.length || aggregate.relationships?.length) {
+        appendCharacterMapLog(
+          runId,
+          `Starting from cached map: ${aggregate.characters.length} characters, ${aggregate.relationships.length} relationships.`
+        );
+      }
+      appendCharacterMapLog(runId, `Book scan started: ${chapters.length} chapters, batch size ${CHARACTER_MAP_BATCH_SIZE}.`);
 
       for (let i = 0; i < chapters.length; i += CHARACTER_MAP_BATCH_SIZE) {
         const batch = chapters.slice(i, i + CHARACTER_MAP_BATCH_SIZE);
         const chapterPayloads = [];
+        appendCharacterMapLog(
+          runId,
+          `Batch ${Math.floor(i / CHARACTER_MAP_BATCH_SIZE) + 1}: loading chapters ${i + 1}-${i + batch.length}.`
+        );
 
         for (let offset = 0; offset < batch.length; offset += 1) {
           const section = batch[offset];
@@ -2548,6 +2585,8 @@ export default function Reader() {
         }
 
         if (chapterPayloads.length) {
+          const beforeCharacters = new Set((aggregate.characters || []).map((item) => item.name));
+          const beforeRelationships = aggregate.relationships?.length || 0;
           const batchResults = await Promise.all(
             chapterPayloads.map((payload) =>
               extractCharacterRelationshipMap(payload.text, {
@@ -2564,7 +2603,32 @@ export default function Reader() {
           });
           if (successfulMaps.length) {
             aggregate = mergeCharacterRelationshipMaps(aggregate, ...successfulMaps);
+            const newCharacterNames = (aggregate.characters || [])
+              .map((item) => item.name)
+              .filter((name) => !beforeCharacters.has(name));
+            const relationshipDelta = (aggregate.relationships?.length || 0) - beforeRelationships;
+            if (newCharacterNames.length) {
+              setCharacterMapDiscovered((prev) => {
+                const seen = new Set(prev.map((item) => item.toLowerCase()));
+                const additions = newCharacterNames.filter((name) => !seen.has(name.toLowerCase()));
+                return [...prev, ...additions].slice(-24);
+              });
+            }
+            setCharacterMap({
+              ...aggregate,
+              updatedAt: new Date().toISOString()
+            });
+            appendCharacterMapLog(
+              runId,
+              `Batch ${Math.floor(i / CHARACTER_MAP_BATCH_SIZE) + 1} done: +${newCharacterNames.length} characters, ${relationshipDelta >= 0 ? '+' : ''}${relationshipDelta} relationships.`
+            );
           }
+        } else {
+          appendCharacterMapLog(
+            runId,
+            `Batch ${Math.floor(i / CHARACTER_MAP_BATCH_SIZE) + 1}: no readable text found, skipped.`,
+            'warning'
+          );
         }
 
         setCharacterMapProgress({
@@ -2586,11 +2650,17 @@ export default function Reader() {
         };
         setCharacterMap(finalMap);
       }
+      appendCharacterMapLog(
+        runId,
+        `Map saved: ${finalMap?.characters?.length || 0} characters, ${finalMap?.relationships?.length || 0} relationships.`
+      );
 
       if (firstError && !(aggregate.characters?.length || aggregate.relationships?.length)) {
         setCharacterMapError(firstError);
+        appendCharacterMapLog(runId, `Run failed: ${firstError}`, 'warning');
       } else if (firstError) {
         setCharacterMapError(`Partial result: ${firstError}`);
+        appendCharacterMapLog(runId, `Partial result: ${firstError}`, 'warning');
       }
 
       const relationshipCount = finalMap?.relationships?.length || 0;
@@ -2607,9 +2677,11 @@ export default function Reader() {
         },
         { duration: 7000 }
       );
+      appendCharacterMapLog(runId, 'Run completed.');
     } catch (err) {
       console.error(err);
       setCharacterMapError('Failed to build character map. Please try again.');
+      appendCharacterMapLog(runId, 'Run crashed before completion.', 'warning');
       showReaderToast(
         {
           tone: 'destructive',
@@ -2619,7 +2691,9 @@ export default function Reader() {
         { duration: 4500 }
       );
     } finally {
-      setIsGeneratingCharacterMap(false);
+      if (characterMapRunIdRef.current === runId) {
+        setIsGeneratingCharacterMap(false);
+      }
     }
   };
 
@@ -2665,6 +2739,8 @@ export default function Reader() {
     setShowCharacterMapModal(false);
     setCharacterMapError('');
     setCharacterMapProgress({ current: 0, total: 0 });
+    setCharacterMapLogs([]);
+    setCharacterMapDiscovered([]);
   }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
@@ -3173,7 +3249,7 @@ export default function Reader() {
       ? 'focus-only'
       : 'none';
   const characterMapStatusLabel = isGeneratingCharacterMap
-    ? `Map ${characterMapProgress.current}/${characterMapProgress.total || '?'}`
+    ? `Map ${characterMapProgress.current}/${characterMapProgress.total || '?'} · ${characterMap?.characters?.length || 0} chars`
     : '';
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
@@ -3421,62 +3497,133 @@ export default function Reader() {
               </div>
             )}
 
-            {!characterMap?.relationships?.length && !characterMap?.characters?.length ? (
-              <div className="rounded-xl border border-dashed border-gray-300 p-5 text-sm text-gray-500">
-                No map yet. Click Build / Refresh to scan all chapters.
+            {isGeneratingCharacterMap && (
+              <div className="mb-4 h-2 overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-300"
+                  style={{
+                    width: `${characterMapProgress.total
+                      ? Math.round((characterMapProgress.current / characterMapProgress.total) * 100)
+                      : 0}%`
+                  }}
+                />
               </div>
-            ) : (
-              <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-                <div>
-                  <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Characters</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {(characterMap.characters || []).map((character) => (
+            )}
+
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+              <div>
+                <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Run Log</h4>
+                {characterMapLogs.length ? (
+                  <div className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-gray-200 p-2">
+                    {characterMapLogs.map((item) => (
                       <div
-                        key={character.name}
-                        className="rounded-full border border-gray-300 px-3 py-1 text-xs"
+                        key={item.id}
+                        className={`text-[11px] ${
+                          item.tone === 'warning' ? 'text-yellow-700' : 'text-gray-600'
+                        }`}
                       >
-                        <span className="font-semibold">{character.name}</span>
-                        {character.aliases?.length ? ` (${character.aliases.join(', ')})` : ''}
+                        <span className="font-semibold">{item.time}</span> · {item.message}
                       </div>
                     ))}
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-300 p-3 text-xs text-gray-500">
+                    Waiting to start.
+                  </div>
+                )}
+              </div>
 
-                <div>
-                  <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Relationships</h4>
-                  <div className="space-y-2">
-                    {(characterMap.relationships || []).map((relationship, idx) => (
-                      <div key={`${relationship.source}-${relationship.target}-${relationship.type}-${idx}`} className="rounded-xl border border-gray-300 p-3">
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
+              <div>
+                <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Discovered In This Run</h4>
+                {characterMapDiscovered.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {characterMapDiscovered.map((name) => (
+                      <span key={name} className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                        + {name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-300 p-3 text-xs text-gray-500">
+                    No new characters discovered yet.
+                  </div>
+                )}
+              </div>
+
+              {!characterMap?.relationships?.length && !characterMap?.characters?.length ? (
+                <div className="rounded-xl border border-dashed border-gray-300 p-5 text-sm text-gray-500">
+                  No map yet. Click Build / Refresh to scan all chapters.
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Graph Preview</h4>
+                    <div className="space-y-2">
+                      {(characterMap.relationships || []).slice(0, 12).map((relationship, idx) => (
+                        <div key={`graph-${relationship.source}-${relationship.target}-${idx}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 px-2 py-1 text-xs">
                           <span className="font-semibold">{relationship.source}</span>
                           <span className="text-gray-400">→</span>
                           <span className="font-semibold">{relationship.target}</span>
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold uppercase text-blue-700">
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-700">
                             {relationship.type}
                           </span>
-                          <span className="text-[11px] text-gray-500">
-                            confidence {(Number(relationship.confidence) * 100).toFixed(0)}%
-                          </span>
+                          <span className="text-[10px] text-gray-500">{Math.round(Number(relationship.confidence) * 100)}%</span>
                         </div>
-                        {relationship.evidence && (
-                          <div className="mt-1 text-xs italic text-gray-600">{relationship.evidence}</div>
-                        )}
-                        {!!relationship.citations?.length && (
-                          <div className="mt-2 space-y-1">
-                            {relationship.citations.slice(0, 3).map((citation, citationIdx) => (
-                              <div key={`${idx}-${citationIdx}`} className="text-[11px] text-gray-500">
-                                {(citation.chapterLabel || citation.chapterHref || 'Unknown chapter')} · {citation.position || 'unknown'}
-                                {citation.quote ? ` · "${citation.quote}"` : ''}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+
+                  <div>
+                    <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Characters</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {(characterMap.characters || []).map((character) => (
+                        <div
+                          key={character.name}
+                          className="rounded-full border border-gray-300 px-3 py-1 text-xs"
+                        >
+                          <span className="font-semibold">{character.name}</span>
+                          {character.aliases?.length ? ` (${character.aliases.join(', ')})` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Relationships</h4>
+                    <div className="space-y-2">
+                      {(characterMap.relationships || []).map((relationship, idx) => (
+                        <div key={`${relationship.source}-${relationship.target}-${relationship.type}-${idx}`} className="rounded-xl border border-gray-300 p-3">
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="font-semibold">{relationship.source}</span>
+                            <span className="text-gray-400">→</span>
+                            <span className="font-semibold">{relationship.target}</span>
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold uppercase text-blue-700">
+                              {relationship.type}
+                            </span>
+                            <span className="text-[11px] text-gray-500">
+                              confidence {(Number(relationship.confidence) * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                          {relationship.evidence && (
+                            <div className="mt-1 text-xs italic text-gray-600">{relationship.evidence}</div>
+                          )}
+                          {!!relationship.citations?.length && (
+                            <div className="mt-2 space-y-1">
+                              {relationship.citations.slice(0, 3).map((citation, citationIdx) => (
+                                <div key={`${idx}-${citationIdx}`} className="text-[11px] text-gray-500">
+                                  {(citation.chapterLabel || citation.chapterHref || 'Unknown chapter')} · {citation.position || 'unknown'}
+                                  {citation.quote ? ` · "${citation.quote}"` : ''}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
