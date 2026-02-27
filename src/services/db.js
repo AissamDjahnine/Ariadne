@@ -66,7 +66,8 @@ const remoteBookDefaults = {
   aiSummaries: [],
   pageSummaries: [],
   chapterSummaries: [],
-  globalSummary: ""
+  globalSummary: "",
+  characterRelationshipMap: null
 };
 
 const READER_SETTINGS_STORAGE_PREFIX = "reader-settings-book";
@@ -433,7 +434,8 @@ export const addBook = async (file, options = {}) => {
     aiSummaries: [], // Legacy: mixed page/chapter summaries (kept for backward compatibility)
     pageSummaries: [], // Array of { pageKey: string, summary: string }
     chapterSummaries: [], // Array of { chapterHref: string, summary: string }
-    globalSummary: "" // The running story memory for "Story so far"
+    globalSummary: "", // The running story memory for "Story so far"
+    characterRelationshipMap: null
   };
   
   await bookStore.setItem(id, newBook);
@@ -685,6 +687,19 @@ export const savePageSummary = async (bookId, pageKey, pageSummary, newGlobalSum
     }
 
     book.globalSummary = newGlobalSummary;
+    return book;
+  });
+};
+
+export const saveCharacterRelationshipMap = async (bookId, mapPayload) => {
+  return runBookMutation(bookId, (book) => {
+    const characters = Array.isArray(mapPayload?.characters) ? mapPayload.characters : [];
+    const relationships = Array.isArray(mapPayload?.relationships) ? mapPayload.relationships : [];
+    book.characterRelationshipMap = {
+      characters,
+      relationships,
+      updatedAt: new Date().toISOString()
+    };
     return book;
   });
 };

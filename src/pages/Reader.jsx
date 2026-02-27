@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote, updateBookReaderSettings, markBookStarted } from '../services/db';
+import { getBook, updateBookProgress, saveHighlight, deleteHighlight, updateReadingStats, saveChapterSummary, savePageSummary, saveBookmark, deleteBookmark, updateHighlightNote, updateBookReaderSettings, markBookStarted, saveCharacterRelationshipMap } from '../services/db';
 import BookView from '../components/BookView';
-import { summarizeChapter } from '../services/ai'; 
+import { summarizeChapter, extractCharacterRelationshipMap, mergeCharacterRelationshipMaps } from '../services/ai';
 import FeedbackToast from '../components/FeedbackToast';
 import { getCurrentUser } from '../services/session';
 
 import { 
   Moon, Sun, BookOpen, Scroll, 
   ChevronLeft, Menu, X,
-  Search as SearchIcon, Sparkles, Wand2, User,
+  Search as SearchIcon, Sparkles, Wand2, User, Users,
   BookOpenText, Highlighter, Languages, Bookmark, BookText,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, List, RotateCcw, Info
 } from 'lucide-react';
@@ -90,6 +90,7 @@ const toPaletteHighlightColor = (color, paletteMode) => {
 const READER_SEARCH_HISTORY_KEY = 'reader-search-history-v1';
 const READER_ANNOTATION_HISTORY_KEY = 'reader-annotation-search-history-v1';
 const READER_HIGHLIGHT_COLOR_ORDER_KEY = 'reader-highlight-color-order-v1';
+const CHARACTER_MAP_BATCH_SIZE = 3;
 const MAX_RECENT_QUERIES = 8;
 const normalizeHref = (href = '') => href.split('#')[0];
 
@@ -209,6 +210,7 @@ export default function Reader() {
   const [showSearchMenu, setShowSearchMenu] = useState(false);
   const [showAnnotationSearchMenu, setShowAnnotationSearchMenu] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showCharacterMapModal, setShowCharacterMapModal] = useState(false);
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [showBookmarksPanel, setShowBookmarksPanel] = useState(false);
   const [isExportingHighlights, setIsExportingHighlights] = useState(false);
@@ -234,6 +236,10 @@ export default function Reader() {
   const [storyRecap, setStoryRecap] = useState("");
   const [pageError] = useState("");
   const [storyError, setStoryError] = useState("");
+  const [characterMap, setCharacterMap] = useState(null);
+  const [characterMapError, setCharacterMapError] = useState('');
+  const [isGeneratingCharacterMap, setIsGeneratingCharacterMap] = useState(false);
+  const [characterMapProgress, setCharacterMapProgress] = useState({ current: 0, total: 0 });
   const currentUserId = getCurrentUser()?.id || "";
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [rebuildProgress, setRebuildProgress] = useState({ current: 0, total: 0 });
@@ -684,6 +690,10 @@ export default function Reader() {
   useEffect(() => {
     bookRef.current = book;
   }, [book]);
+
+  useEffect(() => {
+    setCharacterMap(book?.characterRelationshipMap || null);
+  }, [book?.id, book?.characterRelationshipMap]);
 
   const mergeBookUpdate = useCallback((nextBook) => {
     if (!nextBook) return;
@@ -1655,6 +1665,12 @@ export default function Reader() {
     return 'Bookmark';
   };
 
+  const resolveChapterLabelByHref = (href, index = 0) => {
+    const match = toc.find((entry) => entry?.href && href && href.includes(entry.href));
+    if (match?.label) return match.label;
+    return `Section ${index + 1}`;
+  };
+
   const addBookmarkAtLocation = async () => {
     const currentBook = bookRef.current;
     if (!currentBook || !rendition) return;
@@ -2481,6 +2497,98 @@ export default function Reader() {
     }
   };
 
+  const generateCharacterMap = async () => {
+    const currentBook = bookRef.current;
+    if (!currentBook || !rendition) return;
+
+    setIsGeneratingCharacterMap(true);
+    setCharacterMapError('');
+    setCharacterMapProgress({ current: 0, total: 0 });
+
+    try {
+      const epubBook = rendition.book;
+      if (epubBook?.ready) await epubBook.ready;
+      const spineItems = epubBook?.spine?.spineItems || [];
+      const chapters = spineItems.filter(
+        (section) => section && section.linear !== 'no' && section.linear !== false
+      );
+
+      if (!chapters.length) {
+        setCharacterMapError('No readable chapters found.');
+        return;
+      }
+
+      let aggregate = mergeCharacterRelationshipMaps(currentBook.characterRelationshipMap || null);
+      let firstError = '';
+      setCharacterMapProgress({ current: 0, total: chapters.length });
+
+      for (let i = 0; i < chapters.length; i += CHARACTER_MAP_BATCH_SIZE) {
+        const batch = chapters.slice(i, i + CHARACTER_MAP_BATCH_SIZE);
+        const chapterPayloads = [];
+
+        for (let offset = 0; offset < batch.length; offset += 1) {
+          const section = batch[offset];
+          await section.load(epubBook.load.bind(epubBook));
+          const rawText = section?.document?.body?.innerText || '';
+          section.unload();
+          if (!rawText.trim()) continue;
+          chapterPayloads.push({
+            text: rawText,
+            chapterHref: section.href || '',
+            chapterLabel: resolveChapterLabelByHref(section.href || '', i + offset)
+          });
+        }
+
+        if (chapterPayloads.length) {
+          const batchResults = await Promise.all(
+            chapterPayloads.map((payload) =>
+              extractCharacterRelationshipMap(payload.text, {
+                chapterHref: payload.chapterHref,
+                chapterLabel: payload.chapterLabel
+              })
+            )
+          );
+
+          const successfulMaps = [];
+          batchResults.forEach((result) => {
+            if (result?.map) successfulMaps.push(result.map);
+            if (!firstError && result?.error) firstError = result.error;
+          });
+          if (successfulMaps.length) {
+            aggregate = mergeCharacterRelationshipMaps(aggregate, ...successfulMaps);
+          }
+        }
+
+        setCharacterMapProgress({
+          current: Math.min(chapters.length, i + batch.length),
+          total: chapters.length
+        });
+      }
+
+      const updatedBook = await saveCharacterRelationshipMap(currentBook.id, aggregate);
+      if (updatedBook) {
+        mergeBookUpdate(updatedBook);
+        setCharacterMap(updatedBook.characterRelationshipMap || null);
+      } else {
+        setCharacterMap({
+          ...aggregate,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      if (firstError && !(aggregate.characters?.length || aggregate.relationships?.length)) {
+        setCharacterMapError(firstError);
+      } else if (firstError) {
+        setCharacterMapError(`Partial result: ${firstError}`);
+      }
+    } catch (err) {
+      console.error(err);
+      setCharacterMapError('Failed to build character map. Please try again.');
+    } finally {
+      setIsGeneratingCharacterMap(false);
+    }
+  };
+
   useEffect(() => {
     const loadBook = async () => {
       if (!bookId) return;
@@ -2520,6 +2628,9 @@ export default function Reader() {
     setFlowChoiceError('');
     setAwaitingFlowChapterPick(null);
     pendingFlowNavigationRef.current = null;
+    setShowCharacterMapModal(false);
+    setCharacterMapError('');
+    setCharacterMapProgress({ current: 0, total: 0 });
   }, [bookId, panelParam, cfiParam, searchTermParam, flashParam]);
 
   useEffect(() => {
@@ -3206,6 +3317,119 @@ export default function Reader() {
                 >
                   CONTINUE READING
                 </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showCharacterMapModal && (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowCharacterMapModal(false)}
+          />
+          <div
+            className={`relative w-full max-w-3xl rounded-3xl p-6 shadow-2xl ${
+              settings.theme === 'dark' ? 'bg-gray-800 border border-gray-700 text-gray-100' : 'bg-white text-gray-900'
+            }`}
+          >
+            <div className="mb-4 flex items-center justify-between border-b pb-3 dark:border-gray-700">
+              <div>
+                <h3 className="text-lg font-black uppercase tracking-tight text-blue-500">Character Map</h3>
+                <p className="text-xs text-gray-500">
+                  Whole-book extraction with chapter citations and confidence.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCharacterMapModal(false)}
+                className="text-gray-400 hover:text-red-500"
+                aria-label="Close character map"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={generateCharacterMap}
+                disabled={isGeneratingCharacterMap}
+                className="rounded-full bg-blue-600 px-4 py-2 text-xs font-black uppercase text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGeneratingCharacterMap ? 'Analyzing…' : 'Build / Refresh'}
+              </button>
+              {characterMap?.updatedAt && (
+                <span className="text-[11px] text-gray-500">
+                  Updated {new Date(characterMap.updatedAt).toLocaleString()}
+                </span>
+              )}
+              {isGeneratingCharacterMap && (
+                <span className="text-[11px] text-gray-500">
+                  Progress {characterMapProgress.current}/{characterMapProgress.total}
+                </span>
+              )}
+            </div>
+
+            {characterMapError && (
+              <div className="mb-4 rounded-xl border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+                {characterMapError}
+              </div>
+            )}
+
+            {!characterMap?.relationships?.length && !characterMap?.characters?.length ? (
+              <div className="rounded-xl border border-dashed border-gray-300 p-5 text-sm text-gray-500">
+                No map yet. Click Build / Refresh to scan all chapters.
+              </div>
+            ) : (
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+                <div>
+                  <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Characters</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {(characterMap.characters || []).map((character) => (
+                      <div
+                        key={character.name}
+                        className="rounded-full border border-gray-300 px-3 py-1 text-xs"
+                      >
+                        <span className="font-semibold">{character.name}</span>
+                        {character.aliases?.length ? ` (${character.aliases.join(', ')})` : ''}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="mb-2 text-xs font-black uppercase tracking-wider text-gray-500">Relationships</h4>
+                  <div className="space-y-2">
+                    {(characterMap.relationships || []).map((relationship, idx) => (
+                      <div key={`${relationship.source}-${relationship.target}-${relationship.type}-${idx}`} className="rounded-xl border border-gray-300 p-3">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <span className="font-semibold">{relationship.source}</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="font-semibold">{relationship.target}</span>
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold uppercase text-blue-700">
+                            {relationship.type}
+                          </span>
+                          <span className="text-[11px] text-gray-500">
+                            confidence {(Number(relationship.confidence) * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        {relationship.evidence && (
+                          <div className="mt-1 text-xs italic text-gray-600">{relationship.evidence}</div>
+                        )}
+                        {!!relationship.citations?.length && (
+                          <div className="mt-2 space-y-1">
+                            {relationship.citations.slice(0, 3).map((citation, citationIdx) => (
+                              <div key={`${idx}-${citationIdx}`} className="text-[11px] text-gray-500">
+                                {(citation.chapterLabel || citation.chapterHref || 'Unknown chapter')} · {citation.position || 'unknown'}
+                                {citation.quote ? ` · "${citation.quote}"` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -4833,6 +5057,15 @@ export default function Reader() {
           >
             <Sparkles size={20} />
             <span className="hidden md:inline text-xs font-black uppercase">Story</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCharacterMapModal(true)}
+            data-testid="reader-character-map-toggle"
+            className={toolbarUtilityInactiveClass}
+            title="Character relationship map"
+          >
+            <Users size={18} />
           </button>
           <button
             onClick={() => {

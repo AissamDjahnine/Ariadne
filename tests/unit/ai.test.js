@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { summarizeChapter } from '../../src/services/ai';
+import { summarizeChapter, extractCharacterRelationshipMap, mergeCharacterRelationshipMaps } from '../../src/services/ai';
 
 describe('summarizeChapter (Ollama)', () => {
   afterEach(() => {
@@ -51,5 +51,103 @@ describe('summarizeChapter (Ollama)', () => {
 
     const result = await summarizeChapter('Some text');
     expect(result).toEqual({ text: '', error: 'network down' });
+  });
+});
+
+describe('character relationship map extraction', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('parses JSON and normalizes relationship fields', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: JSON.stringify({
+          characters: [{ name: 'Elizabeth Bennet', aliases: ['Lizzy'] }],
+          relationships: [
+            {
+              source: 'Lizzy',
+              target: 'Mr. Darcy',
+              type: 'romantic',
+              confidence: 0.84,
+              evidence: 'They express growing affection.',
+              citations: [{ chapterLabel: 'Chapter 5', position: 'middle', quote: '...affection...' }]
+            }
+          ]
+        })
+      })
+    });
+
+    const result = await extractCharacterRelationshipMap('text', {
+      chapterHref: 'chapter-5.xhtml',
+      chapterLabel: 'Chapter 5'
+    });
+
+    expect(result.error).toBe('');
+    expect(result.map.characters).toEqual([
+      { name: 'Elizabeth Bennet', aliases: ['Lizzy'] },
+      { name: 'Mr. Darcy', aliases: [] }
+    ]);
+    expect(result.map.relationships[0]).toMatchObject({
+      source: 'Elizabeth Bennet',
+      target: 'Mr. Darcy',
+      type: 'romantic'
+    });
+    expect(result.map.relationships[0].citations[0]).toMatchObject({
+      chapterHref: 'chapter-5.xhtml',
+      chapterLabel: 'Chapter 5',
+      position: 'middle'
+    });
+  });
+
+  it('returns parse error on malformed JSON', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'not-json' })
+    });
+
+    const result = await extractCharacterRelationshipMap('text');
+    expect(result.error).toBe('Character map JSON parse failed.');
+    expect(result.map).toEqual({ characters: [], relationships: [] });
+  });
+});
+
+describe('mergeCharacterRelationshipMaps', () => {
+  it('deduplicates relationships and keeps highest confidence', () => {
+    const merged = mergeCharacterRelationshipMaps(
+      {
+        characters: [{ name: 'Alice', aliases: ['Al'] }],
+        relationships: [
+          {
+            source: 'Alice',
+            target: 'Bob',
+            type: 'friend',
+            confidence: 0.51,
+            citations: [{ chapterLabel: 'Chapter 1', position: 'start', quote: 'hello' }]
+          }
+        ]
+      },
+      {
+        characters: [{ name: 'alice', aliases: ['A.'] }, { name: 'Bob', aliases: [] }],
+        relationships: [
+          {
+            source: 'Alice',
+            target: 'Bob',
+            type: 'friend',
+            confidence: 0.87,
+            citations: [{ chapterLabel: 'Chapter 2', position: 'middle', quote: 'trust' }]
+          }
+        ]
+      }
+    );
+
+    expect(merged.characters).toEqual([
+      { name: 'Alice', aliases: ['Al', 'A.'] },
+      { name: 'Bob', aliases: [] }
+    ]);
+    expect(merged.relationships).toHaveLength(1);
+    expect(merged.relationships[0].confidence).toBe(0.87);
+    expect(merged.relationships[0].citations).toHaveLength(2);
   });
 });
