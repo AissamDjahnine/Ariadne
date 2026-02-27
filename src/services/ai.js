@@ -18,6 +18,16 @@ const RELATIONSHIP_TYPES = new Set([
   'guardian',
   'unknown'
 ]);
+const FAMILY_SUBTYPES = new Set([
+  'parent_of',
+  'child_of',
+  'spouse_of',
+  'sibling_of',
+  'grandparent_of',
+  'grandchild_of',
+  'other_family',
+  'none'
+]);
 const CITATION_POSITIONS = new Set(['start', 'middle', 'end', 'unknown']);
 
 const normalizeText = (value) => (value || '').toString().replace(/\s+/g, ' ').trim();
@@ -302,6 +312,10 @@ const sanitizeCharacterMap = (raw, chapterFallback = {}) => {
 
     const rawType = normalizeText(item?.type).toLowerCase();
     const type = RELATIONSHIP_TYPES.has(rawType) ? rawType : 'unknown';
+    const rawFamilySubtype = normalizeText(item?.familySubtype).toLowerCase();
+    const familySubtype = type === 'family'
+      ? (FAMILY_SUBTYPES.has(rawFamilySubtype) && rawFamilySubtype !== 'none' ? rawFamilySubtype : 'other_family')
+      : 'none';
     const confidence = clamp01(item?.confidence, 0.45);
     const evidence = normalizeText(item?.evidence || '').slice(0, 400);
     const citations = (Array.isArray(item?.citations) ? item.citations : [])
@@ -312,6 +326,7 @@ const sanitizeCharacterMap = (raw, chapterFallback = {}) => {
       source,
       target,
       type,
+      familySubtype,
       confidence,
       evidence,
       citations
@@ -345,7 +360,8 @@ export const mergeCharacterRelationshipMaps = (...maps) => {
       const key = [
         relationship.source.toLowerCase(),
         relationship.target.toLowerCase(),
-        relationship.type
+        relationship.type,
+        relationship.familySubtype || 'none'
       ].join('|');
       if (!relationshipMap.has(key)) {
         relationshipMap.set(key, {
@@ -394,9 +410,21 @@ You extract character entities and relationships from fiction text.
 Return STRICT JSON only (no markdown, no prose).
 Only include in-story people/creatures/entities acting as characters.
 Never include author names, publishers, organizations, publications, legal terms, locations, metadata, chapter labels, or template placeholders.
+If evidence is weak, omit the relationship.
+Precision over recall.
 
 Allowed relationship type values:
 friend, enemy, family, romantic, mentor, rival, ally, colleague, leader, follower, guardian, unknown
+
+Allowed familySubtype values (only when type=family):
+parent_of, child_of, spouse_of, sibling_of, grandparent_of, grandchild_of, other_family
+
+Direction rules (mandatory):
+- parent_of: source is parent, target is child
+- child_of: source is child, target is parent
+- spouse_of: symmetric (emit once)
+- sibling_of: symmetric (emit once)
+- if family is clear but direction unclear: familySubtype=other_family
 
 For each relationship:
 - include confidence from 0.0 to 1.0
@@ -407,13 +435,14 @@ For each relationship:
 JSON schema:
 {
   "characters": [
-    { "name": "Canonical Name", "aliases": ["Alias 1", "Alias 2"] }
+    { "name": "Name", "aliases": ["Alias A", "Alias B"] }
   ],
   "relationships": [
     {
       "source": "Character A",
       "target": "Character B",
       "type": "friend",
+      "familySubtype": "none",
       "confidence": 0.72,
       "evidence": "short reason",
       "citations": [
@@ -516,6 +545,9 @@ export async function inferCharacterRelationshipsFromEvidence(chapters = [], kno
 Infer character relationships from chapter evidence.
 Use only these known characters:
 ${normalizedCharacters.join(', ')}
+Do NOT invent new names.
+Only include in-story character relationships with direct textual evidence.
+If unsure, omit.
 
 Return STRICT JSON only:
 {
@@ -523,7 +555,8 @@ Return STRICT JSON only:
     {
       "source": "Character A",
       "target": "Character B",
-      "type": "friend",
+      "type": "family",
+      "familySubtype": "parent_of",
       "confidence": 0.68,
       "evidence": "short reason",
       "citations": [
@@ -540,6 +573,8 @@ Return STRICT JSON only:
 
 Only include relationships with direct evidence in provided chapters.
 Allowed types: friend, enemy, family, romantic, mentor, rival, ally, colleague, leader, follower, guardian, unknown.
+Allowed familySubtype values when type=family: parent_of, child_of, spouse_of, sibling_of, grandparent_of, grandchild_of, other_family.
+Direction rules: parent_of (parent -> child), child_of (child -> parent), spouse_of/sibling_of symmetric (emit once).
 If no reliable relationships, return an empty array.
 
 EVIDENCE:
