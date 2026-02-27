@@ -1,6 +1,7 @@
-const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
-const GEMINI_MODEL = (import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash').trim();
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+const OLLAMA_BASE_URL = (import.meta.env.VITE_OLLAMA_URL || 'http://127.0.0.1:11434')
+  .trim()
+  .replace(/\/+$/, '');
+const OLLAMA_MODEL = (import.meta.env.VITE_OLLAMA_MODEL || 'llama3.1').trim();
 
 /**
  * Generate a natural language summary for a portion of text.  The summarization
@@ -30,8 +31,8 @@ const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${encod
  * @param {string} mode             One of "cumulative", "snapshot", "contextual", "recap".
  */
 export async function summarizeChapter(text, previousMemory = "", mode = "cumulative") {
-  if (!GEMINI_API_KEY) {
-    return { text: '', error: 'Missing AI key. Set VITE_GEMINI_API_KEY in your environment.' };
+  if (!OLLAMA_MODEL) {
+    return { text: '', error: 'Missing Ollama model. Set VITE_OLLAMA_MODEL in your environment.' };
   }
 
   // Limit the amount of text sent to the API to avoid extremely long prompts.
@@ -74,22 +75,24 @@ Characters so far:
   `;
 
   try {
-    const response = await fetch(`${API_URL}?key=${encodeURIComponent(GEMINI_API_KEY)}`, {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        prompt,
+        stream: false
+      })
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = data?.error?.message || `AI request failed (${response.status})`;
+      const message = data?.error || `AI request failed (${response.status})`;
       return { text: '', error: message, status: response.status };
     }
 
-    // The API returns an array of candidate responses.  We pick the first
-    // candidate and extract its text content.
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-      return { text: data.candidates[0].content.parts[0].text.trim(), error: '' };
+    if (typeof data?.response === 'string' && data.response.trim()) {
+      return { text: data.response.trim(), error: '' };
     }
     return { text: '', error: 'AI returned no content' };
   } catch (error) {
