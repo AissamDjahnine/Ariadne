@@ -2499,11 +2499,19 @@ export default function Reader() {
 
   const generateCharacterMap = async () => {
     const currentBook = bookRef.current;
-    if (!currentBook || !rendition) return;
+    if (!currentBook || !rendition || isGeneratingCharacterMap) return;
 
     setIsGeneratingCharacterMap(true);
     setCharacterMapError('');
     setCharacterMapProgress({ current: 0, total: 0 });
+    showReaderToast(
+      {
+        tone: 'info',
+        title: 'Character map started',
+        message: 'You can keep reading. Progress is shown in the top bar.'
+      },
+      { duration: 3200 }
+    );
 
     try {
       const epubBook = rendition.book;
@@ -2565,15 +2573,18 @@ export default function Reader() {
         });
       }
 
+      let finalMap = null;
       const updatedBook = await saveCharacterRelationshipMap(currentBook.id, aggregate);
       if (updatedBook) {
         mergeBookUpdate(updatedBook);
-        setCharacterMap(updatedBook.characterRelationshipMap || null);
+        finalMap = updatedBook.characterRelationshipMap || null;
+        setCharacterMap(finalMap);
       } else {
-        setCharacterMap({
+        finalMap = {
           ...aggregate,
           updatedAt: new Date().toISOString()
-        });
+        };
+        setCharacterMap(finalMap);
       }
 
       if (firstError && !(aggregate.characters?.length || aggregate.relationships?.length)) {
@@ -2581,9 +2592,32 @@ export default function Reader() {
       } else if (firstError) {
         setCharacterMapError(`Partial result: ${firstError}`);
       }
+
+      const relationshipCount = finalMap?.relationships?.length || 0;
+      const characterCount = finalMap?.characters?.length || 0;
+      showReaderToast(
+        {
+          tone: firstError ? 'warning' : 'success',
+          title: firstError ? 'Character map partially ready' : 'Character map ready',
+          message: `${characterCount} characters, ${relationshipCount} relationships.`,
+          actionLabel: 'Open map',
+          onAction: () => {
+            setShowCharacterMapModal(true);
+          }
+        },
+        { duration: 7000 }
+      );
     } catch (err) {
       console.error(err);
       setCharacterMapError('Failed to build character map. Please try again.');
+      showReaderToast(
+        {
+          tone: 'destructive',
+          title: 'Character map failed',
+          message: 'Open Character Map and retry.'
+        },
+        { duration: 4500 }
+      );
     } finally {
       setIsGeneratingCharacterMap(false);
     }
@@ -3138,6 +3172,9 @@ export default function Reader() {
     : focusedSearchCfi
       ? 'focus-only'
       : 'none';
+  const characterMapStatusLabel = isGeneratingCharacterMap
+    ? `Map ${characterMapProgress.current}/${characterMapProgress.total || '?'}`
+    : '';
 
   if (!book) return <div className="p-10 text-center dark:bg-gray-900 dark:text-gray-400">Loading...</div>;
 
@@ -3358,6 +3395,14 @@ export default function Reader() {
               >
                 {isGeneratingCharacterMap ? 'Analyzing…' : 'Build / Refresh'}
               </button>
+              {isGeneratingCharacterMap && (
+                <button
+                  onClick={() => setShowCharacterMapModal(false)}
+                  className="rounded-full border border-gray-300 px-4 py-2 text-xs font-bold uppercase text-gray-600 hover:bg-gray-50"
+                >
+                  Run in background
+                </button>
+              )}
               {characterMap?.updatedAt && (
                 <span className="text-[11px] text-gray-500">
                   Updated {new Date(characterMap.updatedAt).toLocaleString()}
@@ -5067,6 +5112,18 @@ export default function Reader() {
           >
             <Users size={18} />
           </button>
+          {isGeneratingCharacterMap && (
+            <span
+              className={`hidden md:inline rounded-full px-2 py-1 text-[10px] font-black uppercase ${
+                settings.theme === 'dark'
+                  ? 'bg-blue-900/40 text-blue-200'
+                  : 'bg-blue-100 text-blue-700'
+              }`}
+              data-testid="reader-character-map-status"
+            >
+              {characterMapStatusLabel}
+            </span>
+          )}
           <button
             onClick={() => {
               if (showSearchMenu) {
